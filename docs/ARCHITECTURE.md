@@ -236,7 +236,11 @@ An independent review re-checked the plan against the code and runtime. Items ma
      so no quarantine travels along). End to end from a localhost server: the notarized app downloaded,
      verified, installed and ran Windows in 33 s; D3DMetal proofs pass on the downloaded runtime. Release
      builds no longer search development build folders (`#if DEBUG`).
-   - **Open:** where to host the runtime publicly (the repo is private); then Sparkle app updates.
+   - **Published (2026-11-19):** the repo is public (GPL-3.0). `scripts/publish-runtime.sh` maintains the
+     GitHub release tagged `runtime` (Wine `cx26.3.0-1`, D3DMetal 4.0b3, signed runtime.json, and source
+     archives for every copyleft component). The notarized app with its built-in URL downloaded Windows support
+     from GitHub, verified and installed it, and ran Windows in 147 s; the D3DMetal proofs pass on it.
+   - **Open in M4:** Sparkle app updates.
    Developer ID certificate expires 2027-02-01 (needs a G2 replacement before then). Original plan: Developer ID app bundle (Xcode project or bundling script), notarization,
    spawning a downloaded runtime outside the bundle, URL scheme, Sparkle.
 6. **M5 — add-program flow:** PE analysis, game/app classification, per-launch layer selection, template
