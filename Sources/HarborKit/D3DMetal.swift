@@ -34,6 +34,7 @@ public struct D3DMetalRedist: Sendable, Equatable {
     public static func locate(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main,
+        installed: URL = WineRuntime.installedDirectory,
         devRoot: URL? = nil
     ) -> D3DMetalRedist? {
         var candidates: [URL] = []
@@ -43,7 +44,7 @@ public struct D3DMetalRedist: Sendable, Equatable {
         if let resources = bundle.resourceURL {
             candidates.append(resources.appending(path: "d3dmetal/lib"))
         }
-        candidates.append(WineRuntime.installedDirectory.appending(path: "d3dmetal/lib"))
+        candidates.append(installed.appending(path: "d3dmetal/lib"))
         let runtimeDir = (devRoot ?? WineRuntime.checkoutRoot).appending(path: "Runtime")
         let fm = FileManager.default
         let dirs = ((try? fm.contentsOfDirectory(at: runtimeDir, includingPropertiesForKeys: nil)) ?? [])

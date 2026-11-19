@@ -33,6 +33,7 @@ public struct WineRuntime: Sendable, Equatable {
     public static func locate(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main,
+        installed: URL = WineRuntime.installedDirectory,
         devRoot: URL? = nil
     ) -> WineRuntime? {
         var candidates: [URL] = []
@@ -43,7 +44,7 @@ public struct WineRuntime: Sendable, Equatable {
             candidates.append(resources.appending(path: "wine"))
         }
         // Installed by Harbor (the runtime downloader's target), ahead of anything development-only.
-        candidates.append(installedDirectory.appending(path: "wine"))
+        candidates.append(installed.appending(path: "wine"))
         // Harbor's own build from CodeWeavers' LGPL sources (scripts/build-wine.sh) wins over downloaded ones.
         candidates.append((devRoot ?? checkoutRoot).appending(path: "build/out/wine"))
         let runtimeDir = (devRoot ?? checkoutRoot).appending(path: "Runtime")
