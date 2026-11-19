@@ -86,6 +86,7 @@ import Testing
     @Test func installersGoThroughMsiexec() {
         #expect(WineLauncher.arguments(toOpen: URL(filePath: "/x/Setup.MSI")) == ["msiexec", "/i", "/x/Setup.MSI"])
         #expect(WineLauncher.arguments(toOpen: URL(filePath: "/x/game.exe")) == ["start", "/wait", "/unix", "/x/game.exe"])
+        #expect(WineLauncher.arguments(toOpen: URL(filePath: "/x/Steam.exe")).last == "-cef-disable-gpu")
     }
 
     @Test func runtimeLocateRejectsInvalidRoots() throws {
@@ -418,6 +419,10 @@ final class Marker {}
         #expect(l == ShellLink(target: #"C:\Games\Thing\thing.exe"#, arguments: #"-windowed "a b""#,
                                workingDirectory: #"C:\Games\Thing"#))
         #expect(ShellLink(Data("not a link".utf8)) == nil)
+        // A NUL counted into the string (Steam's shortcut) means "no arguments", not an empty argument.
+        let steamLike = ShellLink(Self.link(target: #"C:\Steam\steam.exe"#, arguments: "\0", workingDirectory: "C:\\Steam\u{0}"))
+        #expect(steamLike?.arguments == nil)
+        #expect(steamLike?.workingDirectory == #"C:\Steam"#)
         let real = Self.link(target: #"C:\x.exe"#)
         for n in 0..<real.count { _ = ShellLink(real.prefix(n)) }   // truncations never crash
     }

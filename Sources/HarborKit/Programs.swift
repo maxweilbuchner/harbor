@@ -46,9 +46,15 @@ public struct ShellLink: Sendable, Equatable {
         }
         guard let target else { return nil }
         self.target = target
-        arguments = strings[0x20].flatMap { $0.isEmpty ? nil : $0 }
-        workingDirectory = strings[0x10].flatMap { $0.isEmpty ? nil : $0 }
-        iconLocation = strings[0x40].flatMap { $0.isEmpty ? nil : $0 }
+        // Some writers count a terminating NUL into the string (Steam's own shortcut stores "\0" as its
+        // arguments), which would start the program with an empty extra argument.
+        func clean(_ v: String?) -> String? {
+            let t = v?.replacingOccurrences(of: "\0", with: "")
+            return (t?.isEmpty ?? true) ? nil : t
+        }
+        arguments = clean(strings[0x20])
+        workingDirectory = clean(strings[0x10])
+        iconLocation = clean(strings[0x40])
     }
 
     public init(target: String, arguments: String? = nil, workingDirectory: String? = nil, iconLocation: String? = nil) {

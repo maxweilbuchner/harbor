@@ -140,7 +140,8 @@ public struct WineLauncher: Sendable {
         case "msi":
             return ["msiexec", "/i", file.path] + extra
         default:
-            return ["start", "/wait", "/unix", file.path] + extra
+            let known = (knownArguments[file.lastPathComponent.lowercased()] ?? []).filter { !extra.contains($0) }
+            return ["start", "/wait", "/unix", file.path] + extra + known
         }
     }
 
