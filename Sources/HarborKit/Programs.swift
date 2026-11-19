@@ -93,6 +93,30 @@ public struct Program: Codable, Sendable, Equatable, Identifiable {
 }
 
 extension Program {
+    enum CodingKeys: String, CodingKey {
+        case id, name, windowsPath, arguments, workingDirectory, isGame, graphics, addedAt
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = Self.cleanName(try c.decode(String.self, forKey: .name))
+        windowsPath = try c.decode(String.self, forKey: .windowsPath)
+        arguments = try? c.decodeIfPresent(String.self, forKey: .arguments)
+        workingDirectory = try? c.decodeIfPresent(String.self, forKey: .workingDirectory)
+        isGame = (try? c.decodeIfPresent(Bool.self, forKey: .isGame)) ?? false
+        graphics = (try? c.decodeIfPresent(String.self, forKey: .graphics)).flatMap(GraphicsBackend.init(rawValue:))
+        addedAt = (try? c.decodeIfPresent(Date.self, forKey: .addedAt)) ?? Date()
+    }
+}
+
+/// Decodes an element, or nil instead of failing the whole array.
+struct Lossy<T: Decodable>: Decodable {
+    let value: T?
+    init(from decoder: any Decoder) throws { value = try? T(from: decoder) }
+}
+
+extension Program {
     /// Names come from executables' metadata and shortcut file names: drop control characters (line breaks,
     /// tabs, terminal escapes), collapse whitespace, and cap the length.
     public static func cleanName(_ raw: String) -> String {
@@ -107,10 +131,18 @@ extension Bottle {
     var programsFile: URL { root.appending(path: "programs.json") }
     var iconsDirectory: URL { root.appending(path: "icons") }
 
+    /// The bottle's library entries. Tolerant like `BottleSettings`: unknown values (written by a newer Harbor)
+    /// fall back to defaults, and one unreadable entry doesn't take the others with it.
     public func programs() -> [Program] {
-        guard let data = try? Data(contentsOf: programsFile) else { return [] }
-        // Default date coding (seconds as a Double) round-trips exactly; ISO 8601 drops fractions.
-        return (try? JSONDecoder().decode([Program].self, from: data)) ?? []
+        guard let data = try? Data(contentsOf: programsFile),
+              let entries = try? JSONDecoder().decode([Lossy<Program>].self, from: data) else { return [] }
+        return entries.compactMap(\.value)
+    }
+
+    /// True if programs.json exists but can't be read at all; callers must not overwrite it then.
+    public var programsFileIsDamaged: Bool {
+        guard let data = try? Data(contentsOf: programsFile) else { return false }
+        return (try? JSONDecoder().decode([Lossy<Program>].self, from: data)) == nil
     }
 
     public func savePrograms(_ programs: [Program]) throws {

@@ -455,6 +455,21 @@ final class Marker {}
         #expect(b.programs() == programs)
     }
 
+    @Test func readsLibrariesWrittenByNewerVersions() throws {
+        let b = try bottle()
+        let good = Program(name: "Good", windowsPath: #"C:\g.exe"#)
+        try b.savePrograms([good])
+        var text = try String(contentsOf: b.programsFile, encoding: .utf8)
+        text = text.replacingOccurrences(of: "[", with: #"[{"id":"not-a-uuid"},{"id":"\#(UUID().uuidString)","name":"Future","windowsPath":"C:\\f.exe","graphics":"quantum","newField":1},"#)
+        try text.write(to: b.programsFile, atomically: true, encoding: .utf8)
+        let programs = b.programs()
+        #expect(programs.map(\.name) == ["Future", "Good"])
+        #expect(programs.first?.graphics == nil)
+        #expect(!b.programsFileIsDamaged)
+        try Data("garbage".utf8).write(to: b.programsFile)
+        #expect(b.programsFileIsDamaged)
+    }
+
     @Test func picksD3DMetalPerLaunchForGamesIncludingTheirLaunchers() throws {
         let fakeRedist = D3DMetalRedist(lib: URL(filePath: "/nonexistent"))
         let withD3DMetal = WineLauncher(runtime: WineRuntime(root: URL(filePath: "/x")), d3dmetal: fakeRedist)

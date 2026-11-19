@@ -25,8 +25,8 @@ LIB="Runtime/d3dmetal-$D3DMETAL_VERSION/nightforge-d3dmetal-$D3DMETAL_VERSION/li
 codesign --verify --deep --strict "$LIB/external/D3DMetal.framework"
 for f in "$LIB/external/libd3dshared.dylib" "$LIB"/wine/x86_64-unix/*.so "$LIB/external/D3DMetal.framework"; do
   codesign --verify --strict "$f"
-  codesign -dv --verbose=2 "$f" 2>&1 | grep -q '^Authority=Apple Root CA$' || { echo "not Apple-signed: $f" >&2; exit 1; }
-  codesign -dv --verbose=2 "$f" 2>&1 | grep -q '^Authority=Software Signing$' || { echo "not Apple first-party: $f" >&2; exit 1; }
+  # `anchor apple` = signed by Apple itself, checked cryptographically (authority names alone can be imitated).
+  codesign --verify -R='anchor apple' "$f" 2>/dev/null || { echo "not signed by Apple: $f" >&2; exit 1; }
 done
 
 echo "Runtime ready: Runtime/wine-$WINE_VERSION, Runtime/d3dmetal-$D3DMETAL_VERSION"
