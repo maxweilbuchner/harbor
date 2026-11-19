@@ -178,6 +178,8 @@ public struct WineLauncher: Sendable {
                     runtime chosen: WineRuntime? = nil, onExit: (@Sendable (Int32) -> Void)? = nil) throws -> Process {
         let process = Process()
         let runtime = try chosen ?? runtime(for: bottle)
+        // Older bottles still link their Documents etc. to the Mac's; replace those links before Windows starts.
+        if !bottle.isRunning() { bottle.unshareUserFolders() }
         process.executableURL = runtime.wine
         process.arguments = arguments
         process.environment = environment(for: bottle, runtime: runtime)

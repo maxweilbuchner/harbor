@@ -267,5 +267,7 @@ An independent review re-checked the plan against the code and runtime. Items ma
    takes 0.7 s instead of ~25 s before the installer opens. Falls back to wineboot if not ready.
    Original plan: PE analysis, game/app classification, per-launch layer selection, template
    prefixes, program index, Library UI, app shims (prototype Dock identity early), launcher bottles.
-7. **M6:** DXMT + DXVK/MoltenVK layers; Recipes + Diagnose; drive-mapping policy.
+7. **M6:** DXMT + DXVK/MoltenVK layers; Recipes + Diagnose; drive-mapping policy. Drive mapping, first part
+   (#4): bottles no longer link My Documents/Downloads/Music/Pictures/Videos to the Mac's folders (Wine patch
+   0007; existing bottles migrate on their next start). Open: the `Z:` drive (#8).
 8. **M7:** Runtime downloader + source offers, legal review, first public beta.

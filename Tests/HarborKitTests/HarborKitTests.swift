@@ -924,6 +924,33 @@ final class Marker {}
         #expect(!b.needsWindowsUpdate(for: runtime))
     }
 
+    /// Links from the Windows user folders to the Mac's folders become folders inside the bottle; what they
+    /// pointed to is untouched, and links inside the bottle stay.
+    @Test func replacesLinksToMacFoldersWithFoldersInsideTheBottle() throws {
+        let base = fm.temporaryDirectory.appending(path: "harbor-share-\(UUID().uuidString)")
+        let mac = base.appending(path: "mac/Documents")
+        try fm.createDirectory(at: mac, withIntermediateDirectories: true)
+        try "keep".write(to: mac.appending(path: "Thesis.txt"), atomically: true, encoding: .utf8)
+        let b = try BottleStore(directory: base.appending(path: "bottles")).create(name: "S")
+        let user = b.driveC.appending(path: "users/crossover")
+        let pub = b.driveC.appending(path: "users/Public")
+        try fm.createDirectory(at: user.appending(path: "AppData"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: pub, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: user.appending(path: "Documents"), withDestinationURL: mac)
+        try fm.createSymbolicLink(atPath: pub.appending(path: "Music").path, withDestinationPath: "../../../../mac/Documents")
+        try fm.createSymbolicLink(atPath: user.appending(path: "Saves").path, withDestinationPath: "AppData")   // inside: stays
+
+        let replaced = b.unshareUserFolders().map(\.lastPathComponent).sorted()
+        #expect(replaced == ["Documents", "Music"])
+        for folder in [user.appending(path: "Documents"), pub.appending(path: "Music")] {
+            #expect((try? fm.destinationOfSymbolicLink(atPath: folder.path)) == nil)
+            #expect((try? fm.contentsOfDirectory(atPath: folder.path)) == [])
+        }
+        #expect((try? String(contentsOf: mac.appending(path: "Thesis.txt"), encoding: .utf8)) == "keep")
+        #expect((try? fm.destinationOfSymbolicLink(atPath: user.appending(path: "Saves").path)) == "AppData")
+        #expect(b.unshareUserFolders().isEmpty)                                         // nothing left to do
+    }
+
     /// A bottle counts as running while another process holds its wineserver lock, as wineserver does.
     @Test func detectsARunningBottleFromTheServerLock() throws {
         let base = fm.temporaryDirectory.appending(path: "harbor-run-\(UUID().uuidString)")
