@@ -6,6 +6,8 @@ public struct ShellLink: Sendable, Equatable {
     public var target: String
     public var arguments: String?
     public var workingDirectory: String?
+    /// The shortcut's own icon (ICON_LOCATION), e.g. for a .bat target that has none.
+    public var iconLocation: String?
 
     /// Parses the target from the LinkInfo block, and arguments/working directory from the string data.
     /// Returns nil for links without a local target (network paths, shell folders, damaged files).
@@ -46,12 +48,14 @@ public struct ShellLink: Sendable, Equatable {
         self.target = target
         arguments = strings[0x20].flatMap { $0.isEmpty ? nil : $0 }
         workingDirectory = strings[0x10].flatMap { $0.isEmpty ? nil : $0 }
+        iconLocation = strings[0x40].flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    public init(target: String, arguments: String? = nil, workingDirectory: String? = nil) {
+    public init(target: String, arguments: String? = nil, workingDirectory: String? = nil, iconLocation: String? = nil) {
         self.target = target
         self.arguments = arguments
         self.workingDirectory = workingDirectory
+        self.iconLocation = iconLocation
     }
 
     static func ansiString(_ data: Data, from offset: Int, limit: Int) -> String? {
@@ -106,6 +110,17 @@ extension Bottle {
 
     public func iconFile(for program: Program) -> URL { iconsDirectory.appending(path: "\(program.id.uuidString).png") }
 
+    /// Extracts the icon of `source` (an .exe, or an .ico file) into the icon cache; tries `fallback` if needed.
+    func saveIcon(for program: Program, from source: URL, fallback: URL? = nil) {
+        func png(_ url: URL) -> Data? {
+            if url.pathExtension.lowercased() == "ico", let data = try? Data(contentsOf: url) { return PEFile.pngFromICO(data) }
+            return (try? ProgramAnalysis.analyze(url))?.iconPNG
+        }
+        guard let data = png(source) ?? fallback.flatMap(png) else { return }
+        try? FileManager.default.createDirectory(at: iconsDirectory, withIntermediateDirectories: true)
+        try? data.write(to: iconFile(for: program))
+    }
+
     /// Maps a Windows path in this bottle to the Mac file, matching names case-insensitively like Windows does.
     /// Only drive C: (the bottle's own drive) is resolved.
     public func unixPath(forWindowsPath windowsPath: String) -> URL? {
@@ -151,8 +166,12 @@ extension Bottle {
                       !Self.isAuxiliary(name: name, target: link.target),
                       seen.insert(link.target.lowercased()).inserted,
                       let exe = unixPath(forWindowsPath: link.target), fm.fileExists(atPath: exe.path) else { continue }
-                found.append(Program(name: name, windowsPath: link.target, arguments: link.arguments,
-                                     workingDirectory: link.workingDirectory, isGame: Self.looksLikeGame(exe)))
+                let program = Program(name: name, windowsPath: link.target, arguments: link.arguments,
+                                      workingDirectory: link.workingDirectory, isGame: Self.looksLikeGame(exe))
+                // The shortcut's icon first (it's what Windows shows), else the target's own.
+                let iconSource = link.iconLocation.flatMap { unixPath(forWindowsPath: $0) } ?? exe
+                saveIcon(for: program, from: iconSource, fallback: exe)
+                found.append(program)
             }
         }
         return found.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }

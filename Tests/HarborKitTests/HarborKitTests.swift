@@ -463,3 +463,26 @@ final class Marker {}
         #expect(programs.first?.windowsPath.hasSuffix(#"\heaven.bat"#) == true)
     }
 }
+
+@Suite struct AddProgramTests {
+    func analysis(product: String) -> ProgramAnalysis {
+        var a = ProgramAnalysis(architecture: .x64, isGUI: true, imports: [])
+        a.productName = product
+        return a
+    }
+
+    @Test func namesBottlesAfterTheProduct() {
+        let f = URL(filePath: "/x/ThingSetup.exe")
+        #expect(AddProgram.bottleName(for: analysis(product: "Thing Setup 2.1.0"), file: f) == "Thing")
+        #expect(AddProgram.bottleName(for: analysis(product: "Big_Game Installer x64"), file: f) == "Big Game")
+        #expect(AddProgram.bottleName(for: analysis(product: "Setup"), file: f) == "ThingSetup")
+        #expect(AddProgram.safeFolderName(#"A: "B"/C?."#) == "A- -B--C-")
+    }
+
+    @Test func mapsMacPathsBackToWindowsPaths() throws {
+        let store = BottleStore(directory: FileManager.default.temporaryDirectory.appending(path: "harbor-add-\(UUID().uuidString)"))
+        let b = try store.create(name: "Paths")
+        #expect(b.windowsPath(for: b.driveC.appending(path: "Program Files/A/a.exe")) == #"C:\Program Files\A\a.exe"#)
+        #expect(b.windowsPath(for: URL(filePath: "/etc/passwd")) == nil)
+    }
+}
