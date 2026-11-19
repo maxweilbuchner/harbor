@@ -125,9 +125,10 @@ extension Bottle {
 
 extension WineLauncher {
     /// Brings a bottle's Windows files up to date with the runtime (what Wine would otherwise do silently on the
-    /// next program start) and waits for it.
+    /// next program start) and waits for it. `-r` skips the bottle's autostart entries (wineboot otherwise runs the
+    /// Run keys too: Steam's would start Steam on the wrong runtime and keep wineserver, and this wait, alive).
     public func updateWindows(_ bottle: Bottle) async throws {
-        try await execute(bottle, arguments: ["wineboot", "-u"], label: "update")
+        try await execute(bottle, arguments: ["wineboot", "-u", "-r"], label: "update")
         try await waitForShutdown(bottle)
     }
 }
