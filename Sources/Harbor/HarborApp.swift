@@ -39,13 +39,13 @@ final class AppModel {
     func createBottle(named name: String) async {
         guard let launcher else { return }
         do {
-            let bottle = try store.create(name: name)
+            status = "Setting up \(name)…"
+            let bottle = try await store.create(name: name, setUp: launcher.initialize)
             reload()
             selection = bottle.id
-            status = "Setting up \(name)…"
-            try await launcher.initialize(bottle)
             status = nil
         } catch {
+            reload()
             status = "Couldn’t set up \(name): \(error)"
         }
     }

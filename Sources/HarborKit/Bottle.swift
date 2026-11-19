@@ -19,7 +19,13 @@ public enum WindowsVersion: String, Codable, Sendable, CaseIterable {
 }
 
 /// User-editable settings, stored as `bottle.json` next to the Wine prefix.
+///
+/// Decoding is tolerant: missing keys and unknown enum values fall back to defaults, so files written by newer or
+/// older Harbor versions still load. Bump `currentSchemaVersion` and migrate in `init(from:)` for breaking changes.
 public struct BottleSettings: Codable, Sendable, Equatable {
+    public static let currentSchemaVersion = 1
+
+    public var schemaVersion = BottleSettings.currentSchemaVersion
     public var name: String
     public var windowsVersion: WindowsVersion = .win10
     public var graphics: GraphicsBackend = .automatic
@@ -28,6 +34,21 @@ public struct BottleSettings: Codable, Sendable, Equatable {
 
     public init(name: String) {
         self.name = name
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion, name, windowsVersion, graphics, environment
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        schemaVersion = (try? c.decodeIfPresent(Int.self, forKey: .schemaVersion)) ?? 1
+        windowsVersion = (try? c.decodeIfPresent(String.self, forKey: .windowsVersion))
+            .flatMap(WindowsVersion.init(rawValue:)) ?? .win10
+        graphics = (try? c.decodeIfPresent(String.self, forKey: .graphics))
+            .flatMap(GraphicsBackend.init(rawValue:)) ?? .automatic
+        environment = (try? c.decodeIfPresent([String: String].self, forKey: .environment)) ?? [:]
     }
 }
 

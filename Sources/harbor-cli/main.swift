@@ -30,15 +30,18 @@ func bottle(_ name: String) -> Bottle {
 
 switch args.first {
 case "list":
-    for b in store.list() {
+    let scan = store.scan()
+    for b in scan.bottles {
         print("\(b.settings.name)\t\(b.settings.windowsVersion.rawValue)\t\(b.settings.graphics.rawValue)\t\(b.root.path)")
+    }
+    for (folder, error) in scan.damaged {
+        print("DAMAGED\t\(folder.path)\t\(error.localizedDescription)")
     }
 case "create" where args.count == 2:
     let wine = launcher()
-    let b = try store.create(name: args[1])
-    print("Creating \(b.settings.name) at \(b.root.path)…")
-    try await wine.initialize(b)
-    print("Ready.")
+    print("Creating \(args[1])…")
+    let b = try await store.create(name: args[1], setUp: wine.initialize)
+    print("Ready: \(b.root.path)")
 case "open" where args.count == 3:
     let p = try launcher().open(URL(filePath: args[2]), in: bottle(args[1]))
     p.waitUntilExit()

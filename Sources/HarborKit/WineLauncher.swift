@@ -52,7 +52,17 @@ public struct WineLauncher: Sendable {
         case .dxmt:
             env["DXMT_LOG_LEVEL"] = env["DXMT_LOG_LEVEL"] ?? "none"
         }
-        env.merge(bottle.settings.environment) { _, override in override }
+        // User variables may add to, but not replace, what Harbor depends on.
+        for (key, value) in bottle.settings.environment {
+            switch key {
+            case "WINEPREFIX":
+                continue
+            case "WINEDLLOVERRIDES":
+                env[key] = [env[key], value].compactMap { $0 }.joined(separator: ";")
+            default:
+                env[key] = value
+            }
+        }
         return env
     }
 

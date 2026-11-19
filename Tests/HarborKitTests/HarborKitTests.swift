@@ -40,6 +40,47 @@ import Testing
         #expect(env["WINEDLLOVERRIDES"] == "winemenubuilder.exe=d;d3d9=n")
     }
 
+    @Test func toleratesUnknownAndMissingSettings() throws {
+        let dir = try tempDir().appending(path: "future")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data(#"{"name":"Future","graphics":"quantum","windowsVersion":"win12","newField":true}"#.utf8)
+            .write(to: dir.appending(path: "bottle.json"))
+        let b = try Bottle.load(from: dir)
+        #expect(b.settings.name == "Future")
+        #expect(b.settings.graphics == .automatic)
+        #expect(b.settings.windowsVersion == .win10)
+        #expect(b.settings.schemaVersion == 1)
+    }
+
+    @Test func damagedBottlesAreReportedNotDropped() throws {
+        let store = BottleStore(directory: try tempDir())
+        _ = try store.create(name: "Good")
+        let bad = store.directory.appending(path: "bad")
+        try FileManager.default.createDirectory(at: bad, withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: bad.appending(path: "bottle.json"))
+        let scan = store.scan()
+        #expect(scan.bottles.map(\.settings.name) == ["Good"])
+        #expect(scan.damaged.map(\.folder.lastPathComponent) == ["bad"])
+    }
+
+    @Test func failedSetUpRemovesTheBottle() async throws {
+        struct Boom: Error {}
+        let store = BottleStore(directory: try tempDir())
+        await #expect(throws: Boom.self) {
+            _ = try await store.create(name: "Broken") { _ in throw Boom() }
+        }
+        #expect(store.scan().bottles.isEmpty && store.scan().damaged.isEmpty)
+    }
+
+    @Test func userEnvironmentCannotBreakHarbor() throws {
+        let store = BottleStore(directory: try tempDir())
+        var b = try store.create(name: "Env2")
+        b.settings.environment = ["WINEPREFIX": "/elsewhere", "WINEDLLOVERRIDES": "dinput8=n,b"]
+        let env = WineLauncher(runtime: WineRuntime(root: URL(filePath: "/nonexistent"))).environment(for: b, base: [:])
+        #expect(env["WINEPREFIX"] == b.prefix.path)
+        #expect(env["WINEDLLOVERRIDES"] == "winemenubuilder.exe=d;dinput8=n,b")
+    }
+
     @Test func installersGoThroughMsiexec() {
         #expect(WineLauncher.arguments(toOpen: URL(filePath: "/x/Setup.MSI")) == ["msiexec", "/i", "/x/Setup.MSI"])
         #expect(WineLauncher.arguments(toOpen: URL(filePath: "/x/game.exe")) == ["start", "/wait", "/unix", "/x/game.exe"])

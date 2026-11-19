@@ -14,9 +14,34 @@ public struct BottleStore: Sendable {
     }
 
     public func list() -> [Bottle] {
-        let entries = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-        return entries.compactMap { try? Bottle.load(from: $0) }
-            .sorted { $0.settings.name.localizedStandardCompare($1.settings.name) == .orderedAscending }
+        scan().bottles
+    }
+
+    /// Bottles plus folders whose `bottle.json` couldn't be read, so the UI can offer repair instead of
+    /// the bottle silently disappearing.
+    public func scan() -> (bottles: [Bottle], damaged: [(folder: URL, error: any Error)]) {
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)) ?? []
+        var bottles: [Bottle] = []
+        var damaged: [(URL, any Error)] = []
+        for folder in entries where (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            do { bottles.append(try Bottle.load(from: folder)) } catch { damaged.append((folder, error)) }
+        }
+        bottles.sort { $0.settings.name.localizedStandardCompare($1.settings.name) == .orderedAscending }
+        return (bottles, damaged)
+    }
+
+    /// Creates a bottle and runs `setUp` on it (normally `WineLauncher.initialize`); if that fails, the half-made
+    /// bottle is removed again.
+    public func create(name: String, setUp: (Bottle) async throws -> Void) async throws -> Bottle {
+        let bottle = try create(name: name)
+        do {
+            try await setUp(bottle)
+        } catch {
+            try? FileManager.default.removeItem(at: bottle.root)
+            throw error
+        }
+        return bottle
     }
 
     /// Creates the bottle folder and settings. The Wine prefix itself is created by `WineLauncher.initialize`.
