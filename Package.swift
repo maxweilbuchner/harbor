@@ -17,6 +17,7 @@ let package = Package(
         .target(name: "HarborKit"),
         .executableTarget(name: "Harbor", dependencies: ["HarborKit", .product(name: "Sparkle", package: "Sparkle")]),
         .executableTarget(name: "harbor-cli", dependencies: ["HarborKit"]),
-        .testTarget(name: "HarborKitTests", dependencies: ["HarborKit"]),
+        .testTarget(name: "HarborKitTests", dependencies: ["HarborKit"],
+                    resources: [.copy("Fixtures/app64.exe"), .copy("Fixtures/app32.exe"), .copy("Fixtures/game64.exe")]),
     ]
 )

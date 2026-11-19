@@ -1,0 +1,22 @@
+#include <winver.h>
+1 ICON "fixture.ico"
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 2,5,0,1
+PRODUCTVERSION 2,5,0,1
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName", "Harbor Test Fixtures"
+      VALUE "FileDescription", FIXTURE_DESCRIPTION
+      VALUE "ProductName", FIXTURE_PRODUCT
+      VALUE "ProductVersion", "2.5.0.1"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

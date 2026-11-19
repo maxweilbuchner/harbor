@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import Synchronization
 import Testing
 @testable import HarborKit
@@ -287,5 +288,76 @@ final class Marker {}
         #expect(!fm.fileExists(atPath: installed.appending(path: "wine").path))
         component.id = "../../evil"
         await #expect(throws: RuntimeInstallError.invalidComponent("../../evil")) { try await inst.install(component) }
+    }
+}
+
+@Suite struct ProgramAnalysisTests {
+    func fixture(_ name: String) throws -> URL {
+        try #require(Bundle.module.url(forResource: name, withExtension: "exe"))
+    }
+
+    @Test func readsA64BitApp() throws {
+        let a = try ProgramAnalysis.analyze(try fixture("app64"))
+        #expect(a.architecture == .x64)
+        #expect(a.isGUI)
+        #expect(a.imports.contains("user32.dll"))
+        #expect(a.direct3D == nil)
+        #expect(!a.looksLikeGame)
+        #expect(a.productName == "Fixture App")
+        #expect(a.companyName == "Harbor Test Fixtures")
+        #expect(a.productVersion == "2.5.0.1")
+        #expect(a.installer == nil)
+        #expect(a.displayName(fallback: URL(filePath: "/x/app64.exe")) == "Fixture App")
+    }
+
+    @Test func recognisesADirectX11Game() throws {
+        let a = try ProgramAnalysis.analyze(try fixture("game64"))
+        #expect(a.imports.isSuperset(of: ["d3d11.dll", "dxgi.dll"]))
+        #expect(a.direct3D == 11)
+        #expect(a.looksLikeGame)
+        #expect(a.productName == "Fixture Game")
+    }
+
+    @Test func reads32BitPrograms() throws {
+        let a = try ProgramAnalysis.analyze(try fixture("app32"))
+        #expect(a.architecture == .x86)
+        #expect(a.productName == "Fixture App 32")
+    }
+
+    @Test func extractsTheLargestIcon() throws {
+        let png = try #require(try ProgramAnalysis.analyze(try fixture("app64")).iconPNG)
+        let source = try #require(CGImageSourceCreateWithData(png as CFData, nil))
+        let props = try #require(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
+        #expect(props[kCGImagePropertyPixelWidth] as? Int == 48)
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        // The fixture icon: teal background with a white diagonal band through the centre.
+        let rgba = try #require(image.dataProvider?.data as Data?)
+        let row = image.bytesPerRow
+        let centre = rgba[(24 * row) + 24 * 4 ..< (24 * row) + 24 * 4 + 3]
+        #expect(Array(centre) == [255, 255, 255])
+    }
+
+    @Test func rejectsDamagedFilesWithoutCrashing() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "harbor-pe-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let random = dir.appending(path: "random.exe")
+        try Data((0..<4096).map { _ in UInt8.random(in: 0...255) }).write(to: random)
+        #expect(throws: (any Error).self) { try ProgramAnalysis.analyze(random) }
+        // Every truncation of a real program either parses partially or throws; none may crash.
+        let real = try Data(contentsOf: try fixture("game64"))
+        for length in stride(from: 0, to: real.count, by: 997) {
+            let cut = dir.appending(path: "cut.exe")
+            try real.prefix(length).write(to: cut)
+            _ = try? ProgramAnalysis.analyze(cut)
+        }
+    }
+
+    static let heavenInstaller = WineRuntime.checkoutRoot.appending(path: "build/games/Unigine_Heaven-4.0.exe")
+
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: heavenInstaller.path)))
+    func detectsInnoSetupInstallers() throws {
+        let a = try ProgramAnalysis.analyze(Self.heavenInstaller)
+        #expect(a.installer == .innoSetup)
+        #expect(a.architecture == .x86)
     }
 }
