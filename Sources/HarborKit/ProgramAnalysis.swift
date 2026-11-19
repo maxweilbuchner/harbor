@@ -34,13 +34,15 @@ public struct ProgramAnalysis: Sendable, Equatable {
         return nil
     }
 
-    /// Heuristic: graphics/input/game-platform imports. Launchers that load DirectX dynamically aren't caught;
-    /// the user can always change it.
+    /// Heuristic for "this is a game" (which decides D3DMetal: Apple's license covers games only). Needs a
+    /// game-specific signal: a game platform, controller, game audio or Direct3D 12 import. Direct3D 9–11 alone
+    /// doesn't count, because browsers, Electron apps and CAD tools import those too; the user can still choose
+    /// "Treat as Game". Launchers that load everything dynamically aren't caught either.
     public var looksLikeGame: Bool {
         let gameLibraries: Set<String> = ["xinput1_3.dll", "xinput1_4.dll", "xinput9_1_0.dll", "dinput8.dll",
-                                          "steam_api.dll", "steam_api64.dll", "xaudio2_7.dll", "xaudio2_9.dll",
-                                          "vulkan-1.dll", "openal32.dll"]
-        return direct3D != nil || !imports.isDisjoint(with: gameLibraries)
+                                          "steam_api.dll", "steam_api64.dll", "xaudio2_7.dll", "xaudio2_8.dll",
+                                          "xaudio2_9.dll", "x3daudio1_7.dll", "openal32.dll", "eossdk-win64-shipping.dll"]
+        return direct3D == 12 || !imports.isDisjoint(with: gameLibraries)
     }
 
     /// A friendly name: product name, else description, else the file name without extension.

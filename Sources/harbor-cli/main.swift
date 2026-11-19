@@ -11,6 +11,7 @@ import HarborKit
 //   harbor-cli launch <bottle> <program name>
 //   harbor-cli add <file.exe|file.msi>                # the app's add-program flow
 //   harbor-cli prepare-template                       # pre-build the prefix new bottles clone
+//   harbor-cli analyze <file>                         # what Harbor reads from a program
 //   harbor-cli gen-runtime-key                      # private key → ~/.config/harbor/runtime-signing.key
 //   harbor-cli sign-manifest <runtime.json>         # writes runtime.json.sig with that key
 //   harbor-cli install-runtime <manifest-url> [--into <dir>]
@@ -81,6 +82,13 @@ case "add" where args.count == 2:
         let icon = FileManager.default.fileExists(atPath: b.iconFile(for: p).path) ? "icon" : "no icon"
         print("added \(p.name)\t\(p.isGame ? "game" : "app")\t\(icon)\t\(p.windowsPath)\tbottle \(b.settings.name)")
     }
+case "analyze" where args.count == 2:
+    // What Harbor reads from a program: architecture, DirectX, game classification (incl. its folder).
+    let url = URL(filePath: args[1])
+    if let a = try? ProgramAnalysis.analyze(url) {
+        print("\(a.displayName(fallback: url)) arch=\(a.architecture.rawValue) gui=\(a.isGUI) d3d=\(a.direct3D.map(String.init) ?? "-") installer=\(a.installer?.rawValue ?? "-") gameImports=\(a.looksLikeGame)")
+    }
+    print("game (with folder): \(Bottle.looksLikeGame(url))")
 case "suggest-name" where args.count == 2:
     print(AddProgram.suggestedName(for: URL(filePath: args[1])) ?? "(not a Windows program)")
 case "prepare-template" where args.count == 1:
@@ -129,5 +137,5 @@ case "install-runtime" where args.count == 2 || (args.count == 4 && args[2] == "
     FileHandle.standardError.write(Data("\n".utf8))
     print("installed")
 default:
-    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
+    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | analyze <file> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
 }

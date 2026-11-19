@@ -242,24 +242,33 @@ extension Bottle {
             ?? files.first { $0.pathExtension.lowercased() == "exe" && !isAuxiliary(name: $0.lastPathComponent, target: $0.lastPathComponent) }
     }
 
-    /// Whether `file` or a program installed next to it is a game. Launchers often have no DirectX imports
-    /// themselves, so the folder counts: up to 40 executables, two levels below the target's folder.
+    /// Whether `file` or a program installed next to it is a game. Launchers and engine-based games often have
+    /// no game imports in the .exe itself (Superposition's engine is in unigine_x64.dll), so the folder counts:
+    /// executables that look like games, or game libraries shipped as files (OpenAL, XAudio, Steam API, …),
+    /// which ordinary apps don't bundle. Up to two levels below the target's folder, 400 files.
     public static func looksLikeGame(_ file: URL) -> Bool {
         if (try? ProgramAnalysis.analyze(file))?.looksLikeGame == true { return true }
         let folder = file.deletingLastPathComponent()
         guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isDirectoryKey],
                                                           options: [.skipsHiddenFiles]) else { return false }
-        var checked = 0
+        var seen = 0, analysed = 0
         for case let candidate as URL in walker {
             if walker.level > 2 { walker.skipDescendants(); continue }
-            guard candidate.pathExtension.lowercased() == "exe", candidate != file,
+            seen += 1
+            if seen > 400 { break }
+            let name = candidate.lastPathComponent.lowercased()
+            if candidate.pathExtension.lowercased() == "dll", gameLibraryPrefixes.contains(where: name.hasPrefix) { return true }
+            guard candidate.pathExtension.lowercased() == "exe", candidate != file, analysed < 40,
                   !isAuxiliary(name: candidate.lastPathComponent, target: candidate.lastPathComponent) else { continue }
-            checked += 1
+            analysed += 1
             if (try? ProgramAnalysis.analyze(candidate))?.looksLikeGame == true { return true }
-            if checked >= 40 { break }
         }
         return false
     }
+
+    /// File-name prefixes of libraries that games ship and ordinary apps don't.
+    static let gameLibraryPrefixes = ["steam_api", "openal32", "xinput", "xaudio2_", "x3daudio", "physx", "fmod",
+                                      "binkw", "bink2w", "eossdk-", "galaxy64", "galaxy.dll", "discord_game_sdk"]
 
     static func isAuxiliary(name: String, target: String) -> Bool {
         let n = name.lowercased()
