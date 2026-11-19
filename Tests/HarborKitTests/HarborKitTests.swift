@@ -581,6 +581,38 @@ final class Marker {}
         #expect(!AddProgram.isSharedFolder(URL(filePath: "/Volumes/USB/Games/Thing")))
     }
 
+    /// Games bring their whole folder, even when the .exe sits deep inside it or the folder holds pictures.
+    @Test func findsTheWholeProgramFolder() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appending(path: "harbor-root-\(UUID().uuidString)")
+        func touch(_ path: String) throws {
+            let url = base.appending(path: path)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: url)
+        }
+        // Unreal: <Root>/<Game>/Binaries/Win64/<Game>-Win64-Shipping.exe next to <Root>/Engine.
+        try touch("Unreal/Engine/Binaries/ThirdParty/x.dll")
+        try touch("Unreal/Quest/Content/Paks/Quest.pak")
+        try touch("Unreal/Quest/Binaries/Win64/Quest-Win64-Shipping.exe")
+        try touch("Unreal/Quest.exe")
+        let unreal = base.appending(path: "Unreal").standardizedFileURL
+        #expect(AddProgram.programRoot(for: base.appending(path: "Unreal/Quest/Binaries/Win64/Quest-Win64-Shipping.exe")) == unreal)
+        #expect(AddProgram.programRoot(for: base.appending(path: "Unreal/Quest.exe")) == unreal)
+        // bin/ layout.
+        try touch("Tool/bin/tool.exe")
+        try touch("Tool/data/a.dat")
+        #expect(AddProgram.programRoot(for: base.appending(path: "Tool/bin/tool.exe")) == base.appending(path: "Tool").standardizedFileURL)
+        // A game folder with screenshots, videos and a PDF manual is still the game's folder: it has DLLs.
+        for f in ["Game/game.exe", "Game/engine.dll", "Game/cover.png", "Game/intro.mp4", "Game/Manual.pdf"] { try touch(f) }
+        #expect(AddProgram.programRoot(for: base.appending(path: "Game/game.exe")) == base.appending(path: "Game").standardizedFileURL)
+        // A downloads-like folder (an .exe beside personal files, no DLLs): only the .exe may be copied.
+        for f in ["Stuff/winrar.exe", "Stuff/Tax Return.pdf", "Stuff/photo.jpg"] { try touch(f) }
+        #expect(AddProgram.programRoot(for: base.appending(path: "Stuff/winrar.exe")) == nil)
+        // Walking up stops at shared folders.
+        let home = fm.homeDirectoryForCurrentUser
+        #expect(AddProgram.programRoot(for: home.appending(path: "Downloads/x.exe")) == nil)
+    }
+
     @Test func mapsMacPathsBackToWindowsPaths() throws {
         let store = BottleStore(directory: FileManager.default.temporaryDirectory.appending(path: "harbor-add-\(UUID().uuidString)"))
         let b = try store.create(name: "Paths")

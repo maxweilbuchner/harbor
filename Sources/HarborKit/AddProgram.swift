@@ -105,28 +105,53 @@ public struct AddProgram: Sendable {
     /// bottle. Nothing is ever symlinked in, so a Windows uninstaller can't reach the Mac folder.
     private func place(_ file: URL, analysis: ProgramAnalysis, name: String, in bottle: Bottle) throws -> Program {
         let fm = FileManager.default
-        let folder = file.deletingLastPathComponent()
         let programFolderName = analysis.architecture == .x86 ? "Program Files (x86)" : "Program Files"
         let programFiles = bottle.driveC.appending(path: programFolderName)
         try fm.createDirectory(at: programFiles, withIntermediateDirectories: true)
         let destination = programFiles.appending(path: Self.safeFolderName(name))
-        if Self.isSharedFolder(folder) {
+        // The whole program comes along: for a game whose .exe sits in Binaries\Win64, that's the game's folder.
+        let relative: [String]
+        if let root = Self.programRoot(for: file) {
+            try fm.copyItem(at: root, to: destination)     // a clone on APFS: no extra disk until files change
+            relative = Array(file.standardizedFileURL.pathComponents.dropFirst(root.standardizedFileURL.pathComponents.count))
+        } else {
             try fm.createDirectory(at: destination, withIntermediateDirectories: true)
             try fm.copyItem(at: file, to: destination.appending(path: file.lastPathComponent))
-        } else {
-            try fm.copyItem(at: folder, to: destination)   // a clone on APFS: no extra disk until files change
+            relative = [file.lastPathComponent]
         }
-        let windows = #"C:\#(programFolderName)\#(Self.safeFolderName(name))\#(file.lastPathComponent)"#
+        let windows = (["C:", programFolderName, Self.safeFolderName(name)] + relative).joined(separator: "\\")
         let program = Program(name: analysis.displayName(fallback: file), windowsPath: windows,
                               isGame: Bottle.looksLikeGame(file))
         bottle.saveIcon(for: program, from: file)
         return program
     }
 
+    /// The folder that holds the whole program `file` belongs to, or nil if it sits in a shared folder (then only
+    /// the file itself may be copied). Walks up from folders like `Binaries/Win64` or `bin`, which hold a game's
+    /// executable while its data sits higher up (Unreal: `<Root>/<Game>/Binaries/Win64`, `<Root>/Engine`).
+    static func programRoot(for file: URL) -> URL? {
+        let fm = FileManager.default
+        var folder = file.deletingLastPathComponent().standardizedFileURL
+        if isSharedFolder(folder) { return nil }
+        let binaryFolders: Set<String> = ["bin", "bin32", "bin64", "binaries", "win32", "win64", "x86", "x64", "x86_64",
+                                          "amd64", "release", "shipping", "retail"]
+        while true {
+            let parent = folder.deletingLastPathComponent()
+            guard parent.path != folder.path, !isSharedFolder(parent, below: true) else { break }
+            let isBinaryFolder = binaryFolders.contains(folder.lastPathComponent.lowercased())
+            let besideEngine = fm.fileExists(atPath: parent.appending(path: "Engine").path)   // Unreal's root
+            guard isBinaryFolder || besideEngine else { break }
+            folder = parent
+        }
+        return folder
+    }
+
     /// Folders that hold unrelated files, from which only the program itself may be copied: the home folder, its
     /// standard folders, iCloud Drive, any Downloads/Desktop/Documents folder, Applications, disk roots, and any
     /// folder containing personal documents (a program's own folder doesn't hold PDFs and photos).
-    static func isSharedFolder(_ folder: URL) -> Bool {
+    /// `below`: reached by walking up from a program's own binary folder, which already shows it's a program's
+    /// folder; then only named shared folders count, not the personal-documents check.
+    static func isSharedFolder(_ folder: URL, below: Bool = false) -> Bool {
         let fm = FileManager.default
         let path = folder.standardizedFileURL.resolvingSymlinksInPath().path
         let home = fm.homeDirectoryForCurrentUser.standardizedFileURL.resolvingSymlinksInPath().path
@@ -141,7 +166,13 @@ public struct AddProgram: Sendable {
         if path.hasPrefix(iCloud + "/") && path.dropFirst(iCloud.count + 1).split(separator: "/").count <= 1 { return true }
         let parts = path.split(separator: "/")
         if parts.count == 2 && parts[0] == "Volumes" { return true }             // a disk's root, e.g. /Volumes/USB
-        return containsPersonalDocuments(folder)
+        // Games ship pictures, videos and manuals too; a folder with DLLs next to the program is the program's.
+        return !below && containsPersonalDocuments(folder) && !containsLibraries(folder)
+    }
+
+    static func containsLibraries(_ folder: URL) -> Bool {
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        return files.prefix(2000).contains { $0.pathExtension.lowercased() == "dll" }
     }
 
     static let personalDocumentExtensions: Set<String> = [
