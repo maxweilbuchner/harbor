@@ -89,7 +89,8 @@ import Testing
 
     @Test func runtimeLocateRejectsInvalidRoots() throws {
         let empty = try tempDir()
-        #expect(WineRuntime.locate(environment: ["HARBOR_WINE_ROOT": empty.path], bundle: Bundle(for: Marker.self), devRoot: empty) == nil)
+        #expect(WineRuntime.locate(environment: ["HARBOR_WINE_ROOT": empty.path], bundle: Bundle(for: Marker.self),
+                                    installed: empty, devRoot: empty) == nil)
     }
 }
 
