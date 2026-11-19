@@ -38,5 +38,10 @@ fetch() { [ -f "build/download/$2" ] || curl -fL -o "build/download/$2" "https:/
 fetch "wine-mono/$WINE_MONO_VERSION" "wine-mono-$WINE_MONO_VERSION-x86.msi" "$WINE_MONO_SHA256"
 fetch "wine-gecko/$WINE_GECKO_VERSION" "wine-gecko-$WINE_GECKO_VERSION-x86.msi" "$WINE_GECKO_X86_SHA256"
 fetch "wine-gecko/$WINE_GECKO_VERSION" "wine-gecko-$WINE_GECKO_VERSION-x86_64.msi" "$WINE_GECKO_X86_64_SHA256"
+# Sparkle's command-line tools (generate_keys, sign_update) for app releases.
+SP="build/download/Sparkle-$SPARKLE_VERSION.tar.xz"
+[ -f "$SP" ] || curl -fL -o "$SP" "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+echo "$SPARKLE_SHA256  $SP" | shasum -a 256 -c -
+[ -x build/toolchain/sparkle/bin/sign_update ] || { mkdir -p build/toolchain/sparkle && tar -xJf "$SP" -C build/toolchain/sparkle; }
 command -v /opt/homebrew/opt/bison/bin/bison >/dev/null || { echo "fetch-sources: brew install bison pkgconf" >&2; exit 1; }
 echo "fetch-sources: ready"

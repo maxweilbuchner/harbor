@@ -214,7 +214,7 @@ An independent review re-checked the plan against the code and runtime. Items ma
    stays behind the previous app until activated), so the launcher must bring launched programs to the front.
    Original plan: self-built console, D3D11 and D3D12 triangle test exes that write a PNG;
    env-gated integration tests on a self-hosted Mac; then one real DX11 and one DX12 game.
-5. **M4 — signing spike (signing + notarization done 2026-11-19):** `scripts/bundle-app.sh` builds a release Harbor.app
+5. **M4 — signing, notarization, runtime downloader, updates (done 2026-11-19):** `scripts/bundle-app.sh` builds a release Harbor.app
    (bundle ID io.github.maxweilbuchner.harbor, `harbor://` scheme, macOS 26 minimum, SDK 27.2), signed with
    Developer ID under the hardened runtime with no entitlements. Runtimes install to
    `~/Library/Application Support/Harbor/Installed/{wine,d3dmetal}`. Findings, via the app's
@@ -240,7 +240,14 @@ An independent review re-checked the plan against the code and runtime. Items ma
      GitHub release tagged `runtime` (Wine `cx26.3.0-1`, D3DMetal 4.0b3, signed runtime.json, and source
      archives for every copyleft component). The notarized app with its built-in URL downloaded Windows support
      from GitHub, verified and installed it, and ran Windows in 147 s; the D3DMetal proofs pass on it.
-   - **Open in M4:** Sparkle app updates.
+   - **Sparkle app updates (done):** Sparkle 2.10.1 (SwiftPM, exact pin) with "Check for Updates…"; the
+     framework and its helpers are embedded and signed (Developer ID, hardened) in Sparkle's prescribed order.
+     EdDSA update key in the login keychain (account io.github.maxweilbuchner.harbor), public key in
+     `scripts/sparkle-public.key`. Feed: `updates/appcast.xml` on the public repo's main branch.
+     `scripts/release-app.sh <v> --publish|--local` builds, notarizes, zips, signs and adds the appcast item.
+     Verified locally: notarized 0.1.0 found 0.1.1 in a test feed, downloaded and verified it, installed and
+     relaunched; the updated app is valid and accepted by Gatekeeper.
+   **M4 done.**
    Developer ID certificate expires 2027-02-01 (needs a G2 replacement before then). Original plan: Developer ID app bundle (Xcode project or bundling script), notarization,
    spawning a downloaded runtime outside the bundle, URL scheme, Sparkle.
 6. **M5 — add-program flow:** PE analysis, game/app classification, per-launch layer selection, template
