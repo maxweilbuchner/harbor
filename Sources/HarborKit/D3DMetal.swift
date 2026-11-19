@@ -45,6 +45,8 @@ public struct D3DMetalRedist: Sendable, Equatable {
             candidates.append(resources.appending(path: "d3dmetal/lib"))
         }
         candidates.append(installed.appending(path: "d3dmetal/lib"))
+        #if DEBUG
+        // Development only (see WineRuntime.locate).
         let runtimeDir = (devRoot ?? WineRuntime.checkoutRoot).appending(path: "Runtime")
         let fm = FileManager.default
         let dirs = ((try? fm.contentsOfDirectory(at: runtimeDir, includingPropertiesForKeys: nil)) ?? [])
@@ -56,6 +58,7 @@ public struct D3DMetalRedist: Sendable, Equatable {
                 candidates.append(child.appending(path: "lib"))
             }
         }
+        #endif
         return candidates.lazy.map(D3DMetalRedist.init(lib:)).first(where: \.isValid)
     }
 

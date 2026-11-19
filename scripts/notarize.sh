@@ -4,9 +4,11 @@
 #   xcrun notarytool store-credentials harbor-notary --apple-id <apple-id> --team-id U7YD5SS9RP
 #
 #   scripts/notarize.sh [runtime-dir]   # default: build/out/wine (sign it first with scripts/sign-runtime.sh)
+#   scripts/notarize.sh --app-only      # just Harbor.app (the runtime is notarized separately, by content)
 set -eu
 cd "$(dirname "$0")/.."
 PROFILE="${NOTARY_PROFILE:-harbor-notary}"
+APP_ONLY=; [ "${1:-}" = --app-only ] && { APP_ONLY=1; shift; }
 RUNTIME="${1:-build/out/wine}"
 if [ -z "${DEVELOPER_DIR:-}" ]; then export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer; fi
 mkdir -p build/notarize
@@ -28,7 +30,9 @@ xcrun stapler staple build/app/Harbor.app
 xcrun stapler validate build/app/Harbor.app
 
 # Loose binaries can't be stapled; Gatekeeper fetches their notarization ticket online on first launch.
-ditto -c -k --keepParent "$RUNTIME" build/notarize/runtime.zip
-submit build/notarize/runtime.zip
+if [ -z "$APP_ONLY" ]; then
+  ditto -c -k --keepParent "$RUNTIME" build/notarize/runtime.zip
+  submit build/notarize/runtime.zip
+fi
 
 spctl -a -vv build/app/Harbor.app 2>&1 | head -3

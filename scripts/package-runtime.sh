@@ -1,0 +1,44 @@
+#!/bin/sh
+# Packs a signed + notarized Wine runtime and Apple's D3DMetal into .tar.xz archives with a signed
+# runtime.json (Ed25519, key from `harbor-cli gen-runtime-key`), ready to upload next to each other.
+#
+#   scripts/package-runtime.sh <wine-dir> <d3dmetal-dir> [out-dir]
+#     wine-dir:     signed (scripts/sign-runtime.sh) and notarized (scripts/notarize.sh) runtime
+#     d3dmetal-dir: folder containing lib/ (Apple's /redist/lib) plus License.rtf and Acknowledgements.rtf
+#   WINE_RUNTIME_VERSION overrides the Wine component version (default cx<CrossOver version>+<commit>).
+set -eu
+cd "$(dirname "$0")/.."
+. scripts/versions.env
+WINE="$1"; D3D="$2"; OUT="${3:-build/dist/runtime}"
+WVER="${WINE_RUNTIME_VERSION:-cx$CROSSOVER_SOURCES_VERSION+$(git rev-parse --short HEAD)}"
+DVER="$D3DMETAL_VERSION"
+[ -x "$WINE/bin/wine" ] || { echo "package-runtime: $WINE has no bin/wine" >&2; exit 1; }
+[ -f "$D3D/lib/external/libd3dshared.dylib" ] && [ -f "$D3D/License.rtf" ] || { echo "package-runtime: $D3D needs lib/ and License.rtf" >&2; exit 1; }
+codesign -dv --verbose=2 "$WINE/bin/wine" 2>&1 | grep -q 'Authority=Developer ID Application' || { echo "package-runtime: Wine isn't Developer ID-signed (scripts/sign-runtime.sh)" >&2; exit 1; }
+rm -rf "$OUT" && mkdir -p "$OUT"
+
+pack() { # $1 = archive name, $2 = source dir
+  # No extended attributes: they would carry quarantine flags (and Finder metadata) into the archive.
+  tar --no-xattrs --no-mac-metadata --exclude .harbor-version --options xz:threads=0 -cJf "$OUT/$1" -C "$2" .
+  echo "  $1 $(du -h "$OUT/$1" | cut -f1)"
+}
+echo "package-runtime: packing (xz takes a few minutes)"
+pack "wine-$WVER.tar.xz" "$WINE"
+pack "d3dmetal-$DVER.tar.xz" "$D3D"
+
+python3 -I - "$OUT" "$WVER" "$DVER" <<'PY'
+import hashlib, json, os, sys
+out, wver, dver = sys.argv[1:4]
+def entry(cid, version, name):
+    path = os.path.join(out, name)
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""): h.update(chunk)
+    return {"id": cid, "version": version, "url": name, "sha256": h.hexdigest(), "size": os.path.getsize(path)}
+manifest = {"schema": 1, "components": [entry("wine", wver, f"wine-{wver}.tar.xz"),
+                                        entry("d3dmetal", dver, f"d3dmetal-{dver}.tar.xz")]}
+with open(os.path.join(out, "runtime.json"), "w") as f: json.dump(manifest, f, indent=2, sort_keys=True)
+PY
+CLI="$(swift build --build-system native --show-bin-path 2>/dev/null)/harbor-cli"
+"$CLI" sign-manifest "$OUT/runtime.json"
+echo "package-runtime: $OUT (wine $WVER, d3dmetal $DVER)"

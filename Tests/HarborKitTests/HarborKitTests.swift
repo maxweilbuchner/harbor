@@ -201,3 +201,91 @@ final class Marker {}
         #expect(Rosetta.isAvailable) // this Mac has it (Wine runs here)
     }
 }
+
+@Suite struct RuntimeInstallerTests {
+    let fm = FileManager.default
+
+    /// A served folder with one signed manifest and a wine archive containing `bin/wine` with `contents`.
+    func serve(version: String, contents: String, key: String) throws -> (manifest: URL, root: URL) {
+        let root = fm.temporaryDirectory.appending(path: "harbor-dl-\(UUID().uuidString)")
+        let payload = root.appending(path: "payload")
+        try fm.createDirectory(at: payload.appending(path: "bin"), withIntermediateDirectories: true)
+        try Data(contents.utf8).write(to: payload.appending(path: "bin/wine"))
+        let archive = root.appending(path: "wine-\(version).tar.xz")
+        let tar = Process()
+        tar.executableURL = URL(filePath: "/usr/bin/tar")
+        tar.arguments = ["-cJf", archive.path, "-C", payload.path, "."]
+        try tar.run(); tar.waitUntilExit()
+        let size = (try archive.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+        let manifest = RuntimeManifest(components: [
+            .init(id: "wine", version: version, url: archive.lastPathComponent,
+                  sha256: try RuntimeInstaller.sha256(of: archive), size: size)])
+        let url = root.appending(path: "runtime.json")
+        let data = try JSONEncoder().encode(manifest)
+        try data.write(to: url)
+        try Data(try RuntimeSigning.sign(data, privateKey: key).utf8).write(to: url.appendingPathExtension("sig"))
+        return (url, root)
+    }
+
+    func installer(_ manifest: URL, key: String, installed: URL) throws -> RuntimeInstaller {
+        RuntimeInstaller(manifestURL: manifest, publicKey: try RuntimeSigning.publicKey(try RuntimeSigning.publicKey(forPrivate: key)),
+                         installedDirectory: installed)
+    }
+
+    @Test func installsVerifiedComponentAndSkipsCurrentOnes() async throws {
+        let key = RuntimeSigning.newPrivateKey()
+        let (manifestURL, root) = try serve(version: "1", contents: "wine v1", key: key)
+        let installed = root.appending(path: "installed")
+        let inst = try installer(manifestURL, key: key, installed: installed)
+        let manifest = try await inst.fetchManifest()
+        #expect(inst.pending(in: manifest).map(\.id) == ["wine"])
+        let fractions = Mutex<[Double]>([])
+        try await inst.installPending(manifest) { f in fractions.withLock { $0.append(f) } }
+        #expect(try String(contentsOf: installed.appending(path: "wine/bin/wine"), encoding: .utf8) == "wine v1")
+        #expect(inst.installedVersion(of: "wine") == "1")
+        #expect(inst.pending(in: manifest).isEmpty)
+        #expect(fractions.withLock { $0.last } == 1)
+    }
+
+    @Test func updateMovesOldVersionAside() async throws {
+        let key = RuntimeSigning.newPrivateKey()
+        let (m1, root) = try serve(version: "1", contents: "wine v1", key: key)
+        let installed = root.appending(path: "installed")
+        let first = try installer(m1, key: key, installed: installed)
+        try await first.installPending(try await first.fetchManifest())
+        let (m2, _) = try serve(version: "2", contents: "wine v2", key: key)
+        let second = try installer(m2, key: key, installed: installed)
+        try await second.installPending(try await second.fetchManifest())
+        #expect(try String(contentsOf: installed.appending(path: "wine/bin/wine"), encoding: .utf8) == "wine v2")
+        let names = try fm.contentsOfDirectory(atPath: installed.path)
+        #expect(names.contains { $0.hasPrefix(".old-wine-") })
+        second.removeOldVersions()
+        #expect(!(try fm.contentsOfDirectory(atPath: installed.path)).contains { $0.hasPrefix(".old-") })
+        #expect(!(try fm.contentsOfDirectory(atPath: installed.path)).contains { $0.hasPrefix(".staging-") })
+    }
+
+    @Test func rejectsWrongKeyAndTamperedManifest() async throws {
+        let key = RuntimeSigning.newPrivateKey()
+        let (manifestURL, root) = try serve(version: "1", contents: "x", key: key)
+        let impostor = try installer(manifestURL, key: RuntimeSigning.newPrivateKey(), installed: root.appending(path: "i"))
+        await #expect(throws: RuntimeInstallError.badSignature) { _ = try await impostor.fetchManifest() }
+        var text = try String(contentsOf: manifestURL, encoding: .utf8)
+        text = text.replacingOccurrences(of: "\"version\":\"1\"", with: "\"version\":\"9\"")
+        try text.write(to: manifestURL, atomically: true, encoding: .utf8)
+        let honest = try installer(manifestURL, key: key, installed: root.appending(path: "i"))
+        await #expect(throws: RuntimeInstallError.badSignature) { _ = try await honest.fetchManifest() }
+    }
+
+    @Test func rejectsDamagedArchiveAndUnknownComponents() async throws {
+        let key = RuntimeSigning.newPrivateKey()
+        let (manifestURL, root) = try serve(version: "1", contents: "x", key: key)
+        let installed = root.appending(path: "installed")
+        let inst = try installer(manifestURL, key: key, installed: installed)
+        var component = try await inst.fetchManifest().components[0]
+        try Data("corrupted".utf8).write(to: root.appending(path: component.url))
+        await #expect(throws: RuntimeInstallError.checksumMismatch(component: "wine")) { try await inst.install(component) }
+        #expect(!fm.fileExists(atPath: installed.appending(path: "wine").path))
+        component.id = "../../evil"
+        await #expect(throws: RuntimeInstallError.invalidComponent("../../evil")) { try await inst.install(component) }
+    }
+}

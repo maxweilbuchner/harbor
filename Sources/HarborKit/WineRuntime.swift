@@ -18,7 +18,7 @@ public struct WineRuntime: Sendable, Equatable {
     }
 
     /// The development checkout this file was compiled from; only meaningful in dev builds.
-    static let checkoutRoot = URL(filePath: #filePath)
+    public static let checkoutRoot = URL(filePath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
     public var isValid: Bool {
@@ -45,6 +45,8 @@ public struct WineRuntime: Sendable, Equatable {
         }
         // Installed by Harbor (the runtime downloader's target), ahead of anything development-only.
         candidates.append(installed.appending(path: "wine"))
+        #if DEBUG
+        // Development only: a shipped (release) app must never pick up a build folder compiled into it.
         // Harbor's own build from CodeWeavers' LGPL sources (scripts/build-wine.sh) wins over downloaded ones.
         candidates.append((devRoot ?? checkoutRoot).appending(path: "build/out/wine"))
         let runtimeDir = (devRoot ?? checkoutRoot).appending(path: "Runtime")
@@ -57,6 +59,7 @@ public struct WineRuntime: Sendable, Equatable {
                 }
             }
         }
+        #endif
         return candidates.lazy.map(WineRuntime.init(root:)).first(where: \.isValid)
     }
 }

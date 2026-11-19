@@ -7,6 +7,9 @@ import HarborKit
 //   harbor-cli open <bottle> <file.exe|file.msi>
 //   harbor-cli run <bottle> <wine args...>      e.g. run Test cmd /c ver
 //   harbor-cli stop <bottle>
+//   harbor-cli gen-runtime-key                      # private key → ~/.config/harbor/runtime-signing.key
+//   harbor-cli sign-manifest <runtime.json>         # writes runtime.json.sig with that key
+//   harbor-cli install-runtime <manifest-url> [--into <dir>]
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("harbor-cli: \(message)\n".utf8))
@@ -22,6 +25,8 @@ func launcher() -> WineLauncher {
     }
     return WineLauncher(runtime: runtime, d3dmetal: D3DMetalRedist.locate())
 }
+
+let signingKeyFile = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config/harbor/runtime-signing.key")
 
 func bottle(_ name: String) -> Bottle {
     guard let found = store.bottle(named: name) else { fail("no bottle named \(name)") }
@@ -55,6 +60,36 @@ case "logs" where args.count == 2:
     for log in bottle(args[1]).logs() { print(log.path) }
 case "stop" where args.count == 2:
     try launcher().shutdown(bottle(args[1]))
+case "gen-runtime-key" where args.count == 1:
+    if FileManager.default.fileExists(atPath: signingKeyFile.path) { fail("\(signingKeyFile.path) already exists") }
+    try FileManager.default.createDirectory(at: signingKeyFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let key = RuntimeSigning.newPrivateKey()
+    FileManager.default.createFile(atPath: signingKeyFile.path, contents: Data(key.utf8), attributes: [.posixPermissions: 0o600])
+    print(try RuntimeSigning.publicKey(forPrivate: key))
+case "sign-manifest" where args.count == 2:
+    let manifest = URL(filePath: args[1])
+    let key = try String(contentsOf: signingKeyFile, encoding: .utf8)
+    let data = try Data(contentsOf: manifest)
+    _ = try JSONDecoder().decode(RuntimeManifest.self, from: data) // refuse to sign something malformed
+    try Data(try RuntimeSigning.sign(data, privateKey: key).utf8).write(to: manifest.appendingPathExtension("sig"))
+    print("signed \(manifest.path)")
+case "install-runtime" where args.count == 2 || (args.count == 4 && args[2] == "--into"):
+    guard let url = URL(string: args[1]), url.scheme != nil else { fail("not a URL: \(args[1])") }
+    let publicKey = try RuntimeSigning.publicKey(
+        ProcessInfo.processInfo.environment["HARBOR_RUNTIME_PUBLIC_KEY"]
+            ?? (try String(contentsOf: WineRuntime.checkoutRoot.appending(path: "scripts/runtime-signing.pub"), encoding: .utf8))
+                .trimmingCharacters(in: .whitespacesAndNewlines))
+    let into = args.count == 4 ? URL(filePath: args[3]) : WineRuntime.installedDirectory
+    let installer = RuntimeInstaller(manifestURL: url, publicKey: publicKey, installedDirectory: into)
+    let manifest = try await installer.fetchManifest()
+    let pending = installer.pending(in: manifest)
+    if pending.isEmpty { print("up to date"); exit(0) }
+    print("installing \(pending.map { "\($0.id) \($0.version)" }.joined(separator: ", ")) into \(into.path)")
+    try await installer.installPending(manifest) { fraction in
+        FileHandle.standardError.write(Data(String(format: "\r%5.1f%%", fraction * 100).utf8))
+    }
+    FileHandle.standardError.write(Data("\n".utf8))
+    print("installed")
 default:
-    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | logs <bottle> | stop <bottle>")
+    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
 }
