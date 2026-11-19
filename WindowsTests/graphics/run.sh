@@ -19,6 +19,7 @@ status=0
 for backend in ${1:-d3dmetal wined3d}; do
   "$CLI" stop "$BOTTLE"
   sed -i '' -E "s/\"graphics\" : \"[a-z0-9]+\"/\"graphics\" : \"$backend\"/" "$CONF"
+  grep -q "\"graphics\" : \"$backend\"" "$CONF" || { echo "run: couldn't set graphics to $backend" >&2; exit 1; }
   for test in d3d11tri d3d12tri; do
     win_out="Z:$(printf '%s' "$PWD/$OUT/$backend-$test" | tr / '\\')"
     result=$("$CLI" run "$BOTTLE" "$PWD/build/WindowsTests/graphics/$test.exe" "$win_out" 2>/dev/null | grep -E '^(PASS|FAIL)')
