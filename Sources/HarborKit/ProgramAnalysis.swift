@@ -181,17 +181,22 @@ struct PEFile {
     /// Leaf (RVA, size) entries of resource `type` (3 = RT_ICON, 14 = RT_GROUP_ICON, 16 = RT_VERSION), by id.
     func resources(type: UInt32) -> [(id: UInt32, rva: Int, size: Int)] {
         guard let (rva, _) = directory(2), let root = offset(ofRVA: rva) else { return [] }
+        // One budget for the whole walk: nested directories of up to 65535 entries each would otherwise let a
+        // small crafted file keep the parser busy for minutes.
+        var budget = 4096
         func entries(_ dir: Int) -> [(id: UInt32, isDirectory: Bool, target: Int)] {
             guard let named = data.u16(dir + 12), let ids = data.u16(dir + 14) else { return [] }
+            let count = min(Int(named) + Int(ids), budget)
+            budget -= count
             var out: [(UInt32, Bool, Int)] = []
-            for i in 0..<min(Int(named) + Int(ids), 2048) {
+            for i in 0..<count {
                 guard let name = data.u32(dir + 16 + i * 8), let target = data.u32(dir + 20 + i * 8) else { break }
                 out.append((name, target & 0x8000_0000 != 0, root + Int(target & 0x7FFF_FFFF)))
             }
             return out
         }
         var result: [(UInt32, Int, Int)] = []
-        for typeEntry in entries(root) where typeEntry.id == type && typeEntry.isDirectory {
+        for typeEntry in entries(root).filter({ $0.id == type && $0.isDirectory }).prefix(1) {
             for nameEntry in entries(typeEntry.target) where nameEntry.isDirectory {
                 // First language only.
                 if let lang = entries(nameEntry.target).first, !lang.isDirectory,
@@ -247,10 +252,15 @@ struct PEFile {
               let count = dir.u16(4).map(Int.init), count > 0 else { return nil }
         let icons = Dictionary(resources(type: 3).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         var images: [(entry: Data, payload: Data)] = []
+        var used = Set<UInt16>(), total = 0
         for i in 0..<min(count, 64) {
             let e = 6 + i * 14
-            guard let entry = dir.slice(e, 12), let id = dir.u16(e + 12),
-                  let icon = icons[UInt32(id)], let payload = resourceData(rva: icon.rva, size: icon.size) else { continue }
+            // Each icon image once, each at most 2 MB, 8 MB in all: a group could otherwise reference one huge
+            // image 64 times.
+            guard let entry = dir.slice(e, 12), let id = dir.u16(e + 12), used.insert(id).inserted,
+                  let icon = icons[UInt32(id)], icon.size <= 2 << 20, total + icon.size <= 8 << 20,
+                  let payload = resourceData(rva: icon.rva, size: icon.size) else { continue }
+            total += payload.count
             images.append((entry, payload))
         }
         guard !images.isEmpty else { return nil }
