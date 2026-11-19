@@ -361,3 +361,105 @@ final class Marker {}
         #expect(a.architecture == .x86)
     }
 }
+
+@Suite struct ProgramsTests {
+    let fm = FileManager.default
+
+    /// Writes a minimal Shell Link with LinkInfo (local base path) and Unicode working dir + arguments.
+    static func link(target: String, arguments: String? = nil, workingDirectory: String? = nil) -> Data {
+        func u16(_ v: Int) -> [UInt8] { [UInt8(v & 0xFF), UInt8(v >> 8 & 0xFF)] }
+        func u32(_ v: Int) -> [UInt8] { u16(v & 0xFFFF) + u16(v >> 16) }
+        var flags = 0x2 | 0x80
+        if workingDirectory != nil { flags |= 0x10 }
+        if arguments != nil { flags |= 0x20 }
+        var d = u32(0x4C) + [UInt8](repeating: 0, count: 16) + u32(flags) + [UInt8](repeating: 0, count: 0x4C - 0x18)
+        let base = Array(target.utf8) + [0]
+        let header = 28
+        let info = u32(header + base.count + 1) + u32(header) + u32(1) + u32(0) + u32(header) + u32(0)
+            + u32(header + base.count) + base + [0]
+        d += info
+        for s in [workingDirectory, arguments].compactMap({ $0 }) {
+            let units = Array(s.utf16)
+            d += u16(units.count) + units.flatMap { u16(Int($0)) }
+        }
+        return Data(d)
+    }
+
+    @Test func parsesShellLinks() {
+        let l = ShellLink(Self.link(target: #"C:\Games\Thing\thing.exe"#, arguments: #"-windowed "a b""#,
+                                    workingDirectory: #"C:\Games\Thing"#))
+        #expect(l == ShellLink(target: #"C:\Games\Thing\thing.exe"#, arguments: #"-windowed "a b""#,
+                               workingDirectory: #"C:\Games\Thing"#))
+        #expect(ShellLink(Data("not a link".utf8)) == nil)
+        let real = Self.link(target: #"C:\x.exe"#)
+        for n in 0..<real.count { _ = ShellLink(real.prefix(n)) }   // truncations never crash
+    }
+
+    @Test func splitsArgumentsLikeWindows() {
+        #expect(WineLauncher.splitArguments(#"-a  "b c" d"#) == ["-a", "b c", "d"])
+        #expect(WineLauncher.splitArguments("") == [])
+        #expect(WineLauncher.splitArguments(#""""#) == [""])
+    }
+
+    func bottle() throws -> Bottle {
+        let store = BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-prog-\(UUID().uuidString)"))
+        return try store.create(name: "Programs")
+    }
+
+    @Test func findsStartMenuProgramsAndSkipsUninstallers() throws {
+        let b = try bottle()
+        let app = b.driveC.appending(path: "Program Files/Thing")
+        try fm.createDirectory(at: app, withIntermediateDirectories: true)
+        let fixture = try #require(Bundle.module.url(forResource: "game64", withExtension: "exe"))
+        try fm.copyItem(at: fixture, to: app.appending(path: "Thing.exe"))
+        try Data().write(to: app.appending(path: "unins000.exe"))
+        let menu = b.driveC.appending(path: "ProgramData/Microsoft/Windows/Start Menu/Programs/Thing")
+        try fm.createDirectory(at: menu, withIntermediateDirectories: true)
+        // Windows paths are case-insensitive; the shortcut uses different case than the folders.
+        try Self.link(target: #"C:\PROGRAM FILES\thing\thing.exe"#).write(to: menu.appending(path: "Thing.lnk"))
+        try Self.link(target: #"C:\Program Files\Thing\unins000.exe"#).write(to: menu.appending(path: "Uninstall Thing.lnk"))
+        try Self.link(target: #"C:\Program Files\Thing\missing.exe"#).write(to: menu.appending(path: "Gone.lnk"))
+        let programs = b.startMenuPrograms()
+        #expect(programs.map(\.name) == ["Thing"])
+        #expect(programs.first?.isGame == true)
+        #expect(b.unixPath(forWindowsPath: #"c:\program files\THING\Thing.exe"#)?.lastPathComponent == "Thing.exe")
+        #expect(b.unixPath(forWindowsPath: #"C:\..\etc\passwd"#) == nil)
+        #expect(b.unixPath(forWindowsPath: #"D:\x.exe"#) == nil)
+        try b.savePrograms(programs)
+        #expect(b.programs() == programs)
+    }
+
+    @Test func picksD3DMetalPerLaunchForGamesIncludingTheirLaunchers() throws {
+        let fakeRedist = D3DMetalRedist(lib: URL(filePath: "/nonexistent"))
+        let withD3DMetal = WineLauncher(runtime: WineRuntime(root: URL(filePath: "/x")), d3dmetal: fakeRedist)
+        let without = WineLauncher(runtime: WineRuntime(root: URL(filePath: "/x")))
+        var p = Program(name: "G", windowsPath: #"C:\g.exe"#, isGame: true)
+        #expect(withD3DMetal.effectiveGraphics(for: p) == .d3dmetal)
+        #expect(without.effectiveGraphics(for: p) == .wined3d)
+        p.isGame = false
+        #expect(withD3DMetal.effectiveGraphics(for: p) == .wined3d)      // licence: games only
+        p.isGame = true; p.graphics = .wined3d
+        #expect(withD3DMetal.effectiveGraphics(for: p) == .wined3d)      // user override
+    }
+
+    @Test func aLauncherNextToAGameCountsAsAGame() throws {
+        let dir = fm.temporaryDirectory.appending(path: "harbor-launcher-\(UUID().uuidString)/bin")
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let app = try #require(Bundle.module.url(forResource: "app64", withExtension: "exe"))
+        let game = try #require(Bundle.module.url(forResource: "game64", withExtension: "exe"))
+        try fm.copyItem(at: app, to: dir.appending(path: "launcher.exe"))
+        #expect(!Bottle.looksLikeGame(dir.appending(path: "launcher.exe")))
+        try fm.copyItem(at: game, to: dir.appending(path: "engine.exe"))
+        #expect(Bottle.looksLikeGame(dir.appending(path: "launcher.exe")))
+    }
+
+    static let heavenBottle = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appending(path: "Harbor/Bottles/heaven")
+
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: heavenBottle.appending(path: "bottle.json").path)))
+    func findsHeavenInARealBottle() throws {
+        let programs = try Bottle.load(from: Self.heavenBottle).startMenuPrograms()
+        #expect(programs.map(\.name) == ["Heaven Benchmark 4.0"])
+        #expect(programs.first?.windowsPath.hasSuffix(#"\heaven.bat"#) == true)
+    }
+}
