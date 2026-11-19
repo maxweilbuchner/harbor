@@ -106,3 +106,28 @@ extension WineLauncher {
         }
     }
 }
+
+extension Bottle {
+    /// Whether Wine will update this bottle's Windows files on its next start (20–30 s, silently): wineboot does
+    /// so when `prefix/.update-timestamp` differs from the runtime's `share/wine/wine.inf` modification time
+    /// (programs/wineboot/wineboot.c, update_wineprefix). "disable" turns that off.
+    public func needsWindowsUpdate(for runtime: WineRuntime) -> Bool {
+        guard let stamp = try? String(contentsOf: prefix.appending(path: ".update-timestamp"), encoding: .utf8) else {
+            return FileManager.default.fileExists(atPath: prefix.path)   // a prefix without a stamp gets updated
+        }
+        if stamp.hasPrefix("disable") { return false }
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: runtime.root.appending(path: "share/wine/wine.inf").path),
+              let modified = attrs[.modificationDate] as? Date else { return false }
+        let recorded = UInt64(stamp.prefix { $0.isNumber }) ?? 0
+        return recorded != UInt64(modified.timeIntervalSince1970)
+    }
+}
+
+extension WineLauncher {
+    /// Brings a bottle's Windows files up to date with the runtime (what Wine would otherwise do silently on the
+    /// next program start) and waits for it.
+    public func updateWindows(_ bottle: Bottle) async throws {
+        try await execute(bottle, arguments: ["wineboot", "-u"], label: "update")
+        try await waitForShutdown(bottle)
+    }
+}

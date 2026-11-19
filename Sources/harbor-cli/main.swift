@@ -42,8 +42,10 @@ func bottle(_ name: String) -> Bottle {
 switch args.first {
 case "list":
     let scan = store.scan()
+    let runtime = WineRuntime.locate()
     for b in scan.bottles {
-        print("\(b.settings.name)\t\(b.settings.windowsVersion.rawValue)\t\(b.settings.graphics.rawValue)\t\(b.root.path)")
+        let update = runtime.map { b.needsWindowsUpdate(for: $0) ? "needs-update" : "up-to-date" } ?? "-"
+        print("\(b.settings.name)\t\(b.settings.windowsVersion.rawValue)\t\(b.settings.graphics.rawValue)\t\(update)\t\(b.root.path)")
     }
     for (folder, error) in scan.damaged {
         print("DAMAGED\t\(folder.path)\t\(error.localizedDescription)")

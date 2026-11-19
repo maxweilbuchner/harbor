@@ -219,6 +219,11 @@ struct AddProgressSheet: View {
                 ProgressView().controlSize(.large)
                 Text(storeTitle(step)).font(.headline)
                 Text(storeDetail(step)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            case .updating:
+                ProgressView().controlSize(.large)
+                Text("Updating Windows for \(state.fileName)…").font(.headline)
+                Text("This happens once after Harbor updates its Windows support. It takes about half a minute.")
+                    .foregroundStyle(.secondary).multilineTextAlignment(.center)
             case .failed(let message):
                 Image(systemName: "exclamationmark.triangle").font(.largeTitle).foregroundStyle(.orange)
                 Text("Couldn’t Add \(state.fileName)").font(.headline)

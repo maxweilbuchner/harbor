@@ -50,7 +50,12 @@ fi
 ARCHIVES=$(ls "$DIST"/*.tar.xz)
 # Order matters for apps downloading meanwhile: new archives first, then the manifest that points at them,
 # and only then remove archives that no manifest references any more.
-gh release upload "$TAG" -R "$REPO" --clobber $ARCHIVES $SOURCES
+# Skip files the release already has at the same size (the source archives rarely change: ~750 MB).
+present=$(gh release view "$TAG" -R "$REPO" --json assets -q '.assets[] | "\(.name) \(.size)"')
+for f in $ARCHIVES $SOURCES; do
+  if echo "$present" | grep -qxF "$(basename "$f") $(stat -f %z "$f")"; then echo "unchanged: $(basename "$f")"; continue; fi
+  gh release upload "$TAG" -R "$REPO" --clobber "$f"
+done
 gh release upload "$TAG" -R "$REPO" --clobber "$DIST/runtime.json" "$DIST/runtime.json.sig"
 keep=$(for f in $ARCHIVES $SOURCES; do basename "$f"; done; echo runtime.json; echo runtime.json.sig)
 gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name' | while read -r name; do
