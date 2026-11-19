@@ -123,19 +123,36 @@ public struct AddProgram: Sendable {
         return program
     }
 
-    /// Folders that hold many unrelated files: the home folder, its standard folders, Applications, volume roots.
+    /// Folders that hold unrelated files, from which only the program itself may be copied: the home folder, its
+    /// standard folders, iCloud Drive, any Downloads/Desktop/Documents folder, Applications, disk roots, and any
+    /// folder containing personal documents (a program's own folder doesn't hold PDFs and photos).
     static func isSharedFolder(_ folder: URL) -> Bool {
         let fm = FileManager.default
         let path = folder.standardizedFileURL.resolvingSymlinksInPath().path
         let home = fm.homeDirectoryForCurrentUser.standardizedFileURL.resolvingSymlinksInPath().path
-        var shared: Set<String> = ["/", "/Applications", "/Users", "/Volumes", home]
+        let iCloud = home + "/Library/Mobile Documents/com~apple~CloudDocs"
+        var shared: Set<String> = ["/", "/Applications", "/Users", "/Volumes", home, iCloud]
         for name in ["Downloads", "Desktop", "Documents", "Applications", "Library", "Movies", "Music", "Pictures", "Public"] {
             shared.insert(home + "/" + name)
         }
         if shared.contains(path) { return true }
-        // A disk's root, e.g. /Volumes/USB.
+        let name = folder.lastPathComponent.lowercased()
+        if ["downloads", "desktop", "documents"].contains(name) { return true }
+        if path.hasPrefix(iCloud + "/") && path.dropFirst(iCloud.count + 1).split(separator: "/").count <= 1 { return true }
         let parts = path.split(separator: "/")
-        return parts.count == 2 && parts[0] == "Volumes"
+        if parts.count == 2 && parts[0] == "Volumes" { return true }             // a disk's root, e.g. /Volumes/USB
+        return containsPersonalDocuments(folder)
+    }
+
+    static let personalDocumentExtensions: Set<String> = [
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "pages", "numbers", "key", "odt", "ods", "rtf",
+        "jpg", "jpeg", "heic", "png", "gif", "tiff", "raw", "mov", "mp4", "m4v", "mp3", "m4a", "wav",
+        "zip", "dmg", "pkg", "eml", "csv", "epub"]
+
+    /// True if the folder itself (not its subfolders) holds personal documents.
+    static func containsPersonalDocuments(_ folder: URL) -> Bool {
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        return files.prefix(500).contains { personalDocumentExtensions.contains($0.pathExtension.lowercased()) }
     }
 
     private func programFilesExecutables(in bottle: Bottle) -> Set<URL> {

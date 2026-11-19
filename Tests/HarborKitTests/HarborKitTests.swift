@@ -382,6 +382,14 @@ final class Marker {}
 
     static let heavenInstaller = WineRuntime.checkoutRoot.appending(path: "build/games/Unigine_Heaven-4.0.exe")
 
+    static let winrarInstaller = FileManager.default.homeDirectoryForCurrentUser
+        .appending(path: "Library/Mobile Documents/com~apple~CloudDocs/Downloads/winrar-x64-723.exe")
+
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: winrarInstaller.path)))
+    func detectsSelfExtractingInstallers() throws {
+        #expect(try ProgramAnalysis.analyze(Self.winrarInstaller).installer == .selfExtracting)
+    }
+
     @Test(.enabled(if: FileManager.default.fileExists(atPath: heavenInstaller.path)))
     func detectsInnoSetupInstallers() throws {
         let a = try ProgramAnalysis.analyze(Self.heavenInstaller)
@@ -457,7 +465,18 @@ final class Marker {}
         try Self.link(target: #"C:\PROGRAM FILES\thing\thing.exe"#).write(to: menu.appending(path: "Thing.lnk"))
         try Self.link(target: #"C:\Program Files\Thing\unins000.exe"#).write(to: menu.appending(path: "Uninstall Thing.lnk"))
         try Self.link(target: #"C:\Program Files\Thing\missing.exe"#).write(to: menu.appending(path: "Gone.lnk"))
-        let programs = b.startMenuPrograms()
+        // Desktop-only shortcuts (WinRAR's installer) count; a Desktop linked to the Mac's is never scanned.
+        let publicDesktop = b.driveC.appending(path: "users/Public/Desktop")
+        try fm.createDirectory(at: publicDesktop, withIntermediateDirectories: true)
+        try fm.copyItem(at: fixture, to: app.appending(path: "Other.exe"))
+        try Self.link(target: #"C:\Program Files\Thing\Other.exe"#).write(to: publicDesktop.appending(path: "Other.lnk"))
+        let macDesktop = fm.temporaryDirectory.appending(path: "harbor-macdesk-\(UUID().uuidString)")
+        try fm.createDirectory(at: macDesktop, withIntermediateDirectories: true)
+        try Self.link(target: #"C:\Program Files\Thing\unrelated.exe"#).write(to: macDesktop.appending(path: "Mac.lnk"))
+        try fm.createDirectory(at: b.driveC.appending(path: "users/someone"), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: b.driveC.appending(path: "users/someone/Desktop"), withDestinationURL: macDesktop)
+        let programs = b.startMenuPrograms().filter { $0.name != "Other" }
+        #expect(b.startMenuPrograms().map(\.name).sorted() == ["Other", "Thing"])
         #expect(programs.map(\.name) == ["Thing"])
         #expect(programs.first?.isGame == true)
         #expect(b.unixPath(forWindowsPath: #"c:\program files\THING\Thing.exe"#)?.lastPathComponent == "Thing.exe")
@@ -549,6 +568,15 @@ final class Marker {}
         }
         #expect(AddProgram.isSharedFolder(URL(filePath: "/Volumes/USB")))
         #expect(AddProgram.isSharedFolder(URL(filePath: "/Applications")))
+        #expect(AddProgram.isSharedFolder(home.appending(path: "Library/Mobile Documents/com~apple~CloudDocs/Downloads")))
+        #expect(AddProgram.isSharedFolder(URL(filePath: "/Volumes/Data/Stuff/Downloads")))
+        // A program folder that happens to hold personal documents is treated as shared too.
+        let mixed = FileManager.default.temporaryDirectory.appending(path: "harbor-mixed-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: mixed, withIntermediateDirectories: true)
+        try? Data().write(to: mixed.appending(path: "tool.exe"))
+        #expect(!AddProgram.isSharedFolder(mixed))
+        try? Data().write(to: mixed.appending(path: "Tax Return.pdf"))
+        #expect(AddProgram.isSharedFolder(mixed))
         #expect(!AddProgram.isSharedFolder(home.appending(path: "Downloads/SomeGame")))
         #expect(!AddProgram.isSharedFolder(URL(filePath: "/Volumes/USB/Games/Thing")))
     }
