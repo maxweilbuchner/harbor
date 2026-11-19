@@ -80,6 +80,14 @@ build_dep() { # $1 = name, $2 = source dir, $3... = configure args
   HOGWEED_LIBS="-L$DEPS/lib -lhogweed" GMP_CFLAGS="-I$DEPS/include" GMP_LIBS="-L$DEPS/lib -lgmp" --disable-gost  # GnuTLS 3.8.3 bundles GOST code that clashes with Nettle 3.10
 
 # --- Wine ---
+# Harbor's patches on top of CrossOver's sources (LGPL; published in this repo). Idempotent: an already-applied
+# patch is skipped; one that doesn't apply stops the build.
+for p in "$ROOT"/scripts/patches/wine/*.patch; do
+  [ -f "$p" ] || continue
+  if patch -d "$SRC/wine" -p1 -R --dry-run -s -f < "$p" >/dev/null 2>&1; then continue; fi
+  patch -d "$SRC/wine" -p1 -s -f --no-backup-if-mismatch < "$p" || { echo "build-wine: $(basename "$p") doesn't apply" >&2; exit 1; }
+  echo "build-wine: applied $(basename "$p")"
+done
 mkdir -p "$OBJ" && cd "$OBJ"
 if [ ! -f Makefile ] || [ "${1:-}" = configure ]; then
   "$SRC/wine/configure" --prefix="$OUT" \

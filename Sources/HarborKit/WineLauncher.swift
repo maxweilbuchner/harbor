@@ -68,9 +68,17 @@ public struct WineLauncher: Sendable {
         let graphics = effectiveGraphics(for: program)
         var arguments = ["start", "/wait"]
         if let dir = program.workingDirectory { arguments += ["/d", dir] }
-        arguments += ["/unix", exe.path] + Self.splitArguments(program.arguments ?? "")
+        let own = Self.splitArguments(program.arguments ?? "")
+        let known = (Self.knownArguments[exe.lastPathComponent.lowercased()] ?? []).filter { !own.contains($0) }
+        arguments += ["/unix", exe.path] + own + known
         return try run(bottle, arguments: arguments, label: program.name, runtime: try runtime(for: graphics), onExit: onExit)
     }
+
+    /// Options some programs need under Wine, added at launch (not stored, so changing them here reaches
+    /// existing libraries).
+    /// - steam.exe: its Chromium UI must composite in software (`-cef-disable-gpu`): the GPU path crashes the
+    ///   GPU process and leaves no window; with this option and scripts/patches/wine/0001 it renders.
+    static let knownArguments: [String: [String]] = ["steam.exe": ["-cef-disable-gpu"]]
 
     /// Splits a Windows command-line argument string on spaces outside double quotes.
     static func splitArguments(_ line: String) -> [String] {
