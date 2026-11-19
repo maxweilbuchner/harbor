@@ -205,7 +205,10 @@ An independent review re-checked the plan against the code and runtime. Items ma
    **Fullscreen (WindowsTests/graphics/fullscreen.sh, samples the real screen centre):** on CrossOver Wine + D3DMetal,
    fullscreen, leave + re-enter fullscreen, and switching to another app and back all show the right content,
    both for apps that re-enter fullscreen on reactivation and for ones that don't (Wine's DXGI stays fullscreen
-   across focus loss). Not yet reproduced: Superposition's blank screen; how the user left fullscreen is unknown.
+   across focus loss). Also verified with a real three-finger swipe to another Space and back (guided mode,
+   with an "away" sample proving the switch happened) and with Mission Control. Superposition's blank screen
+   after a Space swipe is therefore engine-specific (Unigine sets its own fullscreen video mode); next step is a
+   guided Superposition run with DXGI/D3DMetal logging, scheduled with game compatibility (M5/M6).
    Superposition's forced fullscreen is likely a Basic-edition limit (presets only), unconfirmed.
    **Harbor requirement found:** a program started by Harbor isn't activated by macOS (its fullscreen window
    stays behind the previous app until activated), so the launcher must bring launched programs to the front.
