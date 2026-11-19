@@ -18,7 +18,8 @@ export PATH="/opt/homebrew/bin:$PATH"
 [ -x "$SPARKLE_BIN/sign_update" ] || { echo "release-app: Sparkle tools missing (scripts/fetch-sources.sh)" >&2; exit 1; }
 
 case "$MODE" in
-  --publish) PREFIX="https://github.com/$REPO/releases/download/v$VERSION/"; OUT=build/release; APPCAST=updates/appcast.xml ;;
+  # A real release must never carry test servers left in the environment.
+  --publish) unset HARBOR_RUNTIME_MANIFEST_URL HARBOR_UPDATE_FEED_URL; PREFIX="https://github.com/$REPO/releases/download/v$VERSION/"; OUT=build/release; APPCAST=updates/appcast.xml ;;
   --local) PREFIX="$2"; OUT="$3"; APPCAST="$OUT/appcast.xml"; mkdir -p "$OUT"; [ -f "$APPCAST" ] || cp updates/appcast.xml "$APPCAST" ;;
   *) echo "usage: release-app.sh <version> --publish | --local <url-prefix> <dir>" >&2; exit 2 ;;
 esac
