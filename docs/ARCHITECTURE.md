@@ -182,7 +182,12 @@ An independent review re-checked the plan against the code and runtime. Items ma
 3. **M2 — own Wine (done 2026-11-19, local build; CI later):** CrossOver 26.3 Wine builds; `winemac.so` exports
    `macdrv_functions`; bottles in 23 s from a relocated copy with mono/gecko installed silently; D3DMetal 4.0b3
    and MoltenVK load. Open: GnuTLS (HTTPS inside Windows apps), GStreamer (media), SDL2 (controllers).
-4. **M3 — rendering proof:** self-built console, D3D11 and D3D12 triangle test exes that write a PNG;
+4. **M3 — rendering proof (test programs done 2026-11-19; real games pending):** `tests/graphics/run.sh`.
+   On Harbor's CrossOver Wine + D3DMetal 4.0b3, D3D11 and D3D12 triangles render correctly offscreen and through
+   a windowed flip-model swap chain (30 presented frames). On stock Wine 11.21 + D3DMetal both crash at device
+   creation, which confirms the reason for M2. Plain Wine: D3D12 (vkd3d → MoltenVK) passes; D3D11 only reaches
+   feature level 9.3 on MoltenVK, so SM5 shaders fail, which is why DXMT/DXVK matter for D3D11 without D3DMetal.
+   Original plan: self-built console, D3D11 and D3D12 triangle test exes that write a PNG;
    env-gated integration tests on a self-hosted Mac; then one real DX11 and one DX12 game.
 5. **M4 — signing spike:** Developer ID app bundle (Xcode project or bundling script), notarization,
    spawning a downloaded runtime outside the bundle, URL scheme, Sparkle.
