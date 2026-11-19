@@ -352,6 +352,26 @@ final class Marker {}
         }
     }
 
+    /// A PE whose resource tree repeats 65535-entry directories pointing at themselves: the walk must stay bounded.
+    @Test func hostileResourceTreesAreBounded() throws {
+        var pe = try Data(contentsOf: try #require(Bundle.module.url(forResource: "app64", withExtension: "exe")))
+        let file = try #require(PEFile(pe))
+        let (rva, _) = try #require(file.directory(2))
+        let root = try #require(file.offset(ofRVA: rva))
+        func put16(_ v: UInt16, _ at: Int) { pe[at] = UInt8(v & 0xFF); pe[at + 1] = UInt8(v >> 8) }
+        func put32(_ v: UInt32, _ at: Int) { for i in 0..<4 { pe[at + i] = UInt8((v >> (8 * UInt32(i))) & 0xFF) } }
+        put16(0, root + 12); put16(0xFFFF, root + 14)
+        // First entries: type 3 (RT_ICON) and 14, both subdirectories pointing back at the root.
+        for i in 0..<64 where root + 24 + i * 8 <= pe.count {
+            put32(i % 2 == 0 ? 3 : 14, root + 16 + i * 8); put32(0x8000_0000, root + 20 + i * 8)
+        }
+        let url = FileManager.default.temporaryDirectory.appending(path: "hostile-\(UUID().uuidString).exe")
+        try pe.write(to: url)
+        let start = Date()
+        _ = try? ProgramAnalysis.analyze(url)
+        #expect(Date().timeIntervalSince(start) < 2)
+    }
+
     static let heavenInstaller = WineRuntime.checkoutRoot.appending(path: "build/games/Unigine_Heaven-4.0.exe")
 
     @Test(.enabled(if: FileManager.default.fileExists(atPath: heavenInstaller.path)))

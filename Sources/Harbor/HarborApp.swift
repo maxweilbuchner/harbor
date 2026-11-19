@@ -241,7 +241,9 @@ final class AppModel {
     /// programs it installed.
     func add(_ file: URL, allowDuplicate: Bool = false) async {
         guard let launcher, addState == nil else { return }
-        if !allowDuplicate, let name = AddProgram.suggestedName(for: file),
+        // Reading the file happens off the main actor, so a slow or hostile file can't freeze the window.
+        let suggested = await Task.detached { AddProgram.suggestedName(for: file) }.value
+        if !allowDuplicate, let name = suggested,
            let existing = library.first(where: { $0.bottle.settings.name.caseInsensitiveCompare(name) == .orderedSame }) {
             pendingDuplicate = (file, existing, name)
             return
