@@ -1,0 +1,17 @@
+--- a/dlls/win32u/dce.c	2026-11-19 21:29:36
++++ b/dlls/win32u/dce.c	2026-11-19 21:29:36
+@@ -762,6 +762,14 @@
+     params.hwnd = HandleToLong( surface->header.hwnd );
+     params.info = surface->info;
+     params.bounds = *dirty;
++
++    /* HARBOR HACK: a surface for drawing into another process's window (parent == hwnd, see
++     * get_cross_process_surface) only holds what was drawn through it, the rest is its initial white.
++     * window_surface_flush() widens the dirty rect to multiples of 8 pixels, which would paint up to
++     * 7 columns of that white beside each update: send the exact drawn bounds instead. */
++    if (surface->parent == surface->header.hwnd &&
++        !intersect_rect( &params.bounds, &window_surface->bounds, &window_surface->rect ))
++        return TRUE;
+ 
+     return send_message_timeout( surface->parent, WM_WINE_FLUSHSHMSURFACE, 0, (LPARAM)&params,
+                                  SMTO_ABORTIFHUNG | SMTO_BLOCK, 500, FALSE );
