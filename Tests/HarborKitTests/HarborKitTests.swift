@@ -169,13 +169,18 @@ final class Marker {}
         #expect(D3DMetalRedist.isComplete(first.root)) // the old one is left alone; it may still be in use
     }
 
-    @Test func automaticPicksD3DMetalOnlyWhenInstalled() throws {
+    @Test func d3dmetalOnlyWhenChosenAndInstalled() throws {
         let (base, redist, root) = try fixture()
         let store = BottleStore(directory: root.appending(path: "bottles"))
-        let bottle = try store.create(name: "Game")
+        var bottle = try store.create(name: "Game")
         let runtimes = root.appending(path: "runtimes")
-        #expect(WineLauncher(runtime: base, runtimesDirectory: runtimes).effectiveGraphics(for: bottle) == .wined3d)
         let launcher = WineLauncher(runtime: base, d3dmetal: redist, runtimesDirectory: runtimes)
+        // Automatic never picks D3DMetal: it is licensed for games only and apps aren't classified yet.
+        #expect(launcher.effectiveGraphics(for: bottle) == .wined3d)
+        bottle.settings.graphics = .dxmt // not shipped yet
+        #expect(launcher.effectiveGraphics(for: bottle) == .wined3d)
+        bottle.settings.graphics = .d3dmetal
+        #expect(WineLauncher(runtime: base, runtimesDirectory: runtimes).effectiveGraphics(for: bottle) == .wined3d)
         #expect(launcher.effectiveGraphics(for: bottle) == .d3dmetal)
         let derived = try launcher.runtime(for: bottle).root
         #expect(derived.deletingLastPathComponent().path(percentEncoded: false) == runtimes.path(percentEncoded: false) + "/",
