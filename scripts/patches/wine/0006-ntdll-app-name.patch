@@ -1,0 +1,278 @@
+diff -u a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
+--- a/dlls/ntdll/unix/loader.c	2026-11-19 21:56:34
++++ b/dlls/ntdll/unix/loader.c	2026-11-19 22:00:44
+@@ -554,7 +554,7 @@
+         exe_name_len = strlen(exe_name);
+ 
+     if (exe_name_len)
+-        ret = strdup(exe_name);
++        ret = strndup(exe_name, exe_name_len);  /* HARBOR HACK: without the extension, as the comment above says */
+     else
+         ret = NULL;
+ 
+@@ -679,8 +679,9 @@
+      * When the preloader is not being used, WINEDLLPATH needs to be set correctly for
+      * the loader to find ntdll.so, so don't even attempt this unless WINEDLLPATH is set.
+      */
+-    if (getenv("WINEDLLPATH"))
+-        replace_wineloader_path_with_link( &(argv[1]), image_path );
++    /* HARBOR HACK: do it without WINEDLLPATH too. The link's directory has a symlink to ntdll.so for
++     * the loader, and init_paths() resolves it to the real directory. */
++    replace_wineloader_path_with_link( &(argv[1]), image_path );
+ #endif
+ 
+     execv( argv[1], argv + 1 );
+diff -u a/dlls/ntdll/unix/process.c b/dlls/ntdll/unix/process.c
+--- a/dlls/ntdll/unix/process.c	2026-11-19 21:56:34
++++ b/dlls/ntdll/unix/process.c	2026-11-19 22:00:44
+@@ -27,6 +27,8 @@
+ 
+ #include <errno.h>
+ #include <fcntl.h>
++#include <sys/stat.h>
++#include <sys/mman.h>
+ #include <signal.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+@@ -837,11 +839,211 @@
+ }
+ 
+ 
++/* HARBOR HACK - START: the program's display name, for the Dock, Cmd-Tab and the application menu.
++ *
++ * macOS names a process that isn't in an app bundle after its executable file, so every Wine process
++ * was "wine". CW HACK 22144 (loader.c) starts each process through a link to the loader that is named
++ * after the Windows executable; this picks a better name than the file name. Best first:
++ *   - "AppName" under HKCU\Software\Wine\AppDefaults\<exe>\Mac Driver (lets a helper process that
++ *     owns the windows carry the name of its program, e.g. steamwebhelper.exe -> "Steam")
++ *   - ProductName, then FileDescription, from the executable's version resource
++ *   - otherwise NULL: the caller falls back to the file name
++ * The result ends in ".exe", which the loader link code strips again. */
++#ifdef __APPLE__
++
++static char *usable_app_name( const WCHAR *str, unsigned int len )
++{
++    static const WCHAR wineW[] = {'W','i','n','e'};  /* ProductName of Wine's own programs */
++    static const WCHAR osW[] = {'O','p','e','r','a','t','i','n','g',' ','S','y','s','t','e','m'};
++    unsigned int i;
++    char *ret, *p;
++
++    while (len && str[len - 1] <= ' ') len--;
++    while (len && *str <= ' ') { str++; len--; }
++    if (!len || len > 64) return NULL;
++    if (len == ARRAY_SIZE(wineW) && !wcsnicmp( str, wineW, len )) return NULL;
++    for (i = 0; i + ARRAY_SIZE(osW) <= len; i++)
++        if (!wcsnicmp( str + i, osW, ARRAY_SIZE(osW) )) return NULL;
++
++    if (!(ret = malloc( len * 3 + sizeof(".exe") ))) return NULL;
++    len = ntdll_wcstoumbs( str, len, ret, len * 3, FALSE );
++    ret[len] = 0;
++    for (p = ret; *p; p++) if (*p == '/' || *p == ':' || *p == '\\' || (unsigned char)*p < ' ') *p = '-';
++    strcpy( ret + len, ".exe" );
++    return ret;
++}
++
++/* find a string like ProductName in a version resource */
++static char *version_resource_app_name( const BYTE *data, unsigned int size, const char *key )
++{
++    WCHAR keyW[32];
++    unsigned int i, key_len = strlen( key ) + 1;  /* including the null */
++
++    for (i = 0; i < key_len; i++) keyW[i] = key[i];
++    for (i = 6; i + key_len * sizeof(WCHAR) <= size; i += 2)
++    {
++        const WORD *header = (const WORD *)(data + i - 6);  /* length, value length, type */
++        unsigned int value = (i + key_len * sizeof(WCHAR) + 3) & ~3, value_len = header[1];
++        char *ret;
++
++        if (memcmp( data + i, keyW, key_len * sizeof(WCHAR) )) continue;
++        if (header[2] != 1 || !value_len || value + value_len * sizeof(WCHAR) > size) continue;
++        if (!((const WCHAR *)(data + value))[value_len - 1]) value_len--;
++        if ((ret = usable_app_name( (const WCHAR *)(data + value), value_len ))) return ret;
++    }
++    return NULL;
++}
++
++static const void *pe_rva_ptr( const BYTE *file, size_t file_size, const IMAGE_SECTION_HEADER *sec,
++                               unsigned int count, DWORD rva, DWORD len )
++{
++    unsigned int i;
++
++    for (i = 0; i < count; i++)
++    {
++        DWORD offset = rva - sec[i].VirtualAddress;
++        if (rva < sec[i].VirtualAddress || offset >= sec[i].SizeOfRawData) continue;
++        if (len > sec[i].SizeOfRawData - offset) return NULL;
++        if ((size_t)sec[i].PointerToRawData + offset + len > file_size) return NULL;
++        return file + sec[i].PointerToRawData + offset;
++    }
++    return NULL;
++}
++
++/* first entry (or the one with the given id) of a resource directory; returns its offset field */
++static DWORD pe_resource_entry( const BYTE *res, DWORD res_size, DWORD dir_offset, int id )
++{
++    const IMAGE_RESOURCE_DIRECTORY *dir;
++    const IMAGE_RESOURCE_DIRECTORY_ENTRY *entry;
++    unsigned int i, count;
++
++    if (dir_offset > res_size || res_size - dir_offset < sizeof(*dir)) return 0;
++    dir = (const IMAGE_RESOURCE_DIRECTORY *)(res + dir_offset);
++    count = dir->NumberOfNamedEntries + dir->NumberOfIdEntries;
++    if ((res_size - dir_offset - sizeof(*dir)) / sizeof(*entry) < count) return 0;
++    entry = (const IMAGE_RESOURCE_DIRECTORY_ENTRY *)(dir + 1);
++    for (i = 0; i < count; i++)
++        if (id < 0 || (!entry[i].NameIsString && entry[i].Id == id)) return entry[i].OffsetToData;
++    return 0;
++}
++
++static char *pe_file_app_name( const char *unix_name )
++{
++    const IMAGE_DOS_HEADER *dos;
++    const IMAGE_NT_HEADERS64 *nt;
++    const IMAGE_SECTION_HEADER *sec;
++    const IMAGE_DATA_DIRECTORY *dir;
++    const IMAGE_RESOURCE_DATA_ENTRY *data_entry;
++    const BYTE *file, *res, *version;
++    unsigned int sec_count, offset;
++    struct stat st;
++    char *ret = NULL;
++    size_t size;
++    int fd;
++
++    if ((fd = open( unix_name, O_RDONLY )) == -1) return NULL;
++    if (fstat( fd, &st ) || st.st_size < sizeof(*dos) ||
++        (file = mmap( NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0 )) == MAP_FAILED)
++    {
++        close( fd );
++        return NULL;
++    }
++    close( fd );
++    size = st.st_size;
++
++    dos = (const IMAGE_DOS_HEADER *)file;
++    if (dos->e_magic != IMAGE_DOS_SIGNATURE ||
++        (size_t)dos->e_lfanew + sizeof(*nt) > size) goto done;
++    nt = (const IMAGE_NT_HEADERS64 *)(file + dos->e_lfanew);
++    if (nt->Signature != IMAGE_NT_SIGNATURE) goto done;
++    if (nt->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
++        dir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE];
++    else if (nt->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
++        dir = &((const IMAGE_NT_HEADERS32 *)nt)->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE];
++    else goto done;
++    sec = (const IMAGE_SECTION_HEADER *)((const BYTE *)&nt->OptionalHeader + nt->FileHeader.SizeOfOptionalHeader);
++    sec_count = nt->FileHeader.NumberOfSections;
++    if ((const BYTE *)dir + sizeof(*dir) > (const BYTE *)sec) goto done;
++    if ((size_t)((const BYTE *)sec - file) + sec_count * sizeof(*sec) > size) goto done;
++    if (!dir->Size || !(res = pe_rva_ptr( file, size, sec, sec_count, dir->VirtualAddress, dir->Size ))) goto done;
++
++    /* type RT_VERSION -> first name -> first language */
++    offset = pe_resource_entry( res, dir->Size, 0, 16 );
++    if (!(offset & 0x80000000)) goto done;
++    offset = pe_resource_entry( res, dir->Size, offset & 0x7fffffff, -1 );
++    if (!(offset & 0x80000000)) goto done;
++    offset = pe_resource_entry( res, dir->Size, offset & 0x7fffffff, -1 );
++    if (!offset || (offset & 0x80000000) || offset > dir->Size || dir->Size - offset < sizeof(*data_entry)) goto done;
++    data_entry = (const IMAGE_RESOURCE_DATA_ENTRY *)(res + offset);
++    if (!(version = pe_rva_ptr( file, size, sec, sec_count, data_entry->OffsetToData, data_entry->Size ))) goto done;
++
++    if (!(ret = version_resource_app_name( version, data_entry->Size, "ProductName" )))
++        ret = version_resource_app_name( version, data_entry->Size, "FileDescription" );
++
++done:
++    munmap( (void *)file, size );
++    return ret;
++}
++
++static char *registry_app_name( const char *unix_name )
++{
++    static const char prefix[] = "\\Registry\\User\\S-1-5-21-0-0-0-1000\\Software\\Wine\\AppDefaults\\";
++    static const char suffix[] = "\\Mac Driver";
++    static const WCHAR valueW[] = {'A','p','p','N','a','m','e'};
++    char buffer[sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 128 * sizeof(WCHAR)];
++    KEY_VALUE_PARTIAL_INFORMATION *info = (KEY_VALUE_PARTIAL_INFORMATION *)buffer;
++    UNICODE_STRING name, value = { sizeof(valueW), sizeof(valueW), (WCHAR *)valueW };
++    const char *file = strrchr( unix_name, '/' );
++    OBJECT_ATTRIBUTES attr;
++    char *ret = NULL;
++    WCHAR *keyW;
++    HANDLE hkey;
++    DWORD size, len;
++
++    file = file ? file + 1 : unix_name;
++    len = sizeof(prefix) + strlen( file ) + sizeof(suffix);
++    if (!(keyW = malloc( len * sizeof(WCHAR) ))) return NULL;
++    name.Buffer = keyW;
++    for (len = 0; prefix[len]; len++) keyW[len] = prefix[len];
++    len += ntdll_umbstowcs( file, strlen( file ), keyW + len, strlen( file ) );
++    for (size = 0; suffix[size]; size++) keyW[len++] = suffix[size];
++    name.Length = name.MaximumLength = len * sizeof(WCHAR);
++    InitializeObjectAttributes( &attr, &name, OBJ_CASE_INSENSITIVE, 0, 0 );
++    if (!NtOpenKey( &hkey, KEY_READ, &attr ))
++    {
++        if (!NtQueryValueKey( hkey, &value, KeyValuePartialInformation, info, sizeof(buffer), &size ) &&
++            info->Type == REG_SZ)
++        {
++            len = info->DataLength / sizeof(WCHAR);
++            if (len && !((WCHAR *)info->Data)[len - 1]) len--;
++            ret = usable_app_name( (WCHAR *)info->Data, len );
++        }
++        NtClose( hkey );
++    }
++    free( keyW );
++    return ret;
++}
++
++static char *get_app_display_name( const char *unix_name )
++{
++    char *ret;
++
++    if (!unix_name) return NULL;
++    if (!(ret = registry_app_name( unix_name ))) ret = pe_file_app_name( unix_name );
++    return ret;
++}
++
++#else
++static char *get_app_display_name( const char *unix_name ) { return NULL; }
++#endif
++/* HARBOR HACK - END */
++
+ /***********************************************************************
+  *           spawn_process
+  */
+ static NTSTATUS spawn_process( const RTL_USER_PROCESS_PARAMETERS *params, int socketfd,
+-                               int unixdir, char *winedebug, const struct pe_image_info *pe_info )
++                               int unixdir, char *winedebug, const struct pe_image_info *pe_info,
++                               const char *app_name /* HARBOR HACK */ )
+ {
+     NTSTATUS status = STATUS_SUCCESS;
+     int stdin_fd = -1, stdout_fd = -1;
+@@ -933,7 +1135,7 @@
+                 }
+             }
+ 
+-            exec_wineloader( argv, socketfd, pe_info, image_path_name_a );
++            exec_wineloader( argv, socketfd, pe_info, app_name ? app_name : image_path_name_a );
+             _exit(1);
+         }
+ 
+@@ -1186,6 +1388,7 @@
+     data_size_t attr_len;
+     char *winedebug = NULL;
+     char *unix_name = NULL;
++    char *app_name; /* HARBOR HACK */
+     struct startup_info_data *startup_info = NULL;
+     ULONG startup_info_size, env_size;
+     int unixdir, socketfd[2] = { -1, -1 };
+@@ -1376,7 +1579,10 @@
+ 
+     /* create the child process */
+ 
+-    if ((status = spawn_process( params, socketfd[0], unixdir, winedebug, &pe_info ))) goto done;
++    app_name = get_app_display_name( unix_name ); /* HARBOR HACK */
++    status = spawn_process( params, socketfd[0], unixdir, winedebug, &pe_info, app_name );
++    free( app_name );
++    if (status) goto done;
+ 
+     close( socketfd[0] );
+     socketfd[0] = -1;

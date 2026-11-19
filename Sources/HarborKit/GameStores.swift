@@ -45,6 +45,7 @@ public struct GameStores: Sendable {
         do {
             progress(.installing)
             try await launcher.execute(bottle, arguments: [installer.path, "/S"], label: "Steam setup")
+            try await nameSteamWindows(in: bottle)
             try await launcher.waitForShutdown(bottle)
             guard let program = steamProgram(in: bottle) else { throw AddProgram.Failure.installerFoundNothing(name: "Steam") }
             try bottle.savePrograms([program])
@@ -55,6 +56,15 @@ public struct GameStores: Sendable {
             throw error
         }
     }
+
+    /// Steam's windows belong to steamwebhelper.exe ("Steam Client WebHelper"); show them as "Steam" in the Dock,
+    /// Cmd-Tab and the menu bar (read by Harbor's Wine patch 0006).
+    public func nameSteamWindows(in bottle: Bottle) async throws {
+        try await launcher.execute(bottle, arguments: ["reg", "add", Self.steamWebHelperKey, "/v", "AppName", "/d", "Steam", "/f"],
+                                   label: "Steam name")
+    }
+
+    static let steamWebHelperKey = #"HKCU\Software\Wine\AppDefaults\steamwebhelper.exe\Mac Driver"#
 
     /// The Steam client as a library entry: from the bottle's library if present, else from its Start Menu.
     /// Always a game: a fresh install holds only the bootstrapper (steam_api etc. arrive with its first update),
