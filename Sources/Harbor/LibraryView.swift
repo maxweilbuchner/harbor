@@ -116,6 +116,12 @@ struct LibraryView: View {
                     .onTapGesture(count: 2) { model.open(item) }
                     .onTapGesture { selection = [item.id] }
                     .contextMenu { ProgramMenu(item: item) }
+                    .accessibilityAction { model.open(item) }
+                    // The context menu's main actions, without a right-click (VoiceOver's Actions rotor).
+                    .accessibilityActions {
+                        Button("Show in Finder") { model.showInFinder(item) }
+                        if !item.managedByStore { Button("Remove from Library") { model.confirmRemoval(item) } }
+                    }
             }
         }
     }
@@ -141,7 +147,12 @@ struct ProgramTile: View {
             Text("Running").font(.caption2).foregroundStyle(.secondary).opacity(running ? 1 : 0)
         }
         .contentShape(.rect)
-        .accessibilityElement(children: .combine)
+        // One named element per tile (combining the children left it unnamed): VoiceOver reads the program's name
+        // and whether it's running; activating it opens the program.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(item.program.name)
+        .accessibilityValue(running ? "Running" : "")
+        .accessibilityHint("Opens the program")
         .accessibilityAddTraits(.isButton)
     }
 }
