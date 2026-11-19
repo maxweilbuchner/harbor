@@ -8,8 +8,8 @@ struct LibraryItem: Identifiable, Equatable {
     var program: Program
     var bottle: Bottle
     var icon: NSImage?
-    /// Installed and managed by Steam (read from Steam's records, not stored in Harbor's library).
-    var managedBySteam = false
+    /// Installed and managed by a game store (read from Steam's or Epic's records, not Harbor's library).
+    var managedByStore = false
     /// Image file the Mac shortcut's icon is made from.
     var iconFile: URL?
     var id: UUID { program.id }
@@ -55,7 +55,8 @@ struct LibraryView: View {
                 // Click: choose a program or installer. Menu: one-click game stores.
                 Menu("Add Program", systemImage: "plus") {
                     Button("Add Program…") { choosingFile = true }
-                    Button("Add Steam") { Task { await model.addSteam() } }
+                    Button("Add Steam") { Task { await model.addStore(.steam) } }
+                    Button("Add Epic Games Store") { Task { await model.addStore(.epic) } }
                 } primaryAction: {
                     choosingFile = true
                 }
@@ -94,7 +95,7 @@ struct LibraryView: View {
     @ViewBuilder
     private var content: some View {
         if model.library.isEmpty {
-            EmptyLibraryView(choose: { choosingFile = true }, addSteam: { Task { await model.addSteam() } })
+            EmptyLibraryView(choose: { choosingFile = true }, addSteam: { Task { await model.addStore(.steam) } })
         } else if visible.isEmpty {
             if search.isEmpty {
                 ContentUnavailableView(filter == .games ? "No Games Yet" : "No Apps Yet", systemImage: filter.symbol,
@@ -167,7 +168,7 @@ struct ProgramMenu: View {
     var body: some View {
         Button("Open") { model.open(item) }
         Button("Show in Finder") { model.showInFinder(item) }
-        if !item.managedBySteam { ownMenu }
+        if !item.managedByStore { ownMenu }
     }
 
     /// Settings for programs Harbor manages itself (Steam games are always games; uninstall them in Steam).
@@ -215,10 +216,10 @@ struct AddProgressSheet: View {
                 ProgressView().controlSize(.large)
                 Text(title(step)).font(.headline)
                 Text(detail(step)).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            case .store(let step):
+            case .store(let which, let step):
                 ProgressView().controlSize(.large)
-                Text(storeTitle(step)).font(.headline)
-                Text(storeDetail(step)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text(storeTitle(which, step)).font(.headline)
+                Text(storeDetail(which, step)).foregroundStyle(.secondary).multilineTextAlignment(.center)
             case .updating:
                 ProgressView().controlSize(.large)
                 Text("Updating Windows for \(state.fileName)…").font(.headline)
@@ -235,19 +236,20 @@ struct AddProgressSheet: View {
         .frame(width: 380)
     }
 
-    private func storeTitle(_ step: GameStores.Step) -> String {
+    private func storeTitle(_ which: GameStores.Store, _ step: GameStores.Step) -> String {
         switch step {
-        case .downloading: "Downloading Steam…"
-        case .preparingWindows: "Preparing Windows for Steam…"
-        case .installing: "Installing Steam…"
+        case .downloading: "Downloading \(which.name)…"
+        case .preparingWindows: "Preparing Windows for \(which.name)…"
+        case .installing: "Installing \(which.name)…"
         }
     }
 
-    private func storeDetail(_ step: GameStores.Step) -> String {
+    private func storeDetail(_ which: GameStores.Store, _ step: GameStores.Step) -> String {
         switch step {
-        case .downloading: "Getting the installer from Valve."
+        case .downloading: "Getting the installer from \(which.vendor)."
         case .preparingWindows: "Setting up a separate Windows environment for your games."
-        case .installing: "Steam updates itself on its first start, which can take a few minutes."
+        case .installing: which == .steam ? "Steam updates itself on its first start, which can take a few minutes."
+                                          : "This takes a minute or two."
         }
     }
 

@@ -13,6 +13,7 @@ import HarborKit
 //   harbor-cli prepare-template                       # pre-build the prefix new bottles clone
 //   harbor-cli analyze <file>                         # what Harbor reads from a program
 //   harbor-cli add-steam [--store <dir>]              # the app's one-click Steam setup
+//   harbor-cli add-epic [--store <dir>]               # the same for the Epic Games Store
 //   harbor-cli gen-runtime-key                      # private key → ~/.config/harbor/runtime-signing.key
 //   harbor-cli sign-manifest <runtime.json>         # writes runtime.json.sig with that key
 //   harbor-cli install-runtime <manifest-url> [--into <dir>]
@@ -86,11 +87,13 @@ case "add" where args.count == 2:
         let icon = FileManager.default.fileExists(atPath: b.iconFile(for: p).path) ? "icon" : "no icon"
         print("added \(p.name)\t\(p.isGame ? "game" : "app")\t\(icon)\t\(p.windowsPath)\tbottle \(b.settings.name)")
     }
-case "add-steam" where args.count == 1 || (args.count == 3 && args[1] == "--store"):
-    // The app's "Add Steam": download Valve's installer, silent install into its own bottle.
+case "add-steam", "add-epic" where args.count == 1 || (args.count == 3 && args[1] == "--store"):
+    // The app's "Add Steam" / "Add Epic Games Store": download the official installer, silent install into its
+    // own bottle.
+    let which: GameStores.Store = args[0] == "add-epic" ? .epic : .steam
     let target = args.count == 3 ? BottleStore(directory: URL(filePath: args[2])) : store
-    let (b, p) = try await GameStores(store: target, launcher: launcher()).installSteam { print("…", $0) }
-    print("Steam ready in \(b.root.path): \(p.name) \(p.windowsPath)")
+    let (b, p) = try await GameStores(store: target, launcher: launcher()).install(which) { print("…", $0) }
+    print("\(which.name) ready in \(b.root.path): \(p.name) \(p.windowsPath)")
 case "analyze" where args.count == 2:
     // What Harbor reads from a program: architecture, DirectX, game classification (incl. its folder).
     let url = URL(filePath: args[1])
@@ -146,5 +149,5 @@ case "install-runtime" where args.count == 2 || (args.count == 4 && args[2] == "
     FileHandle.standardError.write(Data("\n".utf8))
     print("installed")
 default:
-    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | analyze <file> | add-steam [--store <dir>] | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
+    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | analyze <file> | add-steam [--store <dir>] | add-epic [--store <dir>] | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
 }

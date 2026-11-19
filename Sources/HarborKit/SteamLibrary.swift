@@ -65,8 +65,11 @@ public enum SteamLibrary {
     }
 
     static func stableID(appID: Int, bottle: Bottle) -> UUID {
-        // Name-based: FNV-1a of "steam:<bottle folder>:<app id>" spread over 16 bytes.
-        let seed = "steam:\(bottle.root.lastPathComponent):\(appID)"
+        stableID(seed: "steam:\(bottle.root.lastPathComponent):\(appID)")
+    }
+
+    /// Name-based ID: FNV-1a of `seed` spread over 16 bytes.
+    static func stableID(seed: String) -> UUID {
         var bytes = [UInt8](repeating: 0, count: 16)
         var hash: UInt64 = 0xcbf29ce484222325
         for (i, byte) in (seed + "#" + seed).utf8.enumerated() {
