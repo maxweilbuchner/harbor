@@ -5,7 +5,7 @@ It bundles or downloads:
 
 | Component | License | Source |
 |---|---|---|
-| Wine (CodeWeavers' CrossOver 26.3 sources: Wine 11.0 + CrossOver patches), built by `scripts/build-wine.sh` | LGPL-2.1-or-later | https://media.codeweavers.com/pub/crossover/source/crossover-sources-26.3.0.tar.gz |
+| Wine (CodeWeavers' CrossOver 26.3 sources: Wine 11.0 + CrossOver patches, plus Harbor's patches in `scripts/patches/wine/`), built by `scripts/build-wine.sh` | LGPL-2.1-or-later | https://media.codeweavers.com/pub/crossover/source/crossover-sources-26.3.0.tar.gz + this repository |
 | FreeType 2.13.3 | FreeType License (BSD-style) or GPL-2.0 | https://download.savannah.gnu.org/releases/freetype/ |
 | MoltenVK 1.4.2 | Apache-2.0 | https://github.com/KhronosGroup/MoltenVK |
 | GnuTLS 3.8.14 | LGPL-2.1-or-later | https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/ |
