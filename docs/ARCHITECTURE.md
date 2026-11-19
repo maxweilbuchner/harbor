@@ -248,6 +248,12 @@ An independent review re-checked the plan against the code and runtime. Items ma
      Verified locally: notarized 0.1.0 found 0.1.1 in a test feed, downloaded and verified it, installed and
      relaunched; the updated app is valid and accepted by Gatekeeper.
    **M4 done.**
+   **Runtime cx26.3.0-2 (2026-11-19):** adds Harbor's Wine patches (scripts/patches/wine/): 0001 cross-process
+   DC surfaces (Steam's Chromium UI rendered black), 0002 byte-sized syscall arguments (llvm-mingw writes only the
+   low byte of a BOOLEAN, Apple clang's Unix side read 32 bits; Steam's login thread hung in QueryDosDeviceW),
+   0003 UDP connect to port 0 on macOS. Regression test WindowsTests/abi/run.sh (fails before, passes after).
+   Published, notarized; a fresh download from GitHub passes the test. Steam on D3DMetal: renders, connects,
+   shows its QR code.
    Developer ID certificate expires 2027-02-01 (needs a G2 replacement before then). Original plan: Developer ID app bundle (Xcode project or bundling script), notarization,
    spawning a downloaded runtime outside the bundle, URL scheme, Sparkle.
 6. **M5 — add-program flow (done 2026-11-19, except launcher bottles):** PE analysis, Start Menu program
