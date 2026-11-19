@@ -52,11 +52,18 @@ final class AppModel {
 
     func open(_ file: URL) {
         guard let launcher, let bottle = bottles.first(where: { $0.id == selection }) else { return }
-        do {
-            try launcher.open(file, in: bottle)
-            status = "Opened \(file.lastPathComponent)"
-        } catch {
-            status = "Couldn’t open \(file.lastPathComponent): \(error)"
+        let name = file.lastPathComponent
+        status = "Opening \(name)…"
+        // The first launch with a graphics layer clones a runtime; keep that off the main actor.
+        Task.detached {
+            do {
+                try launcher.open(file, in: bottle) { exitStatus in
+                    Task { @MainActor in self.status = exitStatus == 0 ? nil : "\(name) quit unexpectedly (\(exitStatus))" }
+                }
+                await MainActor.run { self.status = "Running \(name)" }
+            } catch {
+                await MainActor.run { self.status = "Couldn’t open \(name): \(error)" }
+            }
         }
     }
 }

@@ -42,13 +42,16 @@ case "create" where args.count == 2:
 case "open" where args.count == 3:
     let p = try launcher().open(URL(filePath: args[2]), in: bottle(args[1]))
     p.waitUntilExit()
+    exit(p.terminationStatus)
 case "run" where args.count >= 3:
     let b = bottle(args[1])
-    let p = try launcher().run(b, arguments: Array(args.dropFirst(2)), log: URL(filePath: "/dev/stdout"))
+    let p = try launcher().run(b, arguments: Array(args.dropFirst(2)), output: .standardOutput)
     p.waitUntilExit()
     exit(p.terminationStatus)
+case "logs" where args.count == 2:
+    for log in bottle(args[1]).logs() { print(log.path) }
 case "stop" where args.count == 2:
     try launcher().shutdown(bottle(args[1]))
 default:
-    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | stop <bottle>")
+    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | logs <bottle> | stop <bottle>")
 }
