@@ -160,7 +160,7 @@ extension Bottle {
             guard let walker = fm.enumerator(at: folder, includingPropertiesForKeys: nil) else { continue }
             for case let file as URL in walker where file.pathExtension.lowercased() == "lnk" {
                 guard let data = try? Data(contentsOf: file), let link = ShellLink(data) else { continue }
-                let name = file.deletingPathExtension().lastPathComponent
+                let name = Self.libraryName(fromShortcut: file.deletingPathExtension().lastPathComponent)
                 // .bat/.cmd too: some launch through a script (Unigine Heaven's shortcut targets heaven.bat).
                 guard Self.launchableExtensions.contains(where: { link.target.lowercased().hasSuffix($0) }),
                       !Self.isAuxiliary(name: name, target: link.target),
@@ -168,16 +168,36 @@ extension Bottle {
                       let exe = unixPath(forWindowsPath: link.target), fm.fileExists(atPath: exe.path) else { continue }
                 let program = Program(name: name, windowsPath: link.target, arguments: link.arguments,
                                       workingDirectory: link.workingDirectory, isGame: Self.looksLikeGame(exe))
-                // The shortcut's icon first (it's what Windows shows), else the target's own.
+                // The shortcut's icon first (it's what Windows shows), else the target's own, else (for scripts
+                // such as Heaven's heaven.bat) an icon file or program next to it.
                 let iconSource = link.iconLocation.flatMap { unixPath(forWindowsPath: $0) } ?? exe
-                saveIcon(for: program, from: iconSource, fallback: exe)
+                saveIcon(for: program, from: iconSource, fallback: Self.iconNeighbour(of: exe))
                 found.append(program)
             }
         }
         return found.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
+    /// Shortcut names often start with a verb ("Run Superposition Benchmark"); a library shows the thing itself.
+    static func libraryName(fromShortcut name: String) -> String {
+        for verb in ["Run ", "Launch ", "Start ", "Play ", "Open "] where name.hasPrefix(verb) && name.count > verb.count + 2 {
+            return String(name.dropFirst(verb.count))
+        }
+        return name
+    }
+
     static let launchableExtensions = [".exe", ".bat", ".cmd"]
+
+    /// An icon source next to a target without one: `<name>.ico`, any .ico, then an .exe in the same folder.
+    static func iconNeighbour(of target: URL) -> URL? {
+        let folder = target.deletingLastPathComponent()
+        let files = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let stem = target.deletingPathExtension().lastPathComponent.lowercased()
+        return files.first { $0.pathExtension.lowercased() == "ico" && $0.deletingPathExtension().lastPathComponent.lowercased() == stem }
+            ?? files.first { $0.pathExtension.lowercased() == "ico" }
+            ?? files.first { $0.pathExtension.lowercased() == "exe" && !isAuxiliary(name: $0.lastPathComponent, target: $0.lastPathComponent) }
+    }
 
     /// Whether `file` or a program installed next to it is a game. Launchers often have no DirectX imports
     /// themselves, so the folder counts: up to 40 executables, two levels below the target's folder.

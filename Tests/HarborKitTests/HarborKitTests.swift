@@ -395,6 +395,12 @@ final class Marker {}
         for n in 0..<real.count { _ = ShellLink(real.prefix(n)) }   // truncations never crash
     }
 
+    @Test func dropsLeadingVerbsFromShortcutNames() {
+        #expect(Bottle.libraryName(fromShortcut: "Run Superposition Benchmark") == "Superposition Benchmark")
+        #expect(Bottle.libraryName(fromShortcut: "Play") == "Play")
+        #expect(Bottle.libraryName(fromShortcut: "Startup Manager") == "Startup Manager")
+    }
+
     @Test func splitsArgumentsLikeWindows() {
         #expect(WineLauncher.splitArguments(#"-a  "b c" d"#) == ["-a", "b c", "d"])
         #expect(WineLauncher.splitArguments("") == [])
