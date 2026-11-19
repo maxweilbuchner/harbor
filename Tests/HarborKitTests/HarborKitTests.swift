@@ -42,7 +42,7 @@ import Testing
 
     @Test func installersGoThroughMsiexec() {
         #expect(WineLauncher.arguments(toOpen: URL(filePath: "/x/Setup.MSI")) == ["msiexec", "/i", "/x/Setup.MSI"])
-        #expect(WineLauncher.arguments(toOpen: URL(filePath: "/x/game.exe")) == ["start", "/unix", "/x/game.exe"])
+        #expect(WineLauncher.arguments(toOpen: URL(filePath: "/x/game.exe")) == ["start", "/wait", "/unix", "/x/game.exe"])
     }
 
     @Test func runtimeLocateRejectsInvalidRoots() throws {

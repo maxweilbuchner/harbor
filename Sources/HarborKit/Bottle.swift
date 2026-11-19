@@ -51,6 +51,38 @@ public struct Bottle: Sendable, Equatable, Identifiable {
         return Bottle(root: root, settings: try JSONDecoder().decode(BottleSettings.self, from: data))
     }
 
+    public var logsDirectory: URL { root.appending(path: "logs") }
+
+    /// Log files, newest first.
+    public func logs() -> [URL] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: logsDirectory, includingPropertiesForKeys: nil)) ?? []
+        return files.filter { $0.pathExtension == "log" }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+    }
+
+    /// Creates `logs/<timestamp>-<label>.log` for one run and keeps only the newest `keep` logs.
+    func newLog(label: String, keep: Int = 20) throws -> FileHandle {
+        let fm = FileManager.default
+        try fm.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
+        for old in logs().dropFirst(keep - 1) { try? fm.removeItem(at: old) }
+        let stamp = Self.logStamp.string(from: Date())
+        let safeLabel = String(label.map { $0.isLetter || $0.isNumber ? $0 : "-" }.prefix(40))
+        var url = logsDirectory.appending(path: "\(stamp)-\(safeLabel).log")
+        var n = 2
+        while fm.fileExists(atPath: url.path) {
+            url = logsDirectory.appending(path: "\(stamp)-\(safeLabel)-\(n).log")
+            n += 1
+        }
+        fm.createFile(atPath: url.path, contents: nil)
+        return try FileHandle(forWritingTo: url)
+    }
+
+    private static let logStamp: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return f
+    }()
+
     public func save() throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

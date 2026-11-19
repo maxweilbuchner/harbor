@@ -42,7 +42,8 @@ public struct WineLauncher: Sendable {
     public func environment(for bottle: Bottle, base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var env = base
         env["WINEPREFIX"] = bottle.prefix.path
-        env["WINEDEBUG"] = env["WINEDEBUG"] ?? "-all"
+        // Keep errors (for Diagnose), drop the noisy fixme channel.
+        env["WINEDEBUG"] = env["WINEDEBUG"] ?? "fixme-all"
         // Keep Wine from writing Linux-style menu entries and file associations into the user's home.
         env["WINEDLLOVERRIDES"] = ["winemenubuilder.exe=d", env["WINEDLLOVERRIDES"]].compactMap { $0 }.joined(separator: ";")
         switch effectiveGraphics(for: bottle) {
@@ -55,41 +56,58 @@ public struct WineLauncher: Sendable {
         return env
     }
 
-    /// Arguments to `bin/wine` for opening `file`: installers through msiexec, everything else via `start /unix`
-    /// so Wine resolves the working directory and file associations the way Explorer would.
+    /// Arguments to `bin/wine` for opening `file`: installers through msiexec, everything else via `start /wait /unix`
+    /// so Wine resolves the working directory the way Explorer would, and the launched process lives exactly as
+    /// long as the program (plain `start` returns immediately, so Harbor would lose track of it).
     public static func arguments(toOpen file: URL, extra: [String] = []) -> [String] {
         switch file.pathExtension.lowercased() {
         case "msi":
             return ["msiexec", "/i", file.path] + extra
         default:
-            return ["start", "/unix", file.path] + extra
+            return ["start", "/wait", "/unix", file.path] + extra
         }
     }
 
     /// Creates the Wine prefix (`wineboot --init`) and waits for it.
     public func initialize(_ bottle: Bottle) async throws {
-        try await run(bottle, arguments: ["wineboot", "--init"]).waitUntilExitAsync()
-        try await run(bottle, arguments: ["reg", "add", #"HKCU\Software\Wine"#, "/v", "Version", "/d", bottle.settings.windowsVersion.rawValue, "/f"]).waitUntilExitAsync()
+        try await execute(bottle, arguments: ["wineboot", "--init"], label: "setup")
+        try await execute(bottle, arguments: ["reg", "add", #"HKCU\Software\Wine"#, "/v", "Version", "/d", bottle.settings.windowsVersion.rawValue, "/f"], label: "setup")
     }
 
-    /// Opens a Windows program or installer inside `bottle`.
+    /// Opens a Windows program or installer inside `bottle`. `onExit` runs when the program itself exits.
     @discardableResult
-    public func open(_ file: URL, in bottle: Bottle) throws -> Process {
-        try run(bottle, arguments: Self.arguments(toOpen: file))
+    public func open(_ file: URL, in bottle: Bottle, onExit: (@Sendable (Int32) -> Void)? = nil) throws -> Process {
+        try run(bottle, arguments: Self.arguments(toOpen: file), label: file.deletingPathExtension().lastPathComponent, onExit: onExit)
     }
 
+    /// Runs Wine and waits for it, throwing `WineExitError` on a non-zero status.
+    public func execute(_ bottle: Bottle, arguments: [String], label: String = "run", output: FileHandle? = nil) async throws {
+        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
+            do {
+                // The handler is installed before the process starts, so it fires exactly once.
+                try run(bottle, arguments: arguments, label: label, output: output) { continuation.resume(returning: $0) }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+        if status != 0 { throw WineExitError(status: status) }
+    }
+
+    /// Starts Wine. Output goes to `output`, or to a new log file in the bottle's `logs/` folder.
     @discardableResult
-    public func run(_ bottle: Bottle, arguments: [String], log: URL? = nil) throws -> Process {
+    public func run(_ bottle: Bottle, arguments: [String], label: String = "run", output: FileHandle? = nil,
+                    onExit: (@Sendable (Int32) -> Void)? = nil) throws -> Process {
         let process = Process()
         process.executableURL = try runtime(for: bottle).wine
         process.arguments = arguments
         process.environment = environment(for: bottle)
         process.currentDirectoryURL = FileManager.default.fileExists(atPath: bottle.driveC.path) ? bottle.driveC : bottle.root
-        let logURL = log ?? bottle.root.appending(path: "last-run.log")
-        FileManager.default.createFile(atPath: logURL.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: logURL)
+        let handle = try output ?? bottle.newLog(label: label)
         process.standardOutput = handle
         process.standardError = handle
+        if let onExit {
+            process.terminationHandler = { onExit($0.terminationStatus) }
+        }
         try process.run()
         return process
     }
@@ -108,15 +126,4 @@ public struct WineLauncher: Sendable {
 public struct WineExitError: Error, CustomStringConvertible {
     public let status: Int32
     public var description: String { "Wine exited with status \(status)" }
-}
-
-extension Process {
-    func waitUntilExitAsync() async throws {
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            if !isRunning { cont.resume(); return }
-            terminationHandler = { _ in cont.resume() }
-            if !isRunning { terminationHandler = nil; cont.resume() }
-        }
-        if terminationStatus != 0 { throw WineExitError(status: terminationStatus) }
-    }
 }
