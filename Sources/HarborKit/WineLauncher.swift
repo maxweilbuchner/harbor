@@ -85,6 +85,8 @@ public struct WineLauncher: Sendable {
     public func initialize(_ bottle: Bottle) async throws {
         try await execute(bottle, arguments: ["wineboot", "--init"], label: "setup")
         try await execute(bottle, arguments: ["reg", "add", #"HKCU\Software\Wine"#, "/v", "Version", "/d", bottle.settings.windowsVersion.rawValue, "/f"], label: "setup")
+        // Harbor explains crashes itself (Diagnose); Wine's own "Program Error" dialog would only confuse.
+        try await execute(bottle, arguments: ["reg", "add", #"HKCU\Software\Wine\WineDbg"#, "/v", "ShowCrashDialog", "/t", "REG_DWORD", "/d", "0", "/f"], label: "setup")
     }
 
     /// Opens a Windows program or installer inside `bottle`. `onExit` runs when the program itself exits.
