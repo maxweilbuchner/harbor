@@ -1,0 +1,101 @@
+--- a/dlls/win32u/dce.c	2026-11-19 17:26:58
++++ b/dlls/win32u/dce.c	2026-11-19 17:26:58
+@@ -932,8 +932,58 @@
+ }
+ 
+ /* CX HACK 23950 - END */
++
++/* HARBOR HACK - START: drawing into a window that belongs to another process.
++ *
++ * Chromium's GPU process presents software-composited frames with GetDC( browser_hwnd ) + BitBlt.
++ * A DC for another process's window has no window surface, and the Mac driver cannot draw without
++ * one, so everything drawn was dropped (Steam's client UI stayed black). Give such DCs one of the
++ * shm surfaces of CX HACK 23950: it is flushed by asking the owning window to draw the bits. */
++
++static pthread_mutex_t cross_surfaces_lock = PTHREAD_MUTEX_INITIALIZER;
++static struct window_surface *cross_surfaces[8];
++
++static struct window_surface *get_cross_process_surface( HWND hwnd, const RECT *rect )
++{
++    static unsigned int next_slot;
++    struct window_surface *surface, *old = NULL;
++    unsigned int i, slot;
++
++    pthread_mutex_lock( &cross_surfaces_lock );
++    for (i = 0; i < ARRAY_SIZE(cross_surfaces); i++)
++        if (cross_surfaces[i] && cross_surfaces[i]->hwnd == hwnd) break;
++    if (i < ARRAY_SIZE(cross_surfaces)) old = cross_surfaces[(slot = i)];
++    else slot = next_slot++ % ARRAY_SIZE(cross_surfaces);
++
++    surface = create_shm_surface( hwnd, hwnd, rect, old );
++    if (surface != cross_surfaces[slot])
++    {
++        if (cross_surfaces[slot]) window_surface_release( cross_surfaces[slot] );
++        if ((cross_surfaces[slot] = surface)) window_surface_add_ref( surface );
++    }
++    pthread_mutex_unlock( &cross_surfaces_lock );
++    return surface;
++}
++
++static struct window_surface *find_cross_process_surface( HWND hwnd )
++{
++    struct window_surface *surface = NULL;
++    unsigned int i;
++
++    pthread_mutex_lock( &cross_surfaces_lock );
++    for (i = 0; i < ARRAY_SIZE(cross_surfaces); i++)
++    {
++        if (!cross_surfaces[i] || cross_surfaces[i]->hwnd != hwnd) continue;
++        window_surface_add_ref( (surface = cross_surfaces[i]) );
++        break;
++    }
++    pthread_mutex_unlock( &cross_surfaces_lock );
++    return surface;
++}
+ 
++/* HARBOR HACK - END */
+ 
++
+ /*******************************************************************
+  *           register_window_surface
+  *
+@@ -1079,6 +1129,10 @@
+             if (surface) window_surface_add_ref( surface );
+             release_win_ptr( win );
+         }
++        /* HARBOR HACK: client-area DC of another process's window */
++        else if (win == WND_OTHER_PROCESS && !(flags & DCX_WINDOW) && !is_current_process_window( dce->hwnd ) &&
++                 (surface = get_cross_process_surface( dce->hwnd, &win_rect )))
++            top_rect = win_rect;
+     }
+ 
+     if (!surface) SetRectEmpty( &top_rect );
+@@ -1433,6 +1487,7 @@
+ static INT release_dc( HWND hwnd, HDC hdc, BOOL end_paint )
+ {
+     struct list drawables = LIST_INIT( drawables );
++    struct window_surface *cross_surface = NULL; /* HARBOR HACK */
+     struct dce *dce;
+     BOOL ret = FALSE;
+ 
+@@ -1442,6 +1497,7 @@
+     dce = get_dc_dce( hdc );
+     if (dce && dce->count && dce->hwnd)
+     {
++        cross_surface = find_cross_process_surface( dce->hwnd ); /* HARBOR HACK */
+         if (!(dce->flags & DCX_NORESETATTRS)) set_dce_flags( dce->hdc, DCHF_RESETDC );
+         if (end_paint || (dce->flags & DCX_CACHE)) delete_clip_rgn( dce );
+         if (dce->flags & DCX_CACHE)
+@@ -1454,6 +1510,12 @@
+     }
+     user_unlock();
+ 
++    if (cross_surface) /* HARBOR HACK: nothing else flushes it, the window isn't in this process's list */
++    {
++        window_surface_flush( cross_surface );
++        window_surface_release( cross_surface );
++    }
++
+     release_opengl_drawables( &drawables );
+     return ret;
+ }

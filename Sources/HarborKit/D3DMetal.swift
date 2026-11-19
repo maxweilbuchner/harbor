@@ -74,7 +74,11 @@ public struct D3DMetalRedist: Sendable, Equatable {
     /// runtime is never deleted here, because programs may be running from it.
     public func runtime(basedOn base: WineRuntime, in directory: URL) throws -> WineRuntime {
         let fm = FileManager.default
-        let key = Self.fingerprint(of: [base.wine, base.root.appending(path: "lib/wine/x86_64-unix/ntdll.so"),
+        // Includes the libraries Harbor patches (win32u) and the Mac driver, so a rebuilt runtime never keeps a
+        // stale copy of them in its derived D3DMetal runtime.
+        let unix = base.root.appending(path: "lib/wine/x86_64-unix")
+        let key = Self.fingerprint(of: [base.wine, unix.appending(path: "ntdll.so"), unix.appending(path: "win32u.so"),
+                                        unix.appending(path: "winemac.so"),
                                         framework.appending(path: "Versions/A/D3DMetal"), sharedLibrary])
         let name = "d3dmetal-\(version ?? "unknown")-\(key)"
         let root = directory.appending(path: name)
