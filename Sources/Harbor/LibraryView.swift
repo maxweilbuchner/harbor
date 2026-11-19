@@ -189,6 +189,7 @@ struct ProgramMenu: View {
         Picker("Graphics", selection: Binding(get: { item.program.graphics ?? .automatic }, set: { model.setGraphics(item, $0) })) {
             Text("Automatic").tag(GraphicsBackend.automatic)
             Text("D3DMetal (Games)").tag(GraphicsBackend.d3dmetal)
+            Text("DXMT").tag(GraphicsBackend.dxmt)
             Text("Compatibility").tag(GraphicsBackend.wined3d)
         }
         // Microsoft's own runtimes, for programs that need more than Wine's built-in versions.

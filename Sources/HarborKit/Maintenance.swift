@@ -14,6 +14,9 @@ public enum Maintenance {
         if let d3dmetal = launcher.d3dmetal {
             keep.insert(d3dmetal.runtimeName(basedOn: launcher.runtime))
         }
+        if let dxmt = launcher.dxmt {
+            keep.insert(dxmt.runtimeName(basedOn: launcher.runtime))
+        }
         keep.insert(PrefixTemplate(launcher: launcher, directory: templatesDirectory).root.lastPathComponent)
 
         var removed: [URL] = []

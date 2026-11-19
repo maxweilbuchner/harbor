@@ -73,42 +73,20 @@ public struct D3DMetalRedist: Sendable, Equatable {
     /// unique staging folder that carries its completion marker, and published by an atomic rename. An existing
     /// runtime is never deleted here, because programs may be running from it.
     public func runtime(basedOn base: WineRuntime, in directory: URL) throws -> WineRuntime {
-        let fm = FileManager.default
-        let name = runtimeName(basedOn: base)
-        let root = directory.appending(path: name)
-        let overlay = WineRuntime(root: root)
-        if Self.isComplete(root), overlay.isValid { return overlay }
-
-        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
-        return try withLock(directory.appending(path: ".lock")) {
-            if Self.isComplete(root), overlay.isValid { return overlay }
-            if fm.fileExists(atPath: root.path) {
-                // Incomplete leftover from a crashed build: move it aside rather than delete it.
-                try fm.moveItem(at: root, to: directory.appending(path: ".stale-\(UUID().uuidString)"))
-            }
-            let staging = directory.appending(path: ".staging-\(UUID().uuidString)")
-            do {
-                try fm.copyItem(at: base.root, to: staging) // clonefile(2) on APFS
-                for arch in ["x86_64-unix", "x86_64-windows"] {
-                    let source = lib.appending(path: "wine/\(arch)")
-                    let destination = staging.appending(path: "lib/wine/\(arch)")
-                    for file in try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: nil) {
-                        let target = destination.appending(path: file.lastPathComponent)
-                        try? fm.removeItem(at: target)
-                        try fm.copyItem(at: file, to: target)
-                    }
+        try derivedRuntime(named: runtimeName(basedOn: base), basedOn: base, in: directory, marker: version ?? "") { staging in
+            let fm = FileManager.default
+            for arch in ["x86_64-unix", "x86_64-windows"] {
+                let source = lib.appending(path: "wine/\(arch)")
+                let destination = staging.appending(path: "lib/wine/\(arch)")
+                for file in try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: nil) {
+                    let target = destination.appending(path: file.lastPathComponent)
+                    try? fm.removeItem(at: target)
+                    try fm.copyItem(at: file, to: target)
                 }
-                let external = staging.appending(path: "lib/external")
-                try? fm.removeItem(at: external)
-                try fm.copyItem(at: lib.appending(path: "external"), to: external)
-                try removeQuarantine(under: staging)
-                try Data((version ?? "").utf8).write(to: staging.appending(path: Self.markerName))
-                try fm.moveItem(at: staging, to: root)
-            } catch {
-                try? fm.removeItem(at: staging)
-                throw error
             }
-            return overlay
+            let external = staging.appending(path: "lib/external")
+            try? fm.removeItem(at: external)
+            try fm.copyItem(at: lib.appending(path: "external"), to: external)
         }
     }
 
@@ -137,6 +115,41 @@ public struct D3DMetalRedist: Sendable, Equatable {
             let date = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
             return "\(url.standardizedFileURL.path)|\(size)|\(date)"
         }.joined(separator: "\n").stableHash
+    }
+}
+
+/// A Wine runtime derived from `base` under `directory/name`: an APFS clone of `base` (cheap, copy-on-write) that
+/// `apply` changes, e.g. by copying other DirectX builtins over Wine's. Created on first use, reused after.
+///
+/// Safe to call concurrently from several processes: creation is serialised with a lock file, built in a unique
+/// staging folder that carries its completion marker, and published by an atomic rename. An existing runtime is
+/// never deleted here, because programs may be running from it.
+func derivedRuntime(named name: String, basedOn base: WineRuntime, in directory: URL, marker: String,
+                    apply: (URL) throws -> Void) throws -> WineRuntime {
+    let fm = FileManager.default
+    let root = directory.appending(path: name)
+    let derived = WineRuntime(root: root)
+    if D3DMetalRedist.isComplete(root), derived.isValid { return derived }
+
+    try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+    return try withLock(directory.appending(path: ".lock")) {
+        if D3DMetalRedist.isComplete(root), derived.isValid { return derived }
+        if fm.fileExists(atPath: root.path) {
+            // Incomplete leftover from a crashed build: move it aside rather than delete it.
+            try fm.moveItem(at: root, to: directory.appending(path: ".stale-\(UUID().uuidString)"))
+        }
+        let staging = directory.appending(path: ".staging-\(UUID().uuidString)")
+        do {
+            try fm.copyItem(at: base.root, to: staging) // clonefile(2) on APFS
+            try apply(staging)
+            try removeQuarantine(under: staging)
+            try Data(marker.utf8).write(to: staging.appending(path: D3DMetalRedist.markerName))
+            try fm.moveItem(at: staging, to: root)
+        } catch {
+            try? fm.removeItem(at: staging)
+            throw error
+        }
+        return derived
     }
 }
 

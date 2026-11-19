@@ -33,6 +33,14 @@ MINGW="build/download/llvm-mingw-$LLVM_MINGW_VERSION-ucrt-macos-universal.tar.xz
 [ -f "$MINGW" ] || curl -fL -o "$MINGW" "https://github.com/mstorsjo/llvm-mingw/releases/download/$LLVM_MINGW_VERSION/llvm-mingw-$LLVM_MINGW_VERSION-ucrt-macos-universal.tar.xz"
 echo "$LLVM_MINGW_SHA256  $MINGW" | shasum -a 256 -c -
 [ -d "build/toolchain/llvm-mingw-$LLVM_MINGW_VERSION-ucrt-macos-universal" ] || tar -xJf "$MINGW" -C build/toolchain
+# DXMT (Direct3D 10/11 on Metal), prebuilt by its project; shipped inside the runtime under lib/dxmt.
+DX="build/download/dxmt-$DXMT_VERSION-builtin.tar.gz"
+[ -f "$DX" ] || curl -fL -o "$DX" "https://github.com/3Shain/dxmt/releases/download/$DXMT_VERSION/dxmt-$DXMT_VERSION-builtin.tar.gz"
+echo "$DXMT_SHA256  $DX" | shasum -a 256 -c -
+DXL="build/download/dxmt-$DXMT_VERSION-LICENSE"
+[ -f "$DXL" ] || curl -fL -o "$DXL" "https://raw.githubusercontent.com/3Shain/dxmt/$DXMT_VERSION/LICENSE"
+echo "$DXMT_LICENSE_SHA256  $DXL" | shasum -a 256 -c -
+[ -d "build/src/dxmt-$DXMT_VERSION" ] || { mkdir -p "build/src/dxmt-$DXMT_VERSION" && tar -xzf "$DX" -C "build/src/dxmt-$DXMT_VERSION"; }
 # Wine add-ons, installed silently from the runtime's share/wine instead of Wine's download dialog.
 fetch() { [ -f "build/download/$2" ] || curl -fL -o "build/download/$2" "https://dl.winehq.org/wine/$1/$2"; echo "$3  build/download/$2" | shasum -a 256 -c -; }
 fetch "wine-mono/$WINE_MONO_VERSION" "wine-mono-$WINE_MONO_VERSION-x86.msi" "$WINE_MONO_SHA256"
