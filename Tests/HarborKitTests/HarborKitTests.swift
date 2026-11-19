@@ -782,6 +782,103 @@ final class Marker {}
     }
 }
 
+@Suite struct EpicLibraryTests {
+    let fm = FileManager.default
+
+    func manifest(app: String, name: String, location: String, exe: String, extra: String = "") -> String {
+        """
+        {
+        	"FormatVersion": 0,
+        	"bIsIncompleteInstall": false,
+        	"LaunchExecutable": "\(exe)",
+        	"DisplayName": "\(name)",
+        	"InstallLocation": "\(location)",
+        	"CatalogNamespace": "ns-\(app)",
+        	"CatalogItemId": "item\(app)",
+        	"AppName": "\(app)",
+        	"bIsApplication": true\(extra)
+        }
+        """
+    }
+
+    /// A bottle with the launcher installed and its manifests folder; returns (bottle, manifests folder).
+    func epicBottle(programFiles: String = "Program Files") throws -> (Bottle, URL) {
+        let store = BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-epic-\(UUID().uuidString)"))
+        let b = try store.create(name: "Epic Games")
+        let launcher = b.driveC.appending(path: "\(programFiles)/Epic Games/Launcher/Portal/Binaries/Win64")
+        try fm.createDirectory(at: launcher, withIntermediateDirectories: true)
+        try Data().write(to: launcher.appending(path: "EpicGamesLauncher.exe"))
+        let manifests = b.driveC.appending(path: "ProgramData/Epic/EpicGamesLauncher/Data/Manifests")
+        try fm.createDirectory(at: manifests, withIntermediateDirectories: true)
+        return (b, manifests)
+    }
+
+    @Test func readsInstalledGamesFromTheLaunchersManifests() throws {
+        let (b, manifests) = try epicBottle()
+        try manifest(app: "Fortnite", name: "Fortnite", location: #"C:\\Program Files\\Epic Games\\Fortnite"#,
+                     exe: "FortniteGame/Binaries/Win64/FortniteLauncher.exe")
+            .write(to: manifests.appending(path: "A1.item"), atomically: true, encoding: .utf8)
+        try manifest(app: "Sugar", name: "Alan \\\"Wake\\\"", location: #"C:\\Games\\Sugar\\"#, exe: "Wake.exe")
+            .write(to: manifests.appending(path: "B2.item"), atomically: true, encoding: .utf8)
+        // Unfinished install, a DLC entry, a broken file and a non-manifest: all skipped.
+        try manifest(app: "Half", name: "Half Done", location: #"C:\\Half"#, exe: "h.exe", extra: ",\n\t\"bIsIncompleteInstall\": true")
+            .replacingOccurrences(of: "\t\"bIsIncompleteInstall\": false,\n", with: "")
+            .write(to: manifests.appending(path: "C3.item"), atomically: true, encoding: .utf8)
+        try manifest(app: "Dlc", name: "Some DLC", location: #"C:\\Dlc"#, exe: "", extra: "")
+            .replacingOccurrences(of: "\"bIsApplication\": true", with: "\"bIsApplication\": false")
+            .write(to: manifests.appending(path: "D4.item"), atomically: true, encoding: .utf8)
+        try "{ not json".write(to: manifests.appending(path: "E5.item"), atomically: true, encoding: .utf8)
+        try "x".write(to: manifests.appending(path: "notes.txt"), atomically: true, encoding: .utf8)
+
+        let games = EpicLibrary.games(in: b)
+        #expect(games.map(\.name) == [#"Alan "Wake""#, "Fortnite"])
+        #expect(games[1].executable == #"C:\Program Files\Epic Games\Fortnite\FortniteGame\Binaries\Win64\FortniteLauncher.exe"#)
+        #expect(games[0].executable == #"C:\Games\Sugar\Wake.exe"#)
+
+        let p = try #require(EpicLibrary.program(for: games[1], in: b))
+        #expect(p.windowsPath == #"C:\Program Files\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe"#)
+        #expect(p.arguments == "com.epicgames.launcher://apps/ns-Fortnite%3AitemFortnite%3AFortnite?action=launch&silent=true")
+        #expect(p.isGame)
+        // Stable across scans, distinct per game.
+        #expect(EpicLibrary.program(for: games[1], in: b)?.id == p.id)
+        #expect(EpicLibrary.program(for: games[0], in: b)?.id != p.id)
+    }
+
+    @Test func takesTheIconFromTheGamesExecutable() throws {
+        let (b, manifests) = try epicBottle()
+        let folder = b.driveC.appending(path: "Games/Fix")
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let fixture = try #require(Bundle.module.url(forResource: "app64", withExtension: "exe"))
+        try fm.copyItem(at: fixture, to: folder.appending(path: "fix.exe"))
+        try manifest(app: "Fix", name: "Fix", location: #"C:\\Games\\Fix"#, exe: "fix.exe")
+            .write(to: manifests.appending(path: "F.item"), atomically: true, encoding: .utf8)
+        let game = try #require(EpicLibrary.games(in: b).first)
+        let icon = EpicLibrary.icon(for: game, program: try #require(EpicLibrary.program(for: game, in: b)), in: b)
+        #expect(icon.map { fm.fileExists(atPath: $0.path) } == true)
+    }
+
+    @Test func bottlesWithoutTheLauncherHaveNoEpicGames() throws {
+        let store = BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-noepic-\(UUID().uuidString)"))
+        #expect(EpicLibrary.games(in: try store.create(name: "Plain")).isEmpty)
+    }
+
+    @Test func theLauncherBecomesAGameInItsLibrary() throws {
+        let (b, _) = try epicBottle()
+        let stores = GameStores(store: BottleStore(directory: b.root.deletingLastPathComponent()),
+                                launcher: WineLauncher(runtime: WineRuntime(root: URL(filePath: "/nonexistent"))))
+        let program = try #require(stores.storeProgram(.epic, in: b))
+        #expect(program.isGame && program.arguments == nil)
+        #expect(stores.existingBottle(for: .epic)?.root.standardizedFileURL.path == b.root.standardizedFileURL.path)
+        #expect(stores.existingBottle(for: .steam) == nil)
+        // Its window shows as "Epic Games Launcher", not its exe's ProductName "Unreal Engine".
+        #expect(GameStores.Store.epic.appNames["EpicGamesLauncher.exe"] == "Epic Games Launcher")
+        #expect(GameStores.Store.steam.appNames["steamwebhelper.exe"] == "Steam")
+        // Older installs live in Program Files (x86).
+        let (old, _) = try epicBottle(programFiles: "Program Files (x86)")
+        #expect(stores.storeProgram(.epic, in: old)?.windowsPath.contains("Program Files (x86)") == true)
+    }
+}
+
 @Suite struct MaintenanceTests {
     let fm = FileManager.default
 

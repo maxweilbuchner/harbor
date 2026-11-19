@@ -259,8 +259,10 @@ An independent review re-checked the plan against the code and runtime. Items ma
 6. **M5 — add-program flow (done 2026-11-19, except launcher bottles):** PE analysis, Start Menu program
    index, per-launch graphics (games incl. their launchers on D3DMetal), one-step add (installer or program
    placed), Library UI (sidebar + grid, light and dark verified), bring-to-front, duplicate-install prompt,
-   Mac app shortcuts in ~/Applications/Harbor (Spotlight-indexed; open via harbor://launch/<id>). Open:
-   a shared-bottle flow for Steam/Epic, and the Dock identity of running Wine programs.
+   Mac app shortcuts in ~/Applications/Harbor (Spotlight-indexed; open via harbor://launch/<id>). Game
+   stores: "Add Steam" and "Add Epic Games Store" install each store into its own D3DMetal bottle; their games
+   join the library from the stores' own records (#1). Dock identity: Wine patch 0006 names each process after
+   its program. Open: Superposition's blank screen after a Space switch (#2).
    Details: prefix template: new bottles clone a pre-built prefix
    (`PrefixTemplate`, APFS copy-on-write, own MachineGuid, Windows version set in user.reg) instead of running
    wineboot. Built once in the background after Windows support is installed (16 s); adding a program then

@@ -150,7 +150,7 @@ final class AppModel {
     var pendingDuplicate: (file: URL, existing: LibraryItem, name: String)?
 
     struct AddState: Identifiable, Equatable {
-        enum Phase: Equatable { case working(AddProgram.Step), store(GameStores.Step), updating, failed(String) }
+        enum Phase: Equatable { case working(AddProgram.Step), store(GameStores.Store, GameStores.Step), updating, failed(String) }
         let id = UUID()
         var fileName: String
         var phase: Phase
@@ -231,12 +231,19 @@ final class AppModel {
                             iconFile: bottle.iconFile(for: program))
             }
             // Games Steam installed in this bottle, read from Steam's own records each time.
-            guard let steam = SteamLibrary.steamFolder(in: bottle) else { return own }
+            // Games the Epic Games Launcher installed, from its install manifests.
+            let epic = EpicLibrary.games(in: bottle).compactMap { game -> LibraryItem? in
+                guard let program = EpicLibrary.program(for: game, in: bottle) else { return nil }
+                let art = EpicLibrary.icon(for: game, program: program, in: bottle)
+                return LibraryItem(program: program, bottle: bottle, icon: art.flatMap(NSImage.init(contentsOf:)),
+                                   managedByStore: true, iconFile: art)
+            }
+            guard let steam = SteamLibrary.steamFolder(in: bottle) else { return own + epic }
             let games = SteamLibrary.games(in: bottle).compactMap { game -> LibraryItem? in
                 guard let program = SteamLibrary.program(for: game, steam: steam, in: bottle) else { return nil }
                 let art = SteamLibrary.iconSource(for: game, steam: steam)
                 return LibraryItem(program: program, bottle: bottle, icon: art.flatMap(NSImage.init(contentsOf:)),
-                                   managedBySteam: true, iconFile: art)
+                                   managedByStore: true, iconFile: art)
             }
             return own + games
         }
@@ -293,19 +300,20 @@ final class AppModel {
         }
     }
 
-    /// One click: downloads Valve's installer, installs Steam into its own bottle, adds it and starts it.
-    func addSteam() async {
+    /// One click: downloads the store's installer, installs it into its own bottle, adds it and starts it. If the
+    /// store is already set up, just opens it.
+    func addStore(_ which: GameStores.Store) async {
         guard let launcher, addState == nil else { return }
         let stores = GameStores(store: store, launcher: launcher)
-        if let bottle = stores.existingSteamBottle(),
-           let item = library.first(where: { $0.bottle == bottle && !$0.managedBySteam }) {
+        if let bottle = stores.existingBottle(for: which),
+           let item = library.first(where: { $0.bottle == bottle && !$0.managedByStore }) {
             open(item)
             return
         }
-        addState = AddState(fileName: "Steam", phase: .store(.downloading))
+        addState = AddState(fileName: which.name, phase: .store(which, .downloading))
         do {
-            let (bottle, program) = try await stores.installSteam { step in
-                Task { @MainActor in self.addState?.phase = .store(step) }
+            let (bottle, program) = try await stores.install(which) { step in
+                Task { @MainActor in self.addState?.phase = .store(which, step) }
             }
             reload()
             addState = nil
