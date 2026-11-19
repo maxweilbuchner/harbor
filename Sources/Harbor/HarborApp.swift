@@ -119,7 +119,21 @@ final class AppModel {
         }
     }
     var bottles: [Bottle] = []
-    var selection: Bottle.ID?
+    /// Every program in every bottle, newest first.
+    var library: [LibraryItem] = []
+    /// Programs whose Wine process is running.
+    var running: Set<LibraryItem.ID> = []
+    /// The add-program sheet; nil when hidden.
+    var addState: AddState?
+    /// Asks before removing a program (and its bottle, if it's the last program in it).
+    var pendingRemoval: LibraryItem?
+
+    struct AddState: Identifiable, Equatable {
+        enum Phase: Equatable { case working(AddProgram.Step), failed(String) }
+        let id = UUID()
+        var fileName: String
+        var phase: Phase
+    }
     var status: String?
     var rosettaAvailable = Rosetta.isAvailable
 
@@ -167,21 +181,113 @@ final class AppModel {
 
     func reload() {
         bottles = store.list()
-        if selection == nil { selection = bottles.first?.id }
+        library = bottles.flatMap { bottle in
+            bottle.programs().map { program in
+                LibraryItem(program: program, bottle: bottle, icon: NSImage(contentsOf: bottle.iconFile(for: program)))
+            }
+        }
+        .sorted { $0.program.addedAt > $1.program.addedAt }
     }
 
-    func createBottle(named name: String) async {
-        guard let launcher else { return }
+    /// Adds a dropped program or installer: a new bottle, the installer's own window if it has one, then the
+    /// programs it installed.
+    func add(_ file: URL) async {
+        guard let launcher, addState == nil else { return }
+        addState = AddState(fileName: file.lastPathComponent, phase: .working(.analyzing))
+        let flow = AddProgram(store: store, launcher: launcher)
         do {
-            status = "Setting up \(name)…"
-            let bottle = try await store.create(name: name, setUp: launcher.initialize)
+            let (_, programs) = try await flow.add(file) { step in
+                Task { @MainActor in
+                    self.addState?.phase = .working(step)
+                    // The installer window should come to the front, not hide behind Harbor.
+                    if case .runningInstaller = step { self.bringWineToFront(since: Date()) }
+                }
+            }
             reload()
-            selection = bottle.id
-            status = nil
+            addState = nil
+            status = programs.count == 1 ? "Added \(programs[0].name)" : "Added \(programs.count) programs"
         } catch {
             reload()
-            status = "Couldn’t set up \(name): \(error)"
+            addState?.phase = .failed(String(describing: error))
         }
+    }
+
+    func open(_ item: LibraryItem) {
+        guard let launcher else { return }
+        let started = Date()
+        running.insert(item.id)
+        let id = item.id
+        // The first launch of a game clones the D3DMetal runtime; keep that off the main actor.
+        Task.detached {
+            do {
+                try launcher.launch(item.program, in: item.bottle) { exitStatus in
+                    Task { @MainActor in
+                        self.running.remove(id)
+                        if exitStatus != 0 { self.status = "\(item.program.name) quit unexpectedly (\(exitStatus))" }
+                    }
+                }
+                await MainActor.run { self.bringWineToFront(since: started) }
+            } catch {
+                await MainActor.run {
+                    self.running.remove(id)
+                    self.status = "Couldn’t open \(item.program.name): \(error)"
+                }
+            }
+        }
+    }
+
+    /// macOS doesn't activate a process Harbor starts; without this a game's fullscreen window would stay
+    /// behind Harbor. Watches for Wine's app processes (run from Harbor's runtimes) for up to 60 s.
+    func bringWineToFront(since start: Date) {
+        let roots = [WineRuntime.installedDirectory.path, WineLauncher.defaultRuntimesDirectory.path] + [launcher?.runtime.root.path].compactMap { $0 }
+        Task {
+            for _ in 0..<120 {
+                if let app = NSWorkspace.shared.runningApplications.first(where: { app in
+                    guard let exe = app.executableURL?.path, let launched = app.launchDate else { return false }
+                    return launched >= start.addingTimeInterval(-1) && roots.contains { exe.hasPrefix($0) }
+                }) {
+                    app.activate()
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    func showInFinder(_ item: LibraryItem) {
+        if let exe = item.bottle.unixPath(forWindowsPath: item.program.windowsPath) {
+            NSWorkspace.shared.activateFileViewerSelecting([exe])
+        }
+    }
+
+    func setGame(_ item: LibraryItem, _ isGame: Bool) { update(item) { $0.isGame = isGame } }
+
+    func setGraphics(_ item: LibraryItem, _ graphics: GraphicsBackend) {
+        update(item) { $0.graphics = graphics == .automatic ? nil : graphics }
+    }
+
+    private func update(_ item: LibraryItem, _ change: (inout Program) -> Void) {
+        var programs = item.bottle.programs()
+        guard let i = programs.firstIndex(where: { $0.id == item.id }) else { return }
+        change(&programs[i])
+        try? item.bottle.savePrograms(programs)
+        reload()
+    }
+
+    func confirmRemoval(_ item: LibraryItem) { pendingRemoval = item }
+
+    /// Whether removing `item` also deletes its bottle (it's the last program in it).
+    func removesBottle(_ item: LibraryItem) -> Bool { item.bottle.programs().count <= 1 }
+
+    func remove(_ item: LibraryItem) {
+        if removesBottle(item) {
+            try? launcher?.shutdown(item.bottle)
+            try? FileManager.default.removeItem(at: item.bottle.root)
+        } else {
+            try? item.bottle.savePrograms(item.bottle.programs().filter { $0.id != item.id })
+        }
+        pendingRemoval = nil
+        reload()
     }
 
     func installRosetta() {
@@ -199,41 +305,13 @@ final class AppModel {
         }
     }
 
-    func open(_ file: URL) {
-        guard let launcher, let bottle = bottles.first(where: { $0.id == selection }) else { return }
-        let name = file.lastPathComponent
-        status = "Opening \(name)…"
-        // The first launch with a graphics layer clones a runtime; keep that off the main actor.
-        Task.detached {
-            do {
-                try launcher.open(file, in: bottle) { exitStatus in
-                    Task { @MainActor in self.status = exitStatus == 0 ? nil : "\(name) quit unexpectedly (\(exitStatus))" }
-                }
-                await MainActor.run { self.status = "Running \(name)" }
-            } catch {
-                await MainActor.run { self.status = "Couldn’t open \(name): \(error)" }
-            }
-        }
-    }
 }
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
-    @State private var naming = false
-    @State private var newName = ""
 
     var body: some View {
-        @Bindable var model = model
-        NavigationSplitView {
-            List(model.bottles, selection: $model.selection) { bottle in
-                Label(bottle.settings.name, systemImage: "shippingbox")
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            .toolbar {
-                Button("New Bottle", systemImage: "plus") { naming = true }
-                    .disabled(model.launcher == nil)
-            }
-        } detail: {
+        Group {
             if !model.rosettaAvailable {
                 ContentUnavailableView {
                     Label("Rosetta Is Needed", systemImage: "cpu")
@@ -245,16 +323,8 @@ struct ContentView: View {
                 }
             } else if model.launcher == nil {
                 RuntimeDownloadView()
-            } else if model.bottles.isEmpty {
-                ContentUnavailableView {
-                    Label("No Bottles Yet", systemImage: "shippingbox")
-                } description: {
-                    Text("A bottle is a separate Windows environment for your programs.")
-                } actions: {
-                    Button("New Bottle") { naming = true }
-                }
             } else {
-                DropZone(onDrop: model.open)
+                LibraryView()
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -262,45 +332,26 @@ struct ContentView: View {
                 Text(status).font(.callout).foregroundStyle(.secondary).padding(8)
             }
         }
-        .alert("New Bottle", isPresented: $naming) {
-            TextField("Name", text: $newName)
-            Button("Create") {
-                let name = newName.trimmingCharacters(in: .whitespaces)
-                newName = ""
-                guard !name.isEmpty else { return }
-                Task { await model.createBottle(named: name) }
+        .confirmationDialog(removalTitle, isPresented: Binding(get: { model.pendingRemoval != nil },
+                                                               set: { if !$0 { model.pendingRemoval = nil } }),
+                            presenting: model.pendingRemoval) { item in
+            Button(model.removesBottle(item) ? "Remove and Delete Its Files" : "Remove", role: .destructive) {
+                model.remove(item)
             }
-            Button("Cancel", role: .cancel) { newName = "" }
+        } message: { item in
+            if model.removesBottle(item) {
+                Text("This also deletes everything installed for \(item.program.name), including its saved data.")
+            } else {
+                Text("Other programs installed alongside it stay in your library.")
+            }
         }
+    }
+
+    private var removalTitle: String {
+        model.pendingRemoval.map { "Remove \($0.program.name)?" } ?? ""
     }
 }
 
-struct DropZone: View {
-    let onDrop: (URL) -> Void
-    @State private var targeted = false
-    @State private var choosing = false
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "arrow.down.app").font(.system(size: 44)).foregroundStyle(.secondary)
-            Text("Drop a Windows program or installer here").font(.title3)
-            Button("Choose File…") { choosing = true }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 12)
-            .strokeBorder(targeted ? Color.accentColor : .secondary.opacity(0.3), style: StrokeStyle(lineWidth: 2, dash: [6]))
-            .padding(24))
-        .dropDestination(for: URL.self) { urls, _ in
-            urls.forEach(onDrop)
-            return !urls.isEmpty
-        } isTargeted: { targeted = $0 }
-        .fileImporter(isPresented: $choosing, allowedContentTypes: [.exe, .item]) { result in
-            if case .success(let url) = result { onDrop(url) }
-        }
-    }
-}
-
-/// Empty state while Windows support (the Wine runtime) isn't installed: offers the one-time download.
 struct RuntimeDownloadView: View {
     @Environment(AppModel.self) private var model
 
