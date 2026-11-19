@@ -51,6 +51,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>HarborRuntimeManifestURL</key><string>$RUNTIME_MANIFEST_URL</string>
   <key>SUFeedURL</key><string>$UPDATE_FEED_URL</string>
   <key>SUPublicEDKey</key><string>$(cat scripts/sparkle-public.key)</string>
+  <key>SUEnableAutomaticChecks</key><true/>
   <key>CFBundleURLTypes</key>
   <array><dict>
     <key>CFBundleURLName</key><string>$BUNDLE_ID</string>
@@ -63,8 +64,13 @@ plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
 # Hardened runtime, secure timestamp. Harbor spawns Wine as separate processes, so it needs no
 # JIT/unsigned-memory/library-validation exceptions itself.
-TS="--timestamp"; [ "$IDENTITY" = "-" ] && TS=""
-sign() { codesign --force --options runtime $TS --sign "$IDENTITY" "$@"; }
+# Ad-hoc builds (local testing) skip the hardened runtime: its library validation rejects an ad-hoc
+# Sparkle.framework ("different Team IDs") and the app dies at launch.
+if [ "$IDENTITY" = "-" ]; then
+  sign() { codesign --force --sign - "$@"; }
+else
+  sign() { codesign --force --options runtime --timestamp --sign "$IDENTITY" "$@"; }
+fi
 # Sparkle's helpers first, innermost out, as Sparkle's documentation prescribes (no --deep).
 FW="$APP/Contents/Frameworks/Sparkle.framework"
 sign "$FW/Versions/B/XPCServices/Installer.xpc"
