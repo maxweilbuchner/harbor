@@ -205,7 +205,8 @@ final class AppModel {
     /// so most programs start right away instead of updating on their first start.
     private func updateBottlesInBackground() {
         guard let launcher else { return }
-        let bottles = store.list().filter { $0.needsWindowsUpdate(for: launcher.runtime) }
+        // A running bottle is left for later: its Windows session belongs to the previous Wine build.
+        let bottles = store.list().filter { $0.needsWindowsUpdate(for: launcher.runtime) && !$0.isRunning() }
         Task.detached(priority: .background) {
             for bottle in bottles { try? await launcher.updateWindows(bottle) }
         }
@@ -318,8 +319,9 @@ final class AppModel {
     func open(_ item: LibraryItem) {
         guard let launcher else { return }
         // After a runtime update, Wine first refreshes the bottle's Windows files (20–30 s). Say so instead of
-        // leaving people looking at nothing.
-        if item.bottle.needsWindowsUpdate(for: launcher.runtime), addState == nil {
+        // leaving people looking at nothing. Not while the bottle is still running from before the update (the
+        // program is usually already open there, and the update would wait for it to quit).
+        if item.bottle.needsWindowsUpdate(for: launcher.runtime), !item.bottle.isRunning(), addState == nil {
             addState = AddState(fileName: item.program.name, phase: .updating)
             Task {
                 try? await launcher.updateWindows(item.bottle)

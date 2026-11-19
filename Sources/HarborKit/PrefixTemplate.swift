@@ -123,6 +123,25 @@ extension Bottle {
     }
 }
 
+extension Bottle {
+    /// Whether a Wine session is running for this bottle: its wineserver holds a write lock on
+    /// `<tmp>/.wine-<uid>/server-<dev>-<inode>/lock` (server/request.c, dlls/ntdll/unix/server.c). Only asks
+    /// about the lock, so it never starts or disturbs a server.
+    public func isRunning(serverDirectory base: String = "/tmp/.wine-\(getuid())") -> Bool {
+        var info = stat()
+        guard stat(prefix.path, &info) == 0 else { return false }
+        let lock = "\(base)/server-\(String(UInt64(bitPattern: Int64(info.st_dev)), radix: 16))-\(String(info.st_ino, radix: 16))/lock"
+        let fd = open(lock, O_RDONLY)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var query = flock()
+        query.l_type = Int16(F_WRLCK)
+        query.l_whence = Int16(SEEK_SET)
+        guard fcntl(fd, F_GETLK, &query) != -1 else { return false }
+        return query.l_type != Int16(F_UNLCK)
+    }
+}
+
 extension WineLauncher {
     /// Brings a bottle's Windows files up to date with the runtime (what Wine would otherwise do silently on the
     /// next program start) and waits for it. `-r` skips the bottle's autostart entries (wineboot otherwise runs the
