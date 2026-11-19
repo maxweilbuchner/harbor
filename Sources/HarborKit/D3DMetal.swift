@@ -29,7 +29,8 @@ public struct D3DMetalRedist: Sendable, Equatable {
             && version != nil
     }
 
-    /// Looks in `$HARBOR_D3DMETAL_LIB`, the app bundle's `Resources/d3dmetal/lib`, then the checkout's `Runtime/d3dmetal-*`.
+    /// Looks in `$HARBOR_D3DMETAL_LIB`, the app bundle's `Resources/d3dmetal/lib`, Harbor's installed copy
+    /// (`WineRuntime.installedDirectory/d3dmetal/lib`), then the checkout's `Runtime/d3dmetal-*`.
     public static func locate(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main,
@@ -42,6 +43,7 @@ public struct D3DMetalRedist: Sendable, Equatable {
         if let resources = bundle.resourceURL {
             candidates.append(resources.appending(path: "d3dmetal/lib"))
         }
+        candidates.append(WineRuntime.installedDirectory.appending(path: "d3dmetal/lib"))
         let runtimeDir = (devRoot ?? WineRuntime.checkoutRoot).appending(path: "Runtime")
         let fm = FileManager.default
         let dirs = ((try? fm.contentsOfDirectory(at: runtimeDir, includingPropertiesForKeys: nil)) ?? [])

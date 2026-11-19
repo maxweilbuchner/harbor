@@ -11,6 +11,12 @@ public struct WineRuntime: Sendable, Equatable {
     public var wine: URL { root.appending(path: "bin/wine") }
     public var wineserver: URL { root.appending(path: "bin/wineserver") }
 
+    /// Where Harbor installs runtimes it downloads: `~/Library/Application Support/Harbor/Installed`.
+    public static var installedDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "Harbor/Installed")
+    }
+
     /// The development checkout this file was compiled from; only meaningful in dev builds.
     static let checkoutRoot = URL(filePath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -20,7 +26,8 @@ public struct WineRuntime: Sendable, Equatable {
         return fm.isExecutableFile(atPath: wine.path) && fm.isExecutableFile(atPath: wineserver.path)
     }
 
-    /// Looks for a runtime in, in order: `$HARBOR_WINE_ROOT`, the app bundle's `Resources/wine`, the development
+    /// Looks for a runtime in, in order: `$HARBOR_WINE_ROOT`, the app bundle's `Resources/wine`, Harbor's installed
+    /// runtime (`installedDirectory/wine`), the development
     /// checkout's own Wine build (`build/out/wine`, from `scripts/build-wine.sh`), and its `Runtime/` folder
     /// (filled by `scripts/fetch-runtime.sh`).
     public static func locate(
@@ -35,6 +42,8 @@ public struct WineRuntime: Sendable, Equatable {
         if let resources = bundle.resourceURL {
             candidates.append(resources.appending(path: "wine"))
         }
+        // Installed by Harbor (the runtime downloader's target), ahead of anything development-only.
+        candidates.append(installedDirectory.appending(path: "wine"))
         // Harbor's own build from CodeWeavers' LGPL sources (scripts/build-wine.sh) wins over downloaded ones.
         candidates.append((devRoot ?? checkoutRoot).appending(path: "build/out/wine"))
         let runtimeDir = (devRoot ?? checkoutRoot).appending(path: "Runtime")
