@@ -5,8 +5,8 @@ import Foundation
 /// - Installers (MSI, Inno, NSIS, InstallShield, WiX, or a setup-named .exe) run with their normal UI; the
 ///   programs they leave in the Start Menu become library items. If an installer creates no shortcuts, new
 ///   executables under Program Files are offered instead.
-/// - Anything else is treated as a program that runs as-is: its folder goes into the bottle (copied when small,
-///   linked when large) and the program itself becomes the library item.
+/// - Anything else is treated as a program that runs as-is: it goes into the bottle (with its folder, unless
+///   that's a shared folder like Downloads) and becomes the library item.
 public struct AddProgram: Sendable {
     public enum Step: Sendable, Equatable {
         case analyzing
@@ -32,8 +32,6 @@ public struct AddProgram: Sendable {
     public let launcher: WineLauncher
     /// New bottles clone this pre-built prefix when it's ready (under a second instead of about 25 s).
     public var template: PrefixTemplate?
-    /// Folders larger than this are linked into the bottle instead of copied.
-    public var copyLimit: Int64 = 512 * 1024 * 1024
 
     public init(store: BottleStore, launcher: WineLauncher, template: PrefixTemplate? = nil) {
         self.store = store
@@ -51,20 +49,24 @@ public struct AddProgram: Sendable {
         progress(.preparingWindows(name: name))
         let (launcher, template) = (self.launcher, self.template)
         let bottle = try await store.create(name: name) { try await launcher.initialize($0, template: template) }
+        let programs: [Program]
         do {
-            let programs: [Program]
             if analysis.installer != nil {
                 programs = try await install(file, name: name, into: bottle, progress: progress)
             } else {
                 programs = [try place(file, analysis: analysis, name: name, in: bottle)]
             }
-            try bottle.savePrograms(programs)
-            return (bottle, programs)
+        } catch Failure.installerFoundNothing(let n) {
+            // Something may well be installed; keep the bottle rather than delete it (Advanced can reach it).
+            throw Failure.installerFoundNothing(name: n)
         } catch {
             try? launcher.shutdown(bottle)
             try? FileManager.default.removeItem(at: bottle.root)
             throw error
         }
+        // A finished install is never deleted because saving the library entry failed.
+        try bottle.savePrograms(programs)
+        return (bottle, programs)
     }
 
     private func install(_ file: URL, name: String, into bottle: Bottle,
@@ -76,6 +78,9 @@ public struct AddProgram: Sendable {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             DispatchQueue.global().async { process.waitUntilExit(); done.resume() }
         }
+        // Bootstrapper installers start the real setup and exit at once; wait until every Windows process in
+        // the bottle has finished (wineserver exits then), or the scan below would run mid-install.
+        try await launcher.waitForShutdown(bottle)
         progress(.findingPrograms)
         let new = bottle.startMenuPrograms().filter { !before.contains($0.windowsPath.lowercased()) }
         if !new.isEmpty { return new }
@@ -94,25 +99,43 @@ public struct AddProgram: Sendable {
         return candidates.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
-    /// Puts a program that needs no installer into `C:\Program Files\<name>\` (its whole folder, since programs
-    /// usually need the files next to them).
+    /// Puts a program that needs no installer into `C:\Program Files\<name>\`. Its folder comes along (programs
+    /// usually need the files next to them), except when the program sits directly in a shared folder such as
+    /// Downloads or Desktop: then only the program is copied, so unrelated personal files never enter the
+    /// bottle. Nothing is ever symlinked in, so a Windows uninstaller can't reach the Mac folder.
     private func place(_ file: URL, analysis: ProgramAnalysis, name: String, in bottle: Bottle) throws -> Program {
         let fm = FileManager.default
         let folder = file.deletingLastPathComponent()
-        let programFiles = bottle.driveC.appending(path: analysis.architecture == .x86 ? "Program Files (x86)" : "Program Files")
+        let programFolderName = analysis.architecture == .x86 ? "Program Files (x86)" : "Program Files"
+        let programFiles = bottle.driveC.appending(path: programFolderName)
         try fm.createDirectory(at: programFiles, withIntermediateDirectories: true)
         let destination = programFiles.appending(path: Self.safeFolderName(name))
-        if Self.size(of: folder, limit: copyLimit) <= copyLimit {
-            try fm.copyItem(at: folder, to: destination)
+        if Self.isSharedFolder(folder) {
+            try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+            try fm.copyItem(at: file, to: destination.appending(path: file.lastPathComponent))
         } else {
-            try fm.createSymbolicLink(at: destination, withDestinationURL: folder)
+            try fm.copyItem(at: folder, to: destination)   // a clone on APFS: no extra disk until files change
         }
-        let programFolderName = analysis.architecture == .x86 ? "Program Files (x86)" : "Program Files"
-        let windows = #"C:\\#(programFolderName)\\#(Self.safeFolderName(name))\\#(file.lastPathComponent)"#
+        let windows = #"C:\#(programFolderName)\#(Self.safeFolderName(name))\#(file.lastPathComponent)"#
         let program = Program(name: analysis.displayName(fallback: file), windowsPath: windows,
                               isGame: Bottle.looksLikeGame(file))
         bottle.saveIcon(for: program, from: file)
         return program
+    }
+
+    /// Folders that hold many unrelated files: the home folder, its standard folders, Applications, volume roots.
+    static func isSharedFolder(_ folder: URL) -> Bool {
+        let fm = FileManager.default
+        let path = folder.standardizedFileURL.resolvingSymlinksInPath().path
+        let home = fm.homeDirectoryForCurrentUser.standardizedFileURL.resolvingSymlinksInPath().path
+        var shared: Set<String> = ["/", "/Applications", "/Users", "/Volumes", home]
+        for name in ["Downloads", "Desktop", "Documents", "Applications", "Library", "Movies", "Music", "Pictures", "Public"] {
+            shared.insert(home + "/" + name)
+        }
+        if shared.contains(path) { return true }
+        // A disk's root, e.g. /Volumes/USB.
+        let parts = path.split(separator: "/")
+        return parts.count == 2 && parts[0] == "Volumes"
     }
 
     private func programFilesExecutables(in bottle: Bottle) -> Set<URL> {
@@ -151,18 +174,6 @@ public struct AddProgram: Sendable {
     static func safeFolderName(_ name: String) -> String {
         let cleaned = name.map { #"<>:"/\|?*"#.contains($0) ? "-" : $0 }
         return String(cleaned).trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: ".")))
-    }
-
-    /// Total size of `folder`, stopping early once it exceeds `limit`.
-    static func size(of folder: URL, limit: Int64) -> Int64 {
-        var total: Int64 = 0
-        let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey])
-        while let url = walker?.nextObject() as? URL {
-            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-            if values?.isRegularFile == true { total += Int64(values?.fileSize ?? 0) }
-            if total > limit { return total }
-        }
-        return total
     }
 }
 

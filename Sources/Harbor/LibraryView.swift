@@ -56,7 +56,8 @@ struct LibraryView: View {
             if case .success(let urls) = result, let url = urls.first { Task { await model.add(url) } }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            guard let url = urls.first else { return false }
+            // Local files only: a dropped web link ending in .exe would otherwise be downloaded synchronously.
+            guard let url = urls.first, url.isFileURL else { return false }
             Task { await model.add(url) }
             return true
         } isTargeted: { dropTargeted = $0 }
