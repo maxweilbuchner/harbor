@@ -142,6 +142,32 @@ extension Bottle {
     }
 }
 
+extension Bottle {
+    /// Replaces links from the Windows user folders (`drive_c/users/*/Documents` etc.) to anywhere outside the
+    /// bottle with empty folders, so programs can't reach the Mac's own Documents, Downloads, Pictures… Wine used to
+    /// create those links for every new prefix (Harbor's Wine patch 0007 stops that); this migrates older bottles.
+    /// Only the links are removed, never what they point to. Returns the folders it replaced.
+    @discardableResult
+    public func unshareUserFolders() -> [URL] {
+        let fm = FileManager.default
+        let users = driveC.appending(path: "users")
+        let inside = prefix.standardizedFileURL.resolvingSymlinksInPath().path + "/"
+        var replaced: [URL] = []
+        for user in (try? fm.contentsOfDirectory(at: users, includingPropertiesForKeys: nil)) ?? [] {
+            for entry in (try? fm.contentsOfDirectory(at: user, includingPropertiesForKeys: nil)) ?? [] {
+                guard let target = try? fm.destinationOfSymbolicLink(atPath: entry.path) else { continue }
+                let resolved = URL(filePath: target, relativeTo: user).standardizedFileURL.resolvingSymlinksInPath().path
+                guard !resolved.hasPrefix(inside) else { continue }
+                // removeItem on a link deletes the link itself, not its target.
+                guard (try? fm.removeItem(at: entry)) != nil,
+                      (try? fm.createDirectory(at: entry, withIntermediateDirectories: false)) != nil else { continue }
+                replaced.append(entry)
+            }
+        }
+        return replaced
+    }
+}
+
 extension WineLauncher {
     /// Brings a bottle's Windows files up to date with the runtime (what Wine would otherwise do silently on the
     /// next program start) and waits for it. `-r` skips the bottle's autostart entries (wineboot otherwise runs the

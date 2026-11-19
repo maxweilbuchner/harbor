@@ -1,0 +1,14 @@
+--- a/dlls/shell32/shellpath.c
++++ b/dlls/shell32/shellpath.c
+@@ -2861,6 +2861,11 @@
+ {
+     DWORD folder = nFolder & CSIDL_FOLDER_MASK;
+ 
++    /* HARBOR HACK: Documents, Pictures, Videos, Music, Downloads and Templates stay folders inside the bottle
++     * instead of links to the Mac's own folders, so a Windows program (or its uninstaller) can't modify or
++     * delete the user's personal files. The callers create a plain directory when no link was made. */
++    if (folder != CSIDL_DESKTOPDIRECTORY) return;
++
+     switch (folder) {
+         case CSIDL_PERSONAL:
+             create_link( path, "XDG_DOCUMENTS_DIR", "$HOME/Documents" );
