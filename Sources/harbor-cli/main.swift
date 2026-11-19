@@ -7,6 +7,8 @@ import HarborKit
 //   harbor-cli open <bottle> <file.exe|file.msi>
 //   harbor-cli run <bottle> <wine args...>      e.g. run Test cmd /c ver
 //   harbor-cli stop <bottle>
+//   harbor-cli programs <bottle>                    # scan the Start Menu into the bottle's library
+//   harbor-cli launch <bottle> <program name>
 //   harbor-cli gen-runtime-key                      # private key → ~/.config/harbor/runtime-signing.key
 //   harbor-cli sign-manifest <runtime.json>         # writes runtime.json.sig with that key
 //   harbor-cli install-runtime <manifest-url> [--into <dir>]
@@ -56,6 +58,24 @@ case "run" where args.count >= 3:
     let p = try launcher().run(b, arguments: Array(args.dropFirst(2)), output: .standardOutput)
     p.waitUntilExit()
     exit(p.terminationStatus)
+case "programs" where args.count == 2:
+    // Scans the bottle's Start Menu, merges new programs into its library and lists them.
+    let b = bottle(args[1])
+    var library = b.programs()
+    for found in b.startMenuPrograms() where !library.contains(where: { $0.windowsPath.lowercased() == found.windowsPath.lowercased() }) {
+        library.append(found)
+    }
+    try b.savePrograms(library)
+    let wine = launcher()
+    for p in library {
+        print("\(p.name)\t\(p.isGame ? "game" : "app")\t\(wine.effectiveGraphics(for: p).rawValue)\t\(p.windowsPath)")
+    }
+case "launch" where args.count == 3:
+    let b = bottle(args[1])
+    guard let program = b.programs().first(where: { $0.name == args[2] }) else { fail("no program \(args[2]) in \(args[1]); run `programs` first") }
+    let p = try launcher().launch(program, in: b)
+    p.waitUntilExit()
+    exit(p.terminationStatus)
 case "logs" where args.count == 2:
     for log in bottle(args[1]).logs() { print(log.path) }
 case "stop" where args.count == 2:
@@ -91,5 +111,5 @@ case "install-runtime" where args.count == 2 || (args.count == 4 && args[2] == "
     FileHandle.standardError.write(Data("\n".utf8))
     print("installed")
 default:
-    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
+    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | programs <bottle> | launch <bottle> <name> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
 }

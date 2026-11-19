@@ -32,6 +32,61 @@ public struct WineLauncher: Sendable {
         }
     }
 
+    /// The backend a program gets when launched. Per launch, not per bottle: processes in one prefix can use
+    /// different runtimes (verified), so Steam and its games can share a bottle.
+    ///
+    /// Automatic: every program Harbor considers a game runs on the D3DMetal runtime (the GPTK license covers
+    /// games only), even when the launched file itself has no DirectX imports: launchers (Superposition's,
+    /// Steam) start the real game as a child process, which inherits the launcher's runtime. That's safe because
+    /// D3DMetal only replaces the 64-bit DirectX builtins; 32-bit and non-DirectX processes behave as on plain
+    /// Wine. Everything that isn't a game runs on plain Wine.
+    public func effectiveGraphics(for program: Program) -> GraphicsBackend {
+        switch program.graphics {
+        case .d3dmetal?:
+            return d3dmetal == nil ? .wined3d : .d3dmetal
+        case .wined3d?, .dxmt?, .dxvk?:
+            return .wined3d
+        case .automatic?, nil:
+            return program.isGame && d3dmetal != nil ? .d3dmetal : .wined3d
+        }
+    }
+
+    func runtime(for graphics: GraphicsBackend) throws -> WineRuntime {
+        if graphics == .d3dmetal, let d3dmetal {
+            return try d3dmetal.runtime(basedOn: runtime, in: runtimesDirectory)
+        }
+        return runtime
+    }
+
+    /// Launches a library program and returns the Wine process, which lives as long as the program.
+    @discardableResult
+    public func launch(_ program: Program, in bottle: Bottle,
+                       onExit: (@Sendable (Int32) -> Void)? = nil) throws -> Process {
+        guard let exe = bottle.unixPath(forWindowsPath: program.windowsPath) else {
+            throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: program.windowsPath])
+        }
+        let graphics = effectiveGraphics(for: program)
+        var arguments = ["start", "/wait"]
+        if let dir = program.workingDirectory { arguments += ["/d", dir] }
+        arguments += ["/unix", exe.path] + Self.splitArguments(program.arguments ?? "")
+        return try run(bottle, arguments: arguments, label: program.name, runtime: try runtime(for: graphics), onExit: onExit)
+    }
+
+    /// Splits a Windows command-line argument string on spaces outside double quotes.
+    static func splitArguments(_ line: String) -> [String] {
+        var out: [String] = []
+        var current = ""
+        var quoted = false
+        var hasToken = false
+        for ch in line {
+            if ch == "\"" { quoted.toggle(); hasToken = true }
+            else if ch == " " && !quoted { if hasToken { out.append(current); current = ""; hasToken = false } }
+            else { current.append(ch); hasToken = true }
+        }
+        if hasToken { out.append(current) }
+        return out
+    }
+
     /// The Wine runtime to launch `bottle` with. Bottles can't switch runtimes while Wine is running in them,
     /// since every process in a prefix must share one wineserver.
     public func runtime(for bottle: Bottle) throws -> WineRuntime {
@@ -111,9 +166,9 @@ public struct WineLauncher: Sendable {
     /// Starts Wine. Output goes to `output`, or to a new log file in the bottle's `logs/` folder.
     @discardableResult
     public func run(_ bottle: Bottle, arguments: [String], label: String = "run", output: FileHandle? = nil,
-                    onExit: (@Sendable (Int32) -> Void)? = nil) throws -> Process {
+                    runtime chosen: WineRuntime? = nil, onExit: (@Sendable (Int32) -> Void)? = nil) throws -> Process {
         let process = Process()
-        let runtime = try runtime(for: bottle)
+        let runtime = try chosen ?? runtime(for: bottle)
         process.executableURL = runtime.wine
         process.arguments = arguments
         process.environment = environment(for: bottle, runtime: runtime)
