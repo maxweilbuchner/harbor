@@ -1,9 +1,10 @@
 #!/bin/sh
 # Builds build/app/Harbor.app (release), signs it with the Developer ID identity under the hardened runtime,
-# and verifies the signature. Notarize afterwards with scripts/notarize-app.sh.
+# and verifies the signature. Notarize afterwards with scripts/notarize.sh.
 #
 #   scripts/bundle-app.sh            # sign with "Developer ID Application"
 #   SIGN_IDENTITY=- scripts/bundle-app.sh   # ad-hoc (local testing only)
+#   HARBOR_RUNTIME_MANIFEST_URL=https://…/runtime.json scripts/bundle-app.sh   # where Windows support downloads from
 set -eu
 cd "$(dirname "$0")/.."
 VERSION="${HARBOR_VERSION:-0.1.0}"
@@ -38,6 +39,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Free, non-commercial software. See THIRD_PARTY_NOTICES.md.</string>
+  <key>HarborRuntimePublicKey</key><string>$(cat scripts/runtime-signing.pub)</string>
+  $( [ -n "${HARBOR_RUNTIME_MANIFEST_URL:-}" ] && printf '<key>HarborRuntimeManifestURL</key><string>%s</string>' "$HARBOR_RUNTIME_MANIFEST_URL" )
   <key>CFBundleURLTypes</key>
   <array><dict>
     <key>CFBundleURLName</key><string>$BUNDLE_ID</string>

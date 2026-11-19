@@ -24,7 +24,55 @@ struct HarborApp: App {
 @MainActor @Observable
 final class AppModel {
     let store = BottleStore.default
-    let launcher = WineRuntime.locate().map { WineLauncher(runtime: $0, d3dmetal: D3DMetalRedist.locate()) }
+    private(set) var launcher = AppModel.makeLauncher()
+    /// Download of Windows support (the Wine runtime); nil when idle.
+    var runtimeDownload: RuntimeDownload?
+    /// Total download size offered on the empty state, once the manifest has been read.
+    var runtimeDownloadSize: Int64?
+
+    enum RuntimeDownload: Equatable {
+        case running(Double)
+        case failed(String)
+    }
+
+    private static func makeLauncher() -> WineLauncher? {
+        WineRuntime.locate().map { WineLauncher(runtime: $0, d3dmetal: D3DMetalRedist.locate()) }
+    }
+
+    /// Where Windows support is downloaded from, and the key its list must be signed with (Info.plist,
+    /// overridable by environment for development).
+    private var runtimeInstaller: RuntimeInstaller? {
+        let env = ProcessInfo.processInfo.environment
+        let info = Bundle.main.infoDictionary ?? [:]
+        guard let url = (env["HARBOR_RUNTIME_MANIFEST_URL"] ?? info["HarborRuntimeManifestURL"] as? String)
+                .flatMap(URL.init(string:)),
+              let keyText = env["HARBOR_RUNTIME_PUBLIC_KEY"] ?? info["HarborRuntimePublicKey"] as? String,
+              let key = try? RuntimeSigning.publicKey(keyText) else { return nil }
+        return RuntimeInstaller(manifestURL: url, publicKey: key)
+    }
+
+    var canDownloadRuntime: Bool { runtimeInstaller != nil }
+
+    func loadRuntimeOffer() async {
+        guard let installer = runtimeInstaller, let manifest = try? await installer.fetchManifest() else { return }
+        runtimeDownloadSize = installer.pending(in: manifest).reduce(0) { $0 + $1.size }
+    }
+
+    func installRuntime() async {
+        guard let installer = runtimeInstaller else { return }
+        runtimeDownload = .running(0)
+        do {
+            let manifest = try await installer.fetchManifest()
+            try await installer.installPending(manifest) { fraction in
+                Task { @MainActor in self.runtimeDownload = .running(fraction) }
+            }
+            installer.removeOldVersions()
+            launcher = Self.makeLauncher()
+            runtimeDownload = nil
+        } catch {
+            runtimeDownload = .failed(String(describing: error))
+        }
+    }
     var bottles: [Bottle] = []
     var selection: Bottle.ID?
     var status: String?
@@ -42,6 +90,11 @@ final class AppModel {
 
     private func runSmokeTest(writingTo output: URL) async {
         var lines = ["bundle \(Bundle.main.bundlePath)", "rosetta \(Rosetta.isAvailable)"]
+        if launcher == nil, canDownloadRuntime {
+            await installRuntime()
+            if case .failed(let message) = runtimeDownload { lines.append("FAIL download: \(message)") }
+            else { lines.append("downloaded runtime") }
+        }
         if let launcher {
             lines.append("runtime \(launcher.runtime.root.path)")
             do {
@@ -146,8 +199,7 @@ struct ContentView: View {
                         .buttonStyle(.borderedProminent)
                 }
             } else if model.launcher == nil {
-                ContentUnavailableView("Wine Isn’t Installed", systemImage: "exclamationmark.triangle",
-                                       description: Text("Run scripts/fetch-runtime.sh, then relaunch Harbor."))
+                RuntimeDownloadView()
             } else if model.bottles.isEmpty {
                 ContentUnavailableView {
                     Label("No Bottles Yet", systemImage: "shippingbox")
@@ -200,5 +252,48 @@ struct DropZone: View {
         .fileImporter(isPresented: $choosing, allowedContentTypes: [.exe, .item]) { result in
             if case .success(let url) = result { onDrop(url) }
         }
+    }
+}
+
+/// Empty state while Windows support (the Wine runtime) isn't installed: offers the one-time download.
+struct RuntimeDownloadView: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Windows Support Isn’t Installed", systemImage: "arrow.down.circle")
+        } description: {
+            switch model.runtimeDownload {
+            case .running(let fraction):
+                VStack(spacing: 8) {
+                    ProgressView(value: fraction).frame(width: 240)
+                    Text("Downloading Windows support… \(Int(fraction * 100))%")
+                }
+            case .failed(let message):
+                Text("The download didn’t finish: \(message)")
+            case nil where model.canDownloadRuntime:
+                Text(sizeText)
+            case nil:
+                Text("This development build has no download location. Run scripts/fetch-runtime.sh, then relaunch Harbor.")
+            }
+        } actions: {
+            if model.canDownloadRuntime, !isRunning {
+                Button(model.runtimeDownload == nil ? "Download Windows Support" : "Try Again") {
+                    Task { await model.installRuntime() }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .task { await model.loadRuntimeOffer() }
+    }
+
+    private var isRunning: Bool {
+        if case .running = model.runtimeDownload { true } else { false }
+    }
+
+    private var sizeText: String {
+        let base = "Harbor needs a one-time download to run Windows programs."
+        guard let size = model.runtimeDownloadSize, size > 0 else { return base }
+        return base + " (\(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)))"
     }
 }
