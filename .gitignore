@@ -3,3 +3,4 @@ Runtime/
 *.xcodeproj
 .DS_Store
 .swiftpm/
+build/

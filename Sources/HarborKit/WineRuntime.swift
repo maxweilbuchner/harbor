@@ -20,8 +20,9 @@ public struct WineRuntime: Sendable, Equatable {
         return fm.isExecutableFile(atPath: wine.path) && fm.isExecutableFile(atPath: wineserver.path)
     }
 
-    /// Looks for a runtime in, in order: `$HARBOR_WINE_ROOT`, the app bundle's `Resources/wine`,
-    /// and the development checkout's `Runtime/` folder (filled by `scripts/fetch-runtime.sh`).
+    /// Looks for a runtime in, in order: `$HARBOR_WINE_ROOT`, the app bundle's `Resources/wine`, the development
+    /// checkout's own Wine build (`build/out/wine`, from `scripts/build-wine.sh`), and its `Runtime/` folder
+    /// (filled by `scripts/fetch-runtime.sh`).
     public static func locate(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main,
@@ -34,6 +35,8 @@ public struct WineRuntime: Sendable, Equatable {
         if let resources = bundle.resourceURL {
             candidates.append(resources.appending(path: "wine"))
         }
+        // Harbor's own build from CodeWeavers' LGPL sources (scripts/build-wine.sh) wins over downloaded ones.
+        candidates.append((devRoot ?? checkoutRoot).appending(path: "build/out/wine"))
         let runtimeDir = (devRoot ?? checkoutRoot).appending(path: "Runtime")
         if let entries = try? FileManager.default.contentsOfDirectory(at: runtimeDir, includingPropertiesForKeys: nil) {
             for dir in entries.sorted(by: { $0.lastPathComponent > $1.lastPathComponent })

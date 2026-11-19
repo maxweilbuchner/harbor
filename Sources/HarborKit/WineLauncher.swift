@@ -42,9 +42,15 @@ public struct WineLauncher: Sendable {
     }
 
     /// The environment Wine runs with for `bottle`. Pure, so it can be unit-tested without running Wine.
-    public func environment(for bottle: Bottle, base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
+    public func environment(for bottle: Bottle, runtime: WineRuntime? = nil,
+                            base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var env = base
         env["WINEPREFIX"] = bottle.prefix.path
+        // Wine dlopens libfreetype.6.dylib, libMoltenVK.dylib, … by bare name; dyld only finds them via the fallback
+        // path. Without this, fonts and Vulkan silently fail and wineboot stalls on timeouts (5 min vs 30 s).
+        let runtimeLib = (runtime ?? self.runtime).root.appending(path: "lib").path
+        env["DYLD_FALLBACK_LIBRARY_PATH"] = [runtimeLib, env["DYLD_FALLBACK_LIBRARY_PATH"] ?? "/usr/local/lib:/usr/lib"]
+            .joined(separator: ":")
         // Keep errors (for Diagnose), drop the noisy fixme channel.
         env["WINEDEBUG"] = env["WINEDEBUG"] ?? "fixme-all"
         // Keep Wine from writing Linux-style menu entries and file associations into the user's home.
@@ -105,9 +111,10 @@ public struct WineLauncher: Sendable {
     public func run(_ bottle: Bottle, arguments: [String], label: String = "run", output: FileHandle? = nil,
                     onExit: (@Sendable (Int32) -> Void)? = nil) throws -> Process {
         let process = Process()
-        process.executableURL = try runtime(for: bottle).wine
+        let runtime = try runtime(for: bottle)
+        process.executableURL = runtime.wine
         process.arguments = arguments
-        process.environment = environment(for: bottle)
+        process.environment = environment(for: bottle, runtime: runtime)
         process.currentDirectoryURL = FileManager.default.fileExists(atPath: bottle.driveC.path) ? bottle.driveC : bottle.root
         let handle = try output ?? bottle.newLog(label: label)
         process.standardOutput = handle
@@ -122,9 +129,10 @@ public struct WineLauncher: Sendable {
     /// Stops every Wine process in the bottle.
     public func shutdown(_ bottle: Bottle) throws {
         let process = Process()
-        process.executableURL = try runtime(for: bottle).wineserver
+        let runtime = try runtime(for: bottle)
+        process.executableURL = runtime.wineserver
         process.arguments = ["-k"]
-        process.environment = environment(for: bottle)
+        process.environment = environment(for: bottle, runtime: runtime)
         try process.run()
         process.waitUntilExit()
     }
