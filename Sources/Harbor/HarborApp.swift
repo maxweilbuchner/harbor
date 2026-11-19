@@ -411,7 +411,8 @@ final class AppModel {
         AppShortcuts().remove(item.id)
         if removesBottle(item) {
             try? launcher?.shutdown(item.bottle)
-            try? FileManager.default.removeItem(at: item.bottle.root)
+            // To the Trash, not deleted: a removal must be undoable (Finder's Put Back).
+            do { try store.moveToTrash(item.bottle) } catch { status = "Couldn’t move \(item.program.name) to the Trash: \(error.localizedDescription)" }
         } else {
             try? item.bottle.savePrograms(item.bottle.programs().filter { $0.id != item.id })
         }
@@ -478,12 +479,12 @@ struct ContentView: View {
         .confirmationDialog(removalTitle, isPresented: Binding(get: { model.pendingRemoval != nil },
                                                                set: { if !$0 { model.pendingRemoval = nil } }),
                             presenting: model.pendingRemoval) { item in
-            Button(model.removesBottle(item) ? "Remove and Delete Its Files" : "Remove", role: .destructive) {
+            Button(model.removesBottle(item) ? "Move to Trash" : "Remove", role: .destructive) {
                 model.remove(item)
             }
         } message: { item in
             if model.removesBottle(item) {
-                Text("This also deletes everything installed for \(item.program.name), including its saved data.")
+                Text("Everything installed for \(item.program.name), including its saved data, goes to the Trash. You can put it back from there until you empty it.")
             } else {
                 Text("Other programs installed alongside it stay in your library.")
             }
