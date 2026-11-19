@@ -526,3 +526,51 @@ final class Marker {}
         #expect(fm.fileExists(atPath: other.driveC.path))
     }
 }
+
+@Suite struct AppShortcutsTests {
+    let fm = FileManager.default
+
+    func icon() throws -> URL {
+        let exe = try #require(Bundle.module.url(forResource: "app64", withExtension: "exe"))
+        let png = try #require(try ProgramAnalysis.analyze(exe).iconPNG)
+        let url = fm.temporaryDirectory.appending(path: "harbor-icon-\(UUID().uuidString).png")
+        try png.write(to: url)
+        return url
+    }
+
+    @Test func createsASignedShortcutThatOpensHarbor() throws {
+        let shortcuts = AppShortcuts(directory: fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)"))
+        let program = Program(name: "Thing: Deluxe", windowsPath: #"C:\t.exe"#, isGame: true)
+        let app = try shortcuts.create(for: program, iconPNG: try icon())
+        #expect(app.lastPathComponent == "Thing- Deluxe.app")
+        let plist = try #require(NSDictionary(contentsOf: app.appending(path: "Contents/Info.plist")) as? [String: Any])
+        #expect(plist["CFBundleName"] as? String == "Thing: Deluxe")
+        #expect(plist["LSApplicationCategoryType"] as? String == "public.app-category.games")
+        #expect(plist["CFBundleIconFile"] as? String == "AppIcon")
+        #expect(fm.fileExists(atPath: app.appending(path: "Contents/Resources/AppIcon.icns").path))
+        let script = try String(contentsOf: app.appending(path: "Contents/MacOS/launch"), encoding: .utf8)
+        #expect(script.contains("harbor://launch/\(program.id.uuidString)"))
+        #expect(fm.isExecutableFile(atPath: app.appending(path: "Contents/MacOS/launch").path))
+        let verify = Process()
+        verify.executableURL = URL(filePath: "/usr/bin/codesign")
+        verify.arguments = ["--verify", "--strict", app.path]
+        try verify.run(); verify.waitUntilExit()
+        #expect(verify.terminationStatus == 0)
+        // Directory URLs from contentsOfDirectory carry a trailing slash; compare the bundle names.
+        #expect(shortcuts.existing().mapValues(\.lastPathComponent) == [program.id: app.lastPathComponent])
+    }
+
+    @Test func syncAddsRenamesAndRemovesOnlyItsOwnShortcuts() throws {
+        let dir = fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)")
+        let shortcuts = AppShortcuts(directory: dir)
+        var a = Program(name: "Alpha", windowsPath: #"C:\a.exe"#)
+        let b = Program(name: "Beta", windowsPath: #"C:\b.exe"#)
+        try fm.createDirectory(at: dir.appending(path: "Someone Else.app"), withIntermediateDirectories: true)
+        shortcuts.sync([a, b]) { _ in nil }
+        #expect(Set(shortcuts.existing().values.map(\.lastPathComponent)) == ["Alpha.app", "Beta.app"])
+        a.name = "Alpha Two"
+        shortcuts.sync([a]) { _ in nil }
+        #expect(shortcuts.existing().values.map(\.lastPathComponent) == ["Alpha Two.app"])
+        #expect(fm.fileExists(atPath: dir.appending(path: "Someone Else.app").path))   // not Harbor's: untouched
+    }
+}

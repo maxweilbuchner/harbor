@@ -196,6 +196,26 @@ final class AppModel {
             }
         }
         .sorted { $0.program.addedAt > $1.program.addedAt }
+        syncShortcuts()
+    }
+
+    /// Mac app shortcuts in ~/Applications/Harbor, one per program (off the main actor: icons go through sips).
+    private func syncShortcuts() {
+        let items = library.map { ($0.program, $0.bottle.iconFile(for: $0.program)) }
+        Task.detached(priority: .utility) {
+            let icons = Dictionary(items.map { ($0.0.id, $0.1) }, uniquingKeysWith: { a, _ in a })
+            AppShortcuts().sync(items.map(\.0)) { program in
+                icons[program.id].flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+            }
+        }
+    }
+
+    /// `harbor://launch/<program id>`, sent by the Mac app shortcuts.
+    func handle(_ url: URL) {
+        guard url.scheme == "harbor", url.host() == "launch",
+              let id = UUID(uuidString: url.lastPathComponent),
+              let item = library.first(where: { $0.id == id }) else { return }
+        open(item)
     }
 
     /// Adds a dropped program or installer: a new bottle, the installer's own window if it has one, then the
@@ -289,6 +309,7 @@ final class AppModel {
     func removesBottle(_ item: LibraryItem) -> Bool { item.bottle.programs().count <= 1 }
 
     func remove(_ item: LibraryItem) {
+        AppShortcuts().remove(item.id)
         if removesBottle(item) {
             try? launcher?.shutdown(item.bottle)
             try? FileManager.default.removeItem(at: item.bottle.root)
@@ -341,6 +362,7 @@ struct ContentView: View {
                 Text(status).font(.callout).foregroundStyle(.secondary).padding(8)
             }
         }
+        .onOpenURL { model.handle($0) }
         .confirmationDialog(removalTitle, isPresented: Binding(get: { model.pendingRemoval != nil },
                                                                set: { if !$0 { model.pendingRemoval = nil } }),
                             presenting: model.pendingRemoval) { item in
