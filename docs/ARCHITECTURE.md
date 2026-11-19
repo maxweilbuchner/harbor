@@ -214,7 +214,7 @@ An independent review re-checked the plan against the code and runtime. Items ma
    stays behind the previous app until activated), so the launcher must bring launched programs to the front.
    Original plan: self-built console, D3D11 and D3D12 triangle test exes that write a PNG;
    env-gated integration tests on a self-hosted Mac; then one real DX11 and one DX12 game.
-5. **M4 — signing spike (in progress 2026-11-19):** `scripts/bundle-app.sh` builds a release Harbor.app
+5. **M4 — signing spike (signing + notarization done 2026-11-19):** `scripts/bundle-app.sh` builds a release Harbor.app
    (bundle ID io.github.maxweilbuchner.harbor, `harbor://` scheme, macOS 26 minimum, SDK 27.2), signed with
    Developer ID under the hardened runtime with no entitlements. Runtimes install to
    `~/Library/Application Support/Harbor/Installed/{wine,d3dmetal}`. Findings, via the app's
@@ -224,8 +224,12 @@ An independent review re-checked the plan against the code and runtime. Items ma
    - `scripts/sign-runtime.sh` signs all 46 of Wine's own Mach-O files with Developer ID + hardened runtime;
      executables need only `scripts/wine.entitlements` (unsigned executable memory, disable library
      validation, DYLD environment variables). Wine and D3DMetal (Apple's files untouched) both work that way.
-   - **Remaining:** notarize app + runtime (`scripts/notarize.sh`, needs Max's notarytool credentials), then
-     re-test with the runtime quarantined. Sparkle and the runtime downloader follow.
+   - **Notarized** (`scripts/notarize.sh`, keychain profile `harbor-notary`): Harbor.app accepted and stapled
+     (`spctl`: "Notarized Developer ID"); the signed Wine runtime accepted. With the runtime **and** Apple's
+     D3DMetal quarantined like browser downloads, the notarized app runs Wine without any dialog and the
+     D3D11/D3D12 proofs pass. **Distribution model settled:** notarized app + separately downloaded,
+     Developer ID-signed and notarized Wine runtime + Apple-signed D3DMetal, unmodified.
+   - **Remaining in M4:** Sparkle app updates and the runtime downloader.
    Developer ID certificate expires 2027-02-01 (needs a G2 replacement before then). Original plan: Developer ID app bundle (Xcode project or bundling script), notarization,
    spawning a downloaded runtime outside the bundle, URL scheme, Sparkle.
 6. **M5 — add-program flow:** PE analysis, game/app classification, per-launch layer selection, template
