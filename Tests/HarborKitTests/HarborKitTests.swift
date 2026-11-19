@@ -794,4 +794,29 @@ final class Marker {}
         try "disable\n".write(to: stamp, atomically: true, encoding: .utf8)
         #expect(!b.needsWindowsUpdate(for: runtime))
     }
+
+    /// A bottle counts as running while another process holds its wineserver lock, as wineserver does.
+    @Test func detectsARunningBottleFromTheServerLock() throws {
+        let base = fm.temporaryDirectory.appending(path: "harbor-run-\(UUID().uuidString)")
+        let b = try BottleStore(directory: base.appending(path: "bottles")).create(name: "R")
+        try fm.createDirectory(at: b.prefix, withIntermediateDirectories: true)
+        let servers = base.appending(path: "servers").path
+        #expect(!b.isRunning(serverDirectory: servers))                 // no server folder at all
+        let attrs = try fm.attributesOfItem(atPath: b.prefix.path)
+        let dir = "\(servers)/server-\(String(attrs[.systemNumber] as! Int, radix: 16))-\(String(attrs[.systemFileNumber] as! UInt64, radix: 16))"
+        try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try Data().write(to: URL(filePath: "\(dir)/lock"))
+        #expect(!b.isRunning(serverDirectory: servers))                 // lock file left behind, nobody holds it
+
+        // Another process takes the lock the way wineserver does (fcntl F_SETLK, write lock).
+        let holder = Process()
+        holder.executableURL = URL(filePath: "/usr/bin/python3")
+        holder.arguments = ["-c", "import fcntl,sys,time; f=open(sys.argv[1],'w'); fcntl.lockf(f, fcntl.LOCK_EX); print('locked', flush=True); time.sleep(30)", "\(dir)/lock"]
+        let pipe = Pipe()
+        holder.standardOutput = pipe
+        try holder.run()
+        defer { holder.terminate() }
+        _ = pipe.fileHandleForReading.availableData                      // waits for "locked"
+        #expect(b.isRunning(serverDirectory: servers))
+    }
 }
