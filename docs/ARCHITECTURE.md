@@ -197,8 +197,13 @@ An independent review re-checked the plan against the code and runtime. Items ma
      after leaving and re-entering fullscreen the screen stays blank.
    - Found along the way: CrossOver's Wine names the Windows user `crossover` (Harbor should use its own);
      `bcrypt: no encryption support` until GnuTLS is built; `superposition_cli.exe` is Pro-only.
-   **Next:** reproduce the fullscreen focus-loss blank screen in our own D3D11 test (fullscreen → lose focus →
-   restore → check pixels), then fix.
+   **Fullscreen (tests/graphics/fullscreen.sh, samples the real screen centre):** on CrossOver Wine + D3DMetal,
+   fullscreen, leave + re-enter fullscreen, and switching to another app and back all show the right content,
+   both for apps that re-enter fullscreen on reactivation and for ones that don't (Wine's DXGI stays fullscreen
+   across focus loss). Not yet reproduced: Superposition's blank screen; how the user left fullscreen is unknown.
+   Superposition's forced fullscreen is likely a Basic-edition limit (presets only), unconfirmed.
+   **Harbor requirement found:** a program started by Harbor isn't activated by macOS (its fullscreen window
+   stays behind the previous app until activated), so the launcher must bring launched programs to the front.
    Original plan: self-built console, D3D11 and D3D12 triangle test exes that write a PNG;
    env-gated integration tests on a self-hosted Mac; then one real DX11 and one DX12 game.
 5. **M4 — signing spike:** Developer ID app bundle (Xcode project or bundling script), notarization,
