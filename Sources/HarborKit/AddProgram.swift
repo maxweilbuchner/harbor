@@ -128,6 +128,14 @@ public struct AddProgram: Sendable {
         return found
     }
 
+    /// The name a dropped file's bottle will get, or nil if it isn't a Windows program. Lets the app notice
+    /// that something is already installed before adding it again.
+    public static func suggestedName(for file: URL) -> String? {
+        guard ["exe", "msi"].contains(file.pathExtension.lowercased()),
+              let analysis = try? ProgramAnalysis.analyze(file) else { return nil }
+        return bottleName(for: analysis, file: file)
+    }
+
     /// "Thing Setup 2.1" → "Thing": product name without installer words and version numbers.
     static func bottleName(for analysis: ProgramAnalysis, file: URL) -> String {
         var name = analysis.displayName(fallback: file)

@@ -80,6 +80,8 @@ case "add" where args.count == 2:
         let icon = FileManager.default.fileExists(atPath: b.iconFile(for: p).path) ? "icon" : "no icon"
         print("added \(p.name)\t\(p.isGame ? "game" : "app")\t\(icon)\t\(p.windowsPath)\tbottle \(b.settings.name)")
     }
+case "suggest-name" where args.count == 2:
+    print(AddProgram.suggestedName(for: URL(filePath: args[1])) ?? "(not a Windows program)")
 case "prepare-template" where args.count == 1:
     let template = PrefixTemplate(launcher: launcher())
     let start = Date()
