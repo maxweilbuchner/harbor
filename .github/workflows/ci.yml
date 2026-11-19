@@ -1,9 +1,9 @@
 name: CI
 
+# Manual only for now (out of CI minutes; macOS runners bill at 10x on private repos).
+# Run `scripts/check.sh` locally before every commit. Restore push/pull_request triggers when minutes allow.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
