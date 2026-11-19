@@ -13,6 +13,9 @@ public struct WineLauncher: Sendable {
         self.runtimesDirectory = runtimesDirectory
     }
 
+    /// DXMT, when the runtime ships it (Harbor's own builds do, under lib/dxmt).
+    public var dxmt: DXMT? { DXMT.locate(in: runtime) }
+
     public static var defaultRuntimesDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appending(path: "Harbor/Runtimes")
@@ -21,13 +24,15 @@ public struct WineLauncher: Sendable {
     /// The backend a bottle actually gets.
     ///
     /// D3DMetal is licensed only for games (GPTK license §2A(i)), so it is never chosen automatically until Harbor
-    /// can tell games from apps; a bottle gets it only when set to `.d3dmetal` explicitly. DXMT and DXVK aren't
-    /// shipped yet and honestly report plain Wine (wined3d) instead of pretending.
+    /// can tell games from apps; a bottle gets it only when set to `.d3dmetal` explicitly. DXMT is used when set
+    /// and shipped. DXVK isn't shipped and honestly reports plain Wine (wined3d) instead of pretending.
     public func effectiveGraphics(for bottle: Bottle) -> GraphicsBackend {
         switch bottle.settings.graphics {
         case .d3dmetal:
             return d3dmetal == nil ? .wined3d : .d3dmetal
-        case .automatic, .wined3d, .dxmt, .dxvk:
+        case .dxmt:
+            return dxmt == nil ? .wined3d : .dxmt
+        case .automatic, .wined3d, .dxvk:
             return .wined3d
         }
     }
@@ -44,16 +49,31 @@ public struct WineLauncher: Sendable {
         switch program.graphics {
         case .d3dmetal?:
             return d3dmetal == nil ? .wined3d : .d3dmetal
-        case .wined3d?, .dxmt?, .dxvk?:
+        case .dxmt?:
+            return dxmt == nil ? .wined3d : .dxmt
+        case .wined3d?, .dxvk?:
             return .wined3d
         case .automatic?, nil:
             return program.isGame && d3dmetal != nil ? .d3dmetal : .wined3d
         }
     }
 
+    /// The backend for launching `program` from `executable`: as above, plus DXMT for programs that aren't games
+    /// but link Direct3D 10/11 (Wine's own D3D11 can't run shader model 5 on MoltenVK). Direct3D 12 programs stay
+    /// on Wine, whose D3D12 needs Wine's dxgi.
+    public func effectiveGraphics(for program: Program, executable: URL) -> GraphicsBackend {
+        let chosen = effectiveGraphics(for: program)
+        guard chosen == .wined3d, program.graphics ?? .automatic == .automatic, dxmt != nil,
+              let d3d = (try? ProgramAnalysis.analyze(executable))?.direct3D, (10...11).contains(d3d) else { return chosen }
+        return .dxmt
+    }
+
     func runtime(for graphics: GraphicsBackend) throws -> WineRuntime {
         if graphics == .d3dmetal, let d3dmetal {
             return try d3dmetal.runtime(basedOn: runtime, in: runtimesDirectory)
+        }
+        if graphics == .dxmt, let dxmt {
+            return try dxmt.runtime(basedOn: runtime, in: runtimesDirectory)
         }
         return runtime
     }
@@ -65,7 +85,8 @@ public struct WineLauncher: Sendable {
         guard let exe = bottle.unixPath(forWindowsPath: program.windowsPath) else {
             throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: program.windowsPath])
         }
-        let graphics = effectiveGraphics(for: program)
+        let graphics = effectiveGraphics(for: program, executable: exe)
+        if graphics == .dxmt { try dxmt?.prepare(bottle) }
         var arguments = ["start", "/wait"]
         if let dir = program.workingDirectory { arguments += ["/d", dir] }
         let own = Self.splitArguments(program.arguments ?? "")
@@ -98,10 +119,9 @@ public struct WineLauncher: Sendable {
     /// The Wine runtime to launch `bottle` with. Bottles can't switch runtimes while Wine is running in them,
     /// since every process in a prefix must share one wineserver.
     public func runtime(for bottle: Bottle) throws -> WineRuntime {
-        if effectiveGraphics(for: bottle) == .d3dmetal, let d3dmetal {
-            return try d3dmetal.runtime(basedOn: runtime, in: runtimesDirectory)
-        }
-        return runtime
+        let graphics = effectiveGraphics(for: bottle)
+        if graphics == .dxmt { try dxmt?.prepare(bottle) }
+        return try runtime(for: graphics)
     }
 
     /// The environment Wine runs with for `bottle`. Pure, so it can be unit-tested without running Wine.

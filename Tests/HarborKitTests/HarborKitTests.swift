@@ -903,6 +903,87 @@ final class Marker {}
     }
 }
 
+@Suite struct DXMTTests {
+    let fm = FileManager.default
+
+    func make(_ url: URL, _ text: String = "x") throws {
+        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url)
+    }
+
+    /// A fake Harbor runtime that ships DXMT under lib/dxmt, like scripts/build-wine.sh installs it.
+    func runtime(withDXMT: Bool = true) throws -> (WineRuntime, URL) {
+        let root = fm.temporaryDirectory.appending(path: "harbor-dxmt-\(UUID().uuidString)")
+        let wine = root.appending(path: "wine")
+        for tool in ["bin/wine", "bin/wineserver"] {
+            try make(wine.appending(path: tool), "#!/bin/sh\n")
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wine.appending(path: tool).path)
+        }
+        for arch in ["x86_64-windows", "i386-windows"] {
+            try make(wine.appending(path: "lib/wine/\(arch)/d3d11.dll"), "wine-d3d11")
+            try make(wine.appending(path: "lib/wine/\(arch)/dxgi.dll"), "wine-dxgi")
+        }
+        try make(wine.appending(path: "lib/wine/x86_64-unix/ntdll.so"), "ntdll")
+        if withDXMT {
+            for arch in ["x86_64-windows", "i386-windows"] {
+                for dll in ["d3d11.dll", "dxgi.dll", "winemetal.dll"] { try make(wine.appending(path: "lib/dxmt/\(arch)/\(dll)"), "dxmt-\(dll)") }
+            }
+            try make(wine.appending(path: "lib/dxmt/x86_64-unix/winemetal.so"), "dxmt-winemetal")
+            try make(wine.appending(path: "lib/dxmt/VERSION"), "v0.80\n")
+        }
+        return (WineRuntime(root: wine), root)
+    }
+
+    @Test func overlayPutsDXMTOverWinesDirectXAndLeavesTheBaseAlone() throws {
+        let (base, root) = try runtime()
+        let dxmt = try #require(DXMT.locate(in: base))
+        #expect(dxmt.version == "v0.80")
+        let derived = try dxmt.runtime(basedOn: base, in: root.appending(path: "runtimes"))
+        #expect(derived.root.lastPathComponent.hasPrefix("dxmt-v0.80-"))
+        for arch in ["x86_64-windows", "i386-windows"] {
+            #expect(try String(contentsOf: derived.root.appending(path: "lib/wine/\(arch)/d3d11.dll"), encoding: .utf8) == "dxmt-d3d11.dll")
+        }
+        #expect(try String(contentsOf: derived.root.appending(path: "lib/wine/x86_64-unix/winemetal.so"), encoding: .utf8) == "dxmt-winemetal")
+        #expect(try String(contentsOf: base.root.appending(path: "lib/wine/x86_64-windows/d3d11.dll"), encoding: .utf8) == "wine-d3d11")
+        #expect(try dxmt.runtime(basedOn: base, in: root.appending(path: "runtimes")).root == derived.root)   // reused
+        #expect(DXMT.locate(in: try runtime(withDXMT: false).0) == nil)
+    }
+
+    /// DXMT's d3d11/dxgi import winemetal.dll; a bottle set up without DXMT gets Wine's usual copy of it.
+    @Test func givesOlderBottlesWinemetal() throws {
+        let (base, root) = try runtime()
+        let dxmt = try #require(DXMT.locate(in: base))
+        let b = try BottleStore(directory: root.appending(path: "bottles")).create(name: "B")
+        for folder in ["system32", "syswow64"] {
+            try fm.createDirectory(at: b.driveC.appending(path: "windows/\(folder)"), withIntermediateDirectories: true)
+        }
+        try dxmt.prepare(b)
+        #expect(try String(contentsOf: b.driveC.appending(path: "windows/system32/winemetal.dll"), encoding: .utf8) == "dxmt-winemetal.dll")
+        #expect(fm.fileExists(atPath: b.driveC.appending(path: "windows/syswow64/winemetal.dll").path))
+        try dxmt.prepare(b)                                                            // idempotent
+    }
+
+    /// Direct3D 10/11 programs that aren't games get DXMT; games keep D3DMetal; settings and D3D12 are respected.
+    @Test func picksDXMTForDirect3D11ProgramsThatArentGames() throws {
+        let (base, _) = try runtime()
+        let launcher = WineLauncher(runtime: base)
+        let d3dApp = try #require(Bundle.module.url(forResource: "d3dapp64", withExtension: "exe"))
+        let plainApp = try #require(Bundle.module.url(forResource: "app64", withExtension: "exe"))
+        var program = Program(name: "Viewer", windowsPath: #"C:\v.exe"#)
+        #expect(launcher.effectiveGraphics(for: program, executable: d3dApp) == .dxmt)
+        #expect(launcher.effectiveGraphics(for: program, executable: plainApp) == .wined3d)
+        program.graphics = .wined3d                                                    // "Compatibility" stays
+        #expect(launcher.effectiveGraphics(for: program, executable: d3dApp) == .wined3d)
+        program.graphics = .dxmt
+        #expect(launcher.effectiveGraphics(for: program, executable: plainApp) == .dxmt)
+        // Without DXMT in the runtime, nothing pretends to use it.
+        let old = WineLauncher(runtime: try runtime(withDXMT: false).0)
+        #expect(old.effectiveGraphics(for: program, executable: d3dApp) == .wined3d)
+        program.graphics = nil
+        #expect(old.effectiveGraphics(for: program, executable: d3dApp) == .wined3d)
+    }
+}
+
 @Suite struct RemovalTests {
     /// Removing a program's last bottle is undoable: the bottle goes to the Trash with everything in it.
     @Test func removedBottlesGoToTheTrash() throws {

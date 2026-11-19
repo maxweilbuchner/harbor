@@ -132,4 +132,13 @@ done
 mkdir -p "$OUT/share/wine/mono" "$OUT/share/wine/gecko"
 cp "$B/download/wine-mono-$WINE_MONO_VERSION-x86.msi" "$OUT/share/wine/mono/"
 cp "$B/download/wine-gecko-$WINE_GECKO_VERSION-x86.msi" "$B/download/wine-gecko-$WINE_GECKO_VERSION-x86_64.msi" "$OUT/share/wine/gecko/"
+# DXMT (Direct3D 10/11 on Metal) beside Wine's own DLLs, not over them: Harbor overlays it per launch for
+# programs that need it (Sources/HarborKit/DXMT.swift), since its dxgi would break Wine's Direct3D 12.
+DXS="$B/src/dxmt-$DXMT_VERSION/$DXMT_VERSION"
+[ -d "$DXS" ] || { echo "build-wine: run scripts/fetch-sources.sh first (DXMT)" >&2; exit 1; }
+mkdir -p "$OUT/lib/dxmt"
+for arch in x86_64-windows i386-windows x86_64-unix; do cp -R "$DXS/$arch" "$OUT/lib/dxmt/"; done
+cp "$B/download/dxmt-$DXMT_VERSION-LICENSE" "$OUT/lib/dxmt/LICENSE"
+printf '%s\n' "$DXMT_VERSION" > "$OUT/lib/dxmt/VERSION"
+codesign -f -s - "$OUT/lib/dxmt/x86_64-unix/winemetal.so" 2>/dev/null
 echo "build-wine: installed $OUT"

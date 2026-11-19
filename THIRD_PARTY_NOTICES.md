@@ -8,6 +8,7 @@ It bundles or downloads:
 | Wine (CodeWeavers' CrossOver 26.3 sources: Wine 11.0 + CrossOver patches, plus Harbor's patches in `scripts/patches/wine/`), built by `scripts/build-wine.sh` | LGPL-2.1-or-later | https://media.codeweavers.com/pub/crossover/source/crossover-sources-26.3.0.tar.gz + this repository |
 | FreeType 2.13.3 | FreeType License (BSD-style) or GPL-2.0 | https://download.savannah.gnu.org/releases/freetype/ |
 | MoltenVK 1.4.2 | Apache-2.0 | https://github.com/KhronosGroup/MoltenVK |
+| DXMT v0.80 (Direct3D 10/11 on Metal, by Feifan He for CodeWeavers), prebuilt release, unmodified; inside the runtime at `lib/dxmt` with its licence | MIT (v0.80 is the last MIT release; later ones are LGPL-2.1-or-later) | https://github.com/3Shain/dxmt |
 | GnuTLS 3.8.14 | LGPL-2.1-or-later | https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/ |
 | Nettle 3.10 (libnettle, libhogweed) | LGPL-3.0-or-later or GPL-2.0-or-later | https://ftp.gnu.org/gnu/nettle/ |
 | GMP 6.3.0 (from CrossOver 26.3 sources) | LGPL-3.0-or-later or GPL-2.0-or-later | https://gmplib.org/ |
