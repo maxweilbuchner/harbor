@@ -20,8 +20,16 @@ echo "check: $(xcodebuild -version | head -1), macOS SDK $SDK"
 
 BUILD="swift build --build-system native"
 TEST="swift test --build-system native"
-$BUILD 2>&1 | grep -v "has been deprecated"
-$TEST 2>&1 | grep -v "has been deprecated"
+# Run each step, keep its real exit status, then show its output without the native-build deprecation note.
+# (Piping straight into grep would report grep's status and let a failed build pass.)
+run() {
+  log=$(mktemp)
+  "$@" > "$log" 2>&1; rc=$?
+  grep -v "has been deprecated" "$log"; rm -f "$log"
+  [ $rc -eq 0 ] || { echo "check: FAILED: $*" >&2; exit $rc; }
+}
+run $BUILD
+run $TEST
 
 BIN=$(swift build --build-system native --show-bin-path 2>/dev/null)
 for product in Harbor harbor-cli; do
