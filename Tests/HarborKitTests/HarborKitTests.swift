@@ -38,6 +38,7 @@ import Testing
         #expect(env["WINEPREFIX"] == b.prefix.path)
         #expect(env["WINEDEBUG"] == "+loaddll")
         #expect(env["WINEDLLOVERRIDES"] == "winemenubuilder.exe=d;d3d9=n")
+        #expect(env["DYLD_FALLBACK_LIBRARY_PATH"] == "/nonexistent/lib:/usr/local/lib:/usr/lib")
     }
 
     @Test func toleratesUnknownAndMissingSettings() throws {
