@@ -485,6 +485,17 @@ final class Marker {}
         #expect(AddProgram.safeFolderName(#"A: "B"/C?."#) == "A- -B--C-")
     }
 
+    @Test func neverCopiesSharedFoldersIntoABottle() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        for shared in ["Downloads", "Desktop", "Documents", ""] {
+            #expect(AddProgram.isSharedFolder(home.appending(path: shared)), "\(shared)")
+        }
+        #expect(AddProgram.isSharedFolder(URL(filePath: "/Volumes/USB")))
+        #expect(AddProgram.isSharedFolder(URL(filePath: "/Applications")))
+        #expect(!AddProgram.isSharedFolder(home.appending(path: "Downloads/SomeGame")))
+        #expect(!AddProgram.isSharedFolder(URL(filePath: "/Volumes/USB/Games/Thing")))
+    }
+
     @Test func mapsMacPathsBackToWindowsPaths() throws {
         let store = BottleStore(directory: FileManager.default.temporaryDirectory.appending(path: "harbor-add-\(UUID().uuidString)"))
         let b = try store.create(name: "Paths")
