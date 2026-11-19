@@ -8,6 +8,10 @@ struct LibraryItem: Identifiable, Equatable {
     var program: Program
     var bottle: Bottle
     var icon: NSImage?
+    /// Installed and managed by Steam (read from Steam's records, not stored in Harbor's library).
+    var managedBySteam = false
+    /// Image file the Mac shortcut's icon is made from.
+    var iconFile: URL?
     var id: UUID { program.id }
 
     static func == (a: LibraryItem, b: LibraryItem) -> Bool { a.program == b.program && a.bottle == b.bottle }
@@ -157,6 +161,11 @@ struct ProgramMenu: View {
     var body: some View {
         Button("Open") { model.open(item) }
         Button("Show in Finder") { model.showInFinder(item) }
+        if !item.managedBySteam { ownMenu }
+    }
+
+    /// Settings for programs Harbor manages itself (Steam games are always games; uninstall them in Steam).
+    @ViewBuilder private var ownMenu: some View {
         Divider()
         Toggle("Treat as Game", isOn: Binding(get: { item.program.isGame }, set: { model.setGame(item, $0) }))
         Picker("Graphics", selection: Binding(get: { item.program.graphics ?? .automatic }, set: { model.setGraphics(item, $0) })) {

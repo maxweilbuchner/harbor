@@ -209,10 +209,20 @@ final class AppModel {
 
     func reload() {
         bottles = store.list()
-        library = bottles.flatMap { bottle in
-            bottle.programs().map { program in
-                LibraryItem(program: program, bottle: bottle, icon: NSImage(contentsOf: bottle.iconFile(for: program)))
+        library = bottles.flatMap { bottle -> [LibraryItem] in
+            let own = bottle.programs().map { program in
+                LibraryItem(program: program, bottle: bottle, icon: NSImage(contentsOf: bottle.iconFile(for: program)),
+                            iconFile: bottle.iconFile(for: program))
             }
+            // Games Steam installed in this bottle, read from Steam's own records each time.
+            guard let steam = SteamLibrary.steamFolder(in: bottle) else { return own }
+            let games = SteamLibrary.games(in: bottle).compactMap { game -> LibraryItem? in
+                guard let program = SteamLibrary.program(for: game, steam: steam, in: bottle) else { return nil }
+                let art = SteamLibrary.iconSource(for: game, steam: steam)
+                return LibraryItem(program: program, bottle: bottle, icon: art.flatMap(NSImage.init(contentsOf:)),
+                                   managedBySteam: true, iconFile: art)
+            }
+            return own + games
         }
         .sorted { $0.program.addedAt > $1.program.addedAt }
         syncShortcuts()
@@ -220,7 +230,7 @@ final class AppModel {
 
     /// Mac app shortcuts in ~/Applications/Harbor, one per program (off the main actor: icons go through sips).
     private func syncShortcuts() {
-        let items = library.map { ($0.program, $0.bottle.iconFile(for: $0.program)) }
+        let items = library.map { ($0.program, $0.iconFile ?? $0.bottle.iconFile(for: $0.program)) }
         Task.detached(priority: .utility) {
             let icons = Dictionary(items.map { ($0.0.id, $0.1) }, uniquingKeysWith: { a, _ in a })
             AppShortcuts().sync(items.map(\.0)) { program in

@@ -690,3 +690,62 @@ final class Marker {}
         #expect(fm.fileExists(atPath: dir.appending(path: "Someone Else.app").path))   // not Harbor's: untouched
     }
 }
+
+@Suite struct SteamLibraryTests {
+    let fm = FileManager.default
+
+    func manifest(_ id: Int, _ name: String, _ dir: String) -> String {
+        """
+        "AppState"
+        {
+        \t"appid"\t\t"\(id)"
+        \t"Universe"\t\t"1"
+        \t"name"\t\t"\(name)"
+        \t"StateFlags"\t\t"4"
+        \t"installdir"\t\t"\(dir)"
+        \t"UserConfig"
+        \t{
+        \t\t"language"\t\t"english"
+        \t}
+        }
+        """
+    }
+
+    @Test func readsGamesFromEverySteamLibrary() throws {
+        let store = BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-steam-\(UUID().uuidString)"))
+        let b = try store.create(name: "Steam")
+        let steam = b.driveC.appending(path: "Program Files (x86)/Steam")
+        try fm.createDirectory(at: steam.appending(path: "steamapps"), withIntermediateDirectories: true)
+        try Data().write(to: steam.appending(path: "steam.exe"))
+        let second = b.driveC.appending(path: "Games/SteamLibrary/steamapps")
+        try fm.createDirectory(at: second, withIntermediateDirectories: true)
+        try manifest(620, "Portal 2", "Portal 2").write(to: steam.appending(path: "steamapps/appmanifest_620.acf"), atomically: true, encoding: .utf8)
+        try manifest(228980, "Steamworks Common Redistributables", "Steamworks Shared")
+            .write(to: steam.appending(path: "steamapps/appmanifest_228980.acf"), atomically: true, encoding: .utf8)
+        try manifest(1145360, "Hades \\\"Deluxe\\\"", "Hades").write(to: second.appending(path: "appmanifest_1145360.acf"), atomically: true, encoding: .utf8)
+        try #"""
+        "libraryfolders"
+        {
+        	"0" { "path" "C:\\Program Files (x86)\\Steam" }
+        	"1" { "path" "C:\\Games\\SteamLibrary" "apps" { "1145360" "123" } }
+        }
+        """#.write(to: steam.appending(path: "steamapps/libraryfolders.vdf"), atomically: true, encoding: .utf8)
+
+        let games = SteamLibrary.games(in: b)
+        #expect(games.map(\.name) == [#"Hades "Deluxe""#, "Portal 2"])
+        #expect(games.map(\.appID) == [1145360, 620])
+        let steamFolder = try #require(SteamLibrary.steamFolder(in: b))
+        let p = try #require(SteamLibrary.program(for: games[1], steam: steamFolder, in: b))
+        #expect(p.windowsPath == #"C:\Program Files (x86)\Steam\steam.exe"#)
+        #expect(p.arguments == "-applaunch 620")
+        #expect(p.isGame)
+        // The same game gets the same ID on every scan (its Mac shortcut survives), different games differ.
+        #expect(SteamLibrary.stableID(appID: 620, bottle: b) == p.id)
+        #expect(SteamLibrary.stableID(appID: 621, bottle: b) != p.id)
+    }
+
+    @Test func bottlesWithoutSteamHaveNoSteamGames() throws {
+        let store = BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-nosteam-\(UUID().uuidString)"))
+        #expect(SteamLibrary.games(in: try store.create(name: "Plain")).isEmpty)
+    }
+}
