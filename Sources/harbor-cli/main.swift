@@ -63,6 +63,7 @@ case "run" where args.count >= 3:
 case "programs" where args.count == 2:
     // Scans the bottle's Start Menu, merges new programs into its library and lists them.
     let b = bottle(args[1])
+    if b.programsFileIsDamaged { fail("\(b.root.path)/programs.json can't be read; not overwriting it") }
     var library = b.programs()
     for found in b.startMenuPrograms() where !library.contains(where: { $0.windowsPath.lowercased() == found.windowsPath.lowercased() }) {
         library.append(found)
