@@ -772,3 +772,26 @@ final class Marker {}
         for kept in [current, currentTemplate, busy, freshStaging] { #expect(fm.fileExists(atPath: kept.path)) }
     }
 }
+
+@Suite struct WindowsUpdateTests {
+    let fm = FileManager.default
+
+    @Test func detectsWhenWineWouldUpdateABottle() throws {
+        let base = fm.temporaryDirectory.appending(path: "harbor-upd-\(UUID().uuidString)")
+        let runtime = WineRuntime(root: base.appending(path: "wine"))
+        let inf = runtime.root.appending(path: "share/wine/wine.inf")
+        try fm.createDirectory(at: inf.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: inf)
+        let date = Date(timeIntervalSince1970: 1_795_108_354)
+        try fm.setAttributes([.modificationDate: date], ofItemAtPath: inf.path)
+        let b = try BottleStore(directory: base.appending(path: "bottles")).create(name: "U")
+        try fm.createDirectory(at: b.prefix, withIntermediateDirectories: true)
+        let stamp = b.prefix.appending(path: ".update-timestamp")
+        try "1795108354\n".write(to: stamp, atomically: true, encoding: .utf8)
+        #expect(!b.needsWindowsUpdate(for: runtime))
+        try "1700000000\n".write(to: stamp, atomically: true, encoding: .utf8)
+        #expect(b.needsWindowsUpdate(for: runtime))
+        try "disable\n".write(to: stamp, atomically: true, encoding: .utf8)
+        #expect(!b.needsWindowsUpdate(for: runtime))
+    }
+}

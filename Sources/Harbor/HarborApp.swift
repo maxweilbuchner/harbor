@@ -132,6 +132,7 @@ final class AppModel {
             launcher = Self.makeLauncher()
             runtimeDownload = nil
             prepareTemplate()
+            updateBottlesInBackground()
         } catch {
             runtimeDownload = .failed(String(describing: error))
         }
@@ -149,7 +150,7 @@ final class AppModel {
     var pendingDuplicate: (file: URL, existing: LibraryItem, name: String)?
 
     struct AddState: Identifiable, Equatable {
-        enum Phase: Equatable { case working(AddProgram.Step), store(GameStores.Step), failed(String) }
+        enum Phase: Equatable { case working(AddProgram.Step), store(GameStores.Step), updating, failed(String) }
         let id = UUID()
         var fileName: String
         var phase: Phase
@@ -198,6 +199,16 @@ final class AppModel {
         }
         try? (lines.joined(separator: "\n") + "\n").write(to: output, atomically: true, encoding: .utf8)
         NSApplication.shared.terminate(nil)
+    }
+
+    /// After Windows support was updated: refresh every bottle's Windows files one at a time in the background,
+    /// so most programs start right away instead of updating on their first start.
+    private func updateBottlesInBackground() {
+        guard let launcher else { return }
+        let bottles = store.list().filter { $0.needsWindowsUpdate(for: launcher.runtime) }
+        Task.detached(priority: .background) {
+            for bottle in bottles { try? await launcher.updateWindows(bottle) }
+        }
     }
 
     /// Builds the pre-made Windows environment in the background, so dropping a program opens its installer
@@ -306,6 +317,21 @@ final class AppModel {
 
     func open(_ item: LibraryItem) {
         guard let launcher else { return }
+        // After a runtime update, Wine first refreshes the bottle's Windows files (20–30 s). Say so instead of
+        // leaving people looking at nothing.
+        if item.bottle.needsWindowsUpdate(for: launcher.runtime), addState == nil {
+            addState = AddState(fileName: item.program.name, phase: .updating)
+            Task {
+                try? await launcher.updateWindows(item.bottle)
+                addState = nil
+                launchNow(item, with: launcher)
+            }
+            return
+        }
+        launchNow(item, with: launcher)
+    }
+
+    private func launchNow(_ item: LibraryItem, with launcher: WineLauncher) {
         let started = Date()
         running.insert(item.id)
         let id = item.id
