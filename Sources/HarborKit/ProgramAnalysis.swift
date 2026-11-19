@@ -264,7 +264,11 @@ struct PEFile {
             offset += image.payload.count
         }
         for image in images { ico.append(image.payload) }
+        return Self.pngFromICO(ico)
+    }
 
+    /// The largest image of an .ico file, as PNG.
+    static func pngFromICO(_ ico: Data) -> Data? {
         guard let source = CGImageSourceCreateWithData(ico as CFData, nil) else { return nil }
         var best: (index: Int, pixels: Int)?
         for i in 0..<CGImageSourceGetCount(source) {

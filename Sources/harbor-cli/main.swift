@@ -9,6 +9,7 @@ import HarborKit
 //   harbor-cli stop <bottle>
 //   harbor-cli programs <bottle>                    # scan the Start Menu into the bottle's library
 //   harbor-cli launch <bottle> <program name>
+//   harbor-cli add <file.exe|file.msi>                # the app's add-program flow
 //   harbor-cli gen-runtime-key                      # private key → ~/.config/harbor/runtime-signing.key
 //   harbor-cli sign-manifest <runtime.json>         # writes runtime.json.sig with that key
 //   harbor-cli install-runtime <manifest-url> [--into <dir>]
@@ -70,6 +71,14 @@ case "programs" where args.count == 2:
     for p in library {
         print("\(p.name)\t\(p.isGame ? "game" : "app")\t\(wine.effectiveGraphics(for: p).rawValue)\t\(p.windowsPath)")
     }
+case "add" where args.count == 2:
+    // The app's add-program flow: a new bottle named after the product, installer run or program placed.
+    let flow = AddProgram(store: store, launcher: launcher())
+    let (b, programs) = try await flow.add(URL(filePath: args[1])) { step in print("…", step) }
+    for p in programs {
+        let icon = FileManager.default.fileExists(atPath: b.iconFile(for: p).path) ? "icon" : "no icon"
+        print("added \(p.name)\t\(p.isGame ? "game" : "app")\t\(icon)\t\(p.windowsPath)\tbottle \(b.settings.name)")
+    }
 case "launch" where args.count == 3:
     let b = bottle(args[1])
     guard let program = b.programs().first(where: { $0.name == args[2] }) else { fail("no program \(args[2]) in \(args[1]); run `programs` first") }
@@ -111,5 +120,5 @@ case "install-runtime" where args.count == 2 || (args.count == 4 && args[2] == "
     FileHandle.standardError.write(Data("\n".utf8))
     print("installed")
 default:
-    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | programs <bottle> | launch <bottle> <name> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
+    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
 }
