@@ -11,6 +11,13 @@ struct HarborApp: App {
     init() {
         // Running from `swift run` has no bundle; make it a regular foreground app anyway.
         NSApplication.shared.setActivationPolicy(.regular)
+        // Development: HARBOR_APPEARANCE=dark|light renders Harbor in that appearance regardless of the system's
+        // (WindowsTests/ui-screenshot.sh uses it to check both).
+        switch ProcessInfo.processInfo.environment["HARBOR_APPEARANCE"] {
+        case "dark": NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+        case "light": NSApplication.shared.appearance = NSAppearance(named: .aqua)
+        default: break
+        }
         _ = Updates.shared
     }
 
@@ -128,6 +135,8 @@ final class AppModel {
     var addState: AddState?
     /// Asks before removing a program (and its bottle, if it's the last program in it).
     var pendingRemoval: LibraryItem?
+    /// A dropped file whose product is already in the library: asks before installing it a second time.
+    var pendingDuplicate: (file: URL, existing: LibraryItem, name: String)?
 
     struct AddState: Identifiable, Equatable {
         enum Phase: Equatable { case working(AddProgram.Step), failed(String) }
@@ -220,8 +229,13 @@ final class AppModel {
 
     /// Adds a dropped program or installer: a new bottle, the installer's own window if it has one, then the
     /// programs it installed.
-    func add(_ file: URL) async {
+    func add(_ file: URL, allowDuplicate: Bool = false) async {
         guard let launcher, addState == nil else { return }
+        if !allowDuplicate, let name = AddProgram.suggestedName(for: file),
+           let existing = library.first(where: { $0.bottle.settings.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            pendingDuplicate = (file, existing, name)
+            return
+        }
         addState = AddState(fileName: file.lastPathComponent, phase: .working(.analyzing))
         let flow = AddProgram(store: store, launcher: launcher)
         do {
@@ -363,6 +377,19 @@ struct ContentView: View {
             }
         }
         .onOpenURL { model.handle($0) }
+        .confirmationDialog(model.pendingDuplicate.map { "\($0.name) Is Already Installed" } ?? "",
+                            isPresented: Binding(get: { model.pendingDuplicate != nil },
+                                                 set: { if !$0 { model.pendingDuplicate = nil } })) {
+            if let d = model.pendingDuplicate {
+                Button("Open \(d.existing.program.name)") { model.pendingDuplicate = nil; model.open(d.existing) }
+                Button("Install Again") {
+                    model.pendingDuplicate = nil
+                    Task { await model.add(d.file, allowDuplicate: true) }
+                }
+            }
+        } message: {
+            Text("Installing again creates a second, separate copy.")
+        }
         .confirmationDialog(removalTitle, isPresented: Binding(get: { model.pendingRemoval != nil },
                                                                set: { if !$0 { model.pendingRemoval = nil } }),
                             presenting: model.pendingRemoval) { item in
