@@ -52,13 +52,38 @@ if [ ! -f "$DEPS/lib/libMoltenVK.dylib" ]; then
   cp "$MVK/dynamic/dylib/macOS/libMoltenVK.dylib" "$DEPS/lib/"
 fi
 
+# --- GnuTLS stack (TLS for Windows programs: bcrypt, secur32, crypt32). GMP from CrossOver's sources;
+# Nettle (CrossOver's copy has no generated configure) and GnuTLS (CrossOver's 3.8.3 fails to link here)
+# from their upstream releases. ---
+GT="$SRC/gnutls"
+build_dep() { # $1 = name, $2 = source dir, $3... = configure args
+  name=$1; srcdir=$2; shift 2
+  rm -rf "$B/obj/$name" && mkdir -p "$B/obj/$name" && cd "$B/obj/$name"
+  CPPFLAGS="-I$DEPS/include" LDFLAGS="-L$DEPS/lib" \
+    "$srcdir/configure" --prefix="$DEPS" --host=x86_64-apple-darwin --disable-static "$@" || exit 1
+  # Explicit exits: the callers run this as `[ -f … ] || build_dep …`, where `set -e` doesn't apply.
+  make -j"$JOBS" || { echo "build-wine: $name failed to build" >&2; exit 1; }
+  make install || exit 1
+  cd "$ROOT"
+}
+[ -f "$DEPS/lib/libgmp.dylib" ] || build_dep gmp "$GT/gmp" --enable-shared
+[ -f "$DEPS/lib/libnettle.dylib" ] || build_dep nettle "$B/src/nettle-$NETTLE_VERSION" --enable-shared \
+  --disable-documentation --disable-openssl --with-include-path="$DEPS/include" --with-lib-path="$DEPS/lib"
+[ -f "$DEPS/lib/libtasn1.dylib" ] || build_dep libtasn1 "$B/src/libtasn1-$LIBTASN1_VERSION" --enable-shared --disable-doc
+[ -f "$DEPS/lib/libgnutls.dylib" ] || build_dep gnutls "$B/src/gnutls-$GNUTLS_VERSION" --enable-shared \
+  --with-included-unistring --without-p11-kit --without-idn --without-zstd \
+  --without-brotli --without-tpm --without-tpm2 --disable-doc --disable-tests --disable-tools --disable-cxx \
+  --disable-guile --disable-nls \
+  NETTLE_CFLAGS="-I$DEPS/include" NETTLE_LIBS="-L$DEPS/lib -lnettle" HOGWEED_CFLAGS="-I$DEPS/include" \
+  HOGWEED_LIBS="-L$DEPS/lib -lhogweed" GMP_CFLAGS="-I$DEPS/include" GMP_LIBS="-L$DEPS/lib -lgmp" --disable-gost  # GnuTLS 3.8.3 bundles GOST code that clashes with Nettle 3.10
+
 # --- Wine ---
 mkdir -p "$OBJ" && cd "$OBJ"
 if [ ! -f Makefile ] || [ "${1:-}" = configure ]; then
   "$SRC/wine/configure" --prefix="$OUT" \
     --enable-archs=i386,x86_64 --with-mingw \
     --disable-tests --without-x --without-wayland \
-    --without-gstreamer --without-gnutls --without-sdl \
+    --without-gstreamer --without-sdl \
     --without-capi --without-cups --without-dbus --without-gphoto --without-gssapi --without-krb5 \
     --without-netapi --without-oss --without-pcap --without-pcsclite --without-sane --without-udev \
     --without-usb --without-v4l2 --without-inotify \
@@ -69,8 +94,29 @@ fi
 make -j"$JOBS"
 rm -rf "$OUT" && make install
 # Libraries Wine loads at runtime travel with the runtime.
-cp "$DEPS"/lib/libfreetype.6.dylib "$DEPS"/lib/libMoltenVK.dylib "$OUT/lib/"
+RUNTIME_LIBS="libfreetype.6.dylib libMoltenVK.dylib libgnutls.30.dylib libnettle.8.dylib libhogweed.6.dylib libgmp.10.dylib libtasn1.6.dylib"
+for lib in $RUNTIME_LIBS; do cp -L "$DEPS/lib/$lib" "$OUT/lib/"; done
 ln -sf libfreetype.6.dylib "$OUT/lib/libfreetype.dylib"
+# Make the copies relocatable: they reference each other by absolute build paths; point those at
+# @loader_path, then re-sign (install_name_tool invalidates the signature).
+for lib in $RUNTIME_LIBS; do
+  f="$OUT/lib/$lib"
+  install_name_tool -id "@rpath/$lib" "$f" 2>/dev/null
+  for dep in $(otool -L "$f" | awk 'NR>1{print $1}' | grep "^$DEPS/lib/"); do
+    install_name_tool -change "$dep" "@loader_path/$(basename "$dep")" "$f"
+  done
+  codesign -f -s - "$f" 2>/dev/null
+done
+# (otool -L's first line per file is the file's own path, which is under $B, so skip it.)
+for f in "$OUT"/lib/*.dylib; do
+  # otool must succeed: under `arch -x86_64` the /usr/bin shim can fail to load libxcrun and print nothing,
+  # which would make this check pass without checking anything.
+  deps=$(otool -arch x86_64 -L "$f") || { echo "build-wine: otool failed on $f" >&2; exit 1; }
+  left=$(printf '%s\n' "$deps" | awk 'NR>1{print $1}' | grep "^$B/" || true)
+  if [ -n "$left" ]; then
+    echo "build-wine: absolute build path left in $f: $left" >&2; exit 1
+  fi
+done
 # Add-ons Wine installs into new prefixes from $WINEDATADIR (set by Wine relative to itself, so relocatable).
 mkdir -p "$OUT/share/wine/mono" "$OUT/share/wine/gecko"
 cp "$B/download/wine-mono-$WINE_MONO_VERSION-x86.msi" "$OUT/share/wine/mono/"

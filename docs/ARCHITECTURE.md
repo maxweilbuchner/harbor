@@ -172,7 +172,10 @@ An independent review re-checked the plan against the code and runtime. Items ma
 - `scripts/fetch-runtime.sh` — downloads and verifies the dev Wine + D3DMetal runtime into `Runtime/`.
 - `scripts/fetch-sources.sh` + `scripts/build-wine.sh` — Harbor's own Wine from CodeWeavers' CrossOver 26.3
   LGPL sources (x86_64 + i386 wow64, llvm-mingw for PE, freetype, MoltenVK, wine-mono, wine-gecko) into
-  `build/out/wine`. Runs in an `arch -x86_64` shell; ~2.5 GB of build/. Not yet built: GnuTLS, GStreamer, SDL2.
+  `build/out/wine`. Runs in an `arch -x86_64` shell; ~2.5 GB of build/. Also GnuTLS 3.8.14 (+ Nettle 3.10, GMP 6.3.0,
+  libtasn1 4.21.0), relocated to `@loader_path` and re-signed; a guard fails the build on any absolute build path.
+  Not yet built: GStreamer, SDL2.
+- `WindowsTests/net/run.sh` — HTTPS through WinHTTP from a Windows program (passes on example.com).
 - `scripts/check.sh` — the full bar (build, tests, newest-SDK guard); CI runs the same script.
   SwiftPM's default build system records the deployment target as the SDK version, so the script uses the
   native build system until the app moves to an Xcode project (M4).
@@ -183,8 +186,8 @@ An independent review re-checked the plan against the code and runtime. Items ma
 2. **M1 — foundations:** fix review items 5, 6, 9, 10; deployment target 26; first commit + CI (build, unit tests).
 3. **M2 — own Wine (done 2026-11-19, local build; CI later):** CrossOver 26.3 Wine builds; `winemac.so` exports
    `macdrv_functions`; bottles in 23 s from a relocated copy with mono/gecko installed silently; D3DMetal 4.0b3
-   and MoltenVK load. Open: GnuTLS (HTTPS inside Windows apps), GStreamer (media), SDL2 (controllers).
-4. **M3 — rendering proof (test programs done 2026-11-19; real games pending):** `tests/graphics/run.sh`.
+   and MoltenVK load. GnuTLS added later the same day (HTTPS works). Open: GStreamer (media), SDL2 (controllers).
+4. **M3 — rendering proof (test programs done 2026-11-19; real games pending):** `WindowsTests/graphics/run.sh`.
    On Harbor's CrossOver Wine + D3DMetal 4.0b3, D3D11 and D3D12 triangles render correctly offscreen and through
    a windowed flip-model swap chain (30 presented frames). On stock Wine 11.21 + D3DMetal both crash at device
    creation, which confirms the reason for M2. Plain Wine: D3D12 (vkd3d → MoltenVK) passes; D3D11 only reaches
@@ -199,7 +202,7 @@ An independent review re-checked the plan against the code and runtime. Items ma
      after leaving and re-entering fullscreen the screen stays blank.
    - Found along the way: CrossOver's Wine names the Windows user `crossover` (Harbor should use its own);
      `bcrypt: no encryption support` until GnuTLS is built; `superposition_cli.exe` is Pro-only.
-   **Fullscreen (tests/graphics/fullscreen.sh, samples the real screen centre):** on CrossOver Wine + D3DMetal,
+   **Fullscreen (WindowsTests/graphics/fullscreen.sh, samples the real screen centre):** on CrossOver Wine + D3DMetal,
    fullscreen, leave + re-enter fullscreen, and switching to another app and back all show the right content,
    both for apps that re-enter fullscreen on reactivation and for ones that don't (Wine's DXGI stays fullscreen
    across focus loss). Not yet reproduced: Superposition's blank screen; how the user left fullscreen is unknown.
