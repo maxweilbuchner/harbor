@@ -1,0 +1,30 @@
+--- a/server/sock.c	2026-11-19 18:14:35
++++ b/server/sock.c	2026-11-19 18:14:35
+@@ -2778,6 +2778,27 @@
+             }
+         }
+ 
++#ifdef __APPLE__
++        /* HARBOR HACK: macOS refuses to connect a datagram socket to port 0 (EADDRNOTAVAIL); Windows and
++         * Linux allow it. Steam does that (UDP connect to 8.8.8.8:0, then getsockname) to find the local
++         * address, and never contacts its login servers when it fails. No packet is sent by connecting a
++         * datagram socket, so use an arbitrary port; the peer address reported back keeps port 0. */
++        if (ret < 0 && errno == EADDRNOTAVAIL && sock->state == SOCK_CONNECTIONLESS)
++        {
++            if (unix_addr.addr.sa_family == AF_INET && !unix_addr.in.sin_port)
++            {
++                unix_addr.in.sin_port = htons( 9 );
++                ret = connect( unix_fd, &unix_addr.addr, unix_len );
++            }
++            else if (unix_addr.addr.sa_family == AF_INET6 && !unix_addr.in6.sin6_port)
++            {
++                unix_addr.in6.sin6_port = htons( 9 );
++                ret = connect( unix_fd, &unix_addr.addr, unix_len );
++            }
++            else errno = EADDRNOTAVAIL;
++        }
++#endif
++
+         if (ret < 0 && errno != EINPROGRESS)
+         {
+             set_error( sock_get_ntstatus( errno ) );
