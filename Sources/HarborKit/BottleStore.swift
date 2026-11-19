@@ -57,6 +57,15 @@ public struct BottleStore: Sendable {
         return bottle
     }
 
+    /// Moves a bottle (its installed programs, settings and saves) to the Trash, where Finder can put it back.
+    /// Returns where it went.
+    @discardableResult
+    public func moveToTrash(_ bottle: Bottle) throws -> URL? {
+        var trashed: NSURL?
+        try FileManager.default.trashItem(at: bottle.root, resultingItemURL: &trashed)
+        return trashed as URL?
+    }
+
     public func bottle(named name: String) -> Bottle? {
         list().first { $0.settings.name == name || $0.root.lastPathComponent == name }
     }

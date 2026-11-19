@@ -782,6 +782,22 @@ final class Marker {}
     }
 }
 
+@Suite struct RemovalTests {
+    /// Removing a program's last bottle is undoable: the bottle goes to the Trash with everything in it.
+    @Test func removedBottlesGoToTheTrash() throws {
+        let fm = FileManager.default
+        let store = BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-trash-\(UUID().uuidString)"))
+        let b = try store.create(name: "Trash Me")
+        try fm.createDirectory(at: b.driveC, withIntermediateDirectories: true)
+        try "save".write(to: b.driveC.appending(path: "save.dat"), atomically: true, encoding: .utf8)
+        let trashed = try #require(try store.moveToTrash(b))
+        defer { try? fm.removeItem(at: trashed) }
+        #expect(!fm.fileExists(atPath: b.root.path))
+        #expect(store.list().isEmpty)
+        #expect((try? String(contentsOf: trashed.appending(path: "prefix/drive_c/save.dat"), encoding: .utf8)) == "save")
+    }
+}
+
 @Suite struct EpicLibraryTests {
     let fm = FileManager.default
 
