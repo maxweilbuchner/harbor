@@ -1,10 +1,12 @@
 /* harbor-wintree: dumps the full window tree of a Wine prefix (class, styles, owning pid, rects) and, with
  * "grab <hwnd-hex> <out.bmp>", saves what GDI sees in that window (GetDC + BitBlt) to a BMP.
- *   harbor-wintree.exe [tree] | grab <hwnd> <file.bmp> */
+ *   harbor-wintree.exe [tree] | all | grab <hwnd> <file.bmp>   ("all" also lists hidden top-level windows) */
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static int show_hidden;
 
 static void describe(HWND hwnd, int depth)
 {
@@ -25,7 +27,7 @@ static void describe(HWND hwnd, int depth)
 static void walk(HWND parent, int depth)
 {
     for (HWND h = GetWindow(parent, GW_CHILD); h; h = GetWindow(h, GW_HWNDNEXT)) {
-        if (depth == 0 && !IsWindowVisible(h)) continue;
+        if (depth == 0 && !show_hidden && !IsWindowVisible(h)) continue;
         describe(h, depth);
         walk(h, depth + 1);
     }
@@ -61,6 +63,7 @@ int main(int argc, char **argv)
 {
     if (argc > 3 && !strcmp(argv[1], "grab"))
         return grab((HWND)(ULONG_PTR)strtoull(argv[2], NULL, 16), argv[3]);
+    show_hidden = argc > 1 && !strcmp(argv[1], "all");
     walk(GetDesktopWindow(), 0);
     fflush(stdout);
     return 0;
