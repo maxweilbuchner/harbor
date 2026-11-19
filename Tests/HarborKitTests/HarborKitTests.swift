@@ -856,6 +856,53 @@ final class Marker {}
     }
 }
 
+@Suite struct DiagnosisTests {
+    // Real Wine output (Harbor's runtime, 2026-11-19), paths shortened.
+    let missing = #"""
+    01cc:err:module:import_dll Library HarborMissing.dll (which is needed by L"Z:\\tmp\\diag\\needsdll.exe") not found
+    01cc:err:module:loader_init Importing dlls for L"Z:\\tmp\\diag\\needsdll.exe" failed, status c0000135
+    """#
+    let crash = """
+    wine: Unhandled page fault on read access to 0000000000000000 at address 000000014000149C (thread 00e0), starting debugger...
+    00e8:fixme:dbghelp_dwarf:dwarf2_load_one_entry Unhandled Tag type 0xa at debug_info(abbrev:0000000004D60B80,symt:0000000000000000) in ctx(0000000004812080,L"crash")
+    """
+
+    @Test func namesAMissingLibraryAndTheComponentThatHasIt() throws {
+        #expect(Diagnosis.analyze(missing) == Diagnosis(cause: .missingLibrary("HarborMissing.dll", recipe: nil)))
+        let vc = try #require(Diagnosis.analyze(missing.replacingOccurrences(of: "HarborMissing.dll", with: "MSVCP140_ATOMIC_WAIT.dll")))
+        #expect(vc.recipe == .vcrun2022)
+        #expect(vc.message(for: "Quest").contains("Visual C++ 2015–2022"))
+        #expect(Diagnosis.analyze(missing.replacingOccurrences(of: "HarborMissing.dll", with: "msvcr100.dll"))?.recipe == .vcrun2010)
+    }
+
+    @Test func recognisesCrashesButNotDebuggerNoise() {
+        #expect(Diagnosis.analyze(crash)?.cause == .crashed)
+        let noiseOnly = crash.split(separator: "\n").dropFirst().joined(separator: "\n")
+        #expect(Diagnosis.analyze(noiseOnly) == nil)
+        #expect(Diagnosis.analyze("0120:fixme:ntdll:NtQuerySystemInformation info_class SYSTEM_PERFORMANCE_INFORMATION\n") == nil)
+    }
+
+    @Test func recognisesDotNetAndAntiCheat() {
+        #expect(Diagnosis.analyze("[ERROR] FATAL UNHANDLED EXCEPTION: System.IO.FileNotFoundException: Could not load file")?.cause == .dotNet)
+        #expect(Diagnosis.analyze("0124:err:mscoree:LoadLibraryShim error reading registry key for installroot")?.cause == .dotNet)
+        #expect(Diagnosis.analyze(#"0120:err:module:LdrInitializeThunk "EasyAntiCheat_EOS.sys" failed"#)?.cause == .antiCheat("Easy Anti-Cheat"))
+        // A missing DLL is more specific than a crash in the same log.
+        #expect(Diagnosis.analyze(missing + "\n" + crash)?.cause == .missingLibrary("HarborMissing.dll", recipe: nil))
+    }
+
+    @Test func findsTheLogOfTheProgramsLastRun() throws {
+        let fm = FileManager.default
+        let b = try BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-diag-\(UUID().uuidString)")).create(name: "D")
+        try fm.createDirectory(at: b.logsDirectory, withIntermediateDirectories: true)
+        for name in ["20261119-100000-Quest.log", "20261119-110000-Quest-2.log", "20261119-120000-Quest-Editor.log", "20261119-090000-setup.log"] {
+            try Data().write(to: b.logsDirectory.appending(path: name))
+        }
+        #expect(b.latestLog(label: "Quest")?.lastPathComponent == "20261119-110000-Quest-2.log")
+        #expect(b.latestLog(label: "Quest Editor")?.lastPathComponent == "20261119-120000-Quest-Editor.log")
+        #expect(b.latestLog(label: "Other") == nil)
+    }
+}
+
 @Suite struct RemovalTests {
     /// Removing a program's last bottle is undoable: the bottle goes to the Trash with everything in it.
     @Test func removedBottlesGoToTheTrash() throws {

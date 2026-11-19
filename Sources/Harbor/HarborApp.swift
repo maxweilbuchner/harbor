@@ -363,7 +363,7 @@ final class AppModel {
                 try launcher.launch(item.program, in: item.bottle) { exitStatus in
                     Task { @MainActor in
                         self.running.remove(id)
-                        if exitStatus != 0 { self.status = "\(item.program.name) quit unexpectedly (\(exitStatus))" }
+                        if exitStatus != 0 { self.explainFailure(of: item, exitStatus: exitStatus) }
                     }
                 }
                 await MainActor.run { self.bringWineToFront(since: started) }
@@ -391,6 +391,26 @@ final class AppModel {
                 }
                 try? await Task.sleep(for: .milliseconds(500))
             }
+        }
+    }
+
+    /// A program that failed with a recognised cause, explained in an alert.
+    struct Failure: Identifiable {
+        let id = UUID()
+        let item: LibraryItem
+        let diagnosis: Diagnosis
+        let log: URL
+    }
+    var failure: Failure?
+
+    /// Reads the run's log; a recognised cause gets an alert with what to do, anything else the exit code.
+    func explainFailure(of item: LibraryItem, exitStatus: Int32) {
+        if let log = item.bottle.latestLog(label: item.program.name),
+           let text = try? String(contentsOf: log, encoding: .utf8),
+           let diagnosis = Diagnosis.analyze(text) {
+            failure = Failure(item: item, diagnosis: diagnosis, log: log)
+        } else {
+            status = "\(item.program.name) quit unexpectedly (\(exitStatus))"
         }
     }
 
@@ -487,6 +507,17 @@ struct ContentView: View {
             }
         } message: {
             Text("Installing again creates a second, separate copy.")
+        }
+        .alert(model.failure.map { "\($0.item.program.name) Couldn’t Run" } ?? "",
+               isPresented: Binding(get: { model.failure != nil }, set: { if !$0 { model.failure = nil } }),
+               presenting: model.failure) { failure in
+            if let recipe = failure.diagnosis.recipe {
+                Button("Install \(recipe.name)") { Task { await model.install(recipe, for: failure.item) } }
+            }
+            Button("Show Log") { NSWorkspace.shared.activateFileViewerSelecting([failure.log]) }
+            Button("OK", role: .cancel) {}
+        } message: { failure in
+            Text(failure.diagnosis.message(for: failure.item.program.name))
         }
         .confirmationDialog(removalTitle, isPresented: Binding(get: { model.pendingRemoval != nil },
                                                                set: { if !$0 { model.pendingRemoval = nil } }),

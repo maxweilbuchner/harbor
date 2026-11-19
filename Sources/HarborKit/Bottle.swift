@@ -86,7 +86,7 @@ public struct Bottle: Sendable, Equatable, Identifiable {
         try fm.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
         for old in logs().dropFirst(keep - 1) { try? fm.removeItem(at: old) }
         let stamp = Self.logStamp.string(from: Date())
-        let safeLabel = String(label.map { $0.isLetter || $0.isNumber ? $0 : "-" }.prefix(40))
+        let safeLabel = Self.logLabel(label)
         var url = logsDirectory.appending(path: "\(stamp)-\(safeLabel).log")
         var n = 2
         while fm.fileExists(atPath: url.path) {
@@ -95,6 +95,11 @@ public struct Bottle: Sendable, Equatable, Identifiable {
         }
         fm.createFile(atPath: url.path, contents: nil)
         return try FileHandle(forWritingTo: url)
+    }
+
+    /// The label part of a log's file name.
+    static func logLabel(_ label: String) -> String {
+        String(label.map { $0.isLetter || $0.isNumber ? $0 : "-" }.prefix(40))
     }
 
     private static let logStamp: DateFormatter = {
