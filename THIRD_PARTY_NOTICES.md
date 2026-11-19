@@ -1,6 +1,7 @@
 # Third-party components
 
-Harbor is free, non-commercial software. It bundles:
+Harbor is free, non-commercial software; its own code is licensed under the GPL-3.0 (see LICENSE).
+It bundles or downloads:
 
 | Component | License | Source |
 |---|---|---|
