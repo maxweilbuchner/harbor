@@ -271,5 +271,7 @@ An independent review re-checked the plan against the code and runtime. Items ma
    prefixes, program index, Library UI, app shims (prototype Dock identity early), launcher bottles.
 7. **M6:** DXMT + DXVK/MoltenVK layers; Recipes + Diagnose; drive-mapping policy. Drive mapping, first part
    (#4): bottles no longer link My Documents/Downloads/Music/Pictures/Videos to the Mac's folders (Wine patch
-   0007; existing bottles migrate on their next start). Open: the `Z:` drive (#8).
+   0007; existing bottles migrate on their next start). Open: the `Z:` drive (#8). Recipes, first part (#5): Microsoft's Visual C++ 2015–2022/2013/2010 from the
+   program's menu ("Install Windows Component") or `harbor-cli install-component`, hash-pinned, with the DLL
+   overrides that make Wine load them. Open: .NET 4.8 and DirectX extras (#10).
 8. **M7:** Runtime downloader + source offers, legal review, first public beta.

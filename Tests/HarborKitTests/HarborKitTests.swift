@@ -782,6 +782,80 @@ final class Marker {}
     }
 }
 
+@Suite struct RecipeTests {
+    let fm = FileManager.default
+
+    @Test func recipesArePinnedToMicrosoftDownloads() {
+        #expect(Set(Recipe.all.map(\.id)).count == Recipe.all.count)
+        for recipe in Recipe.all {
+            #expect(recipe.marker.hasSuffix(".dll") && recipe.overrides.contains(String(recipe.marker.dropLast(4))), "\(recipe.id)")
+            for d in recipe.downloads {
+                #expect(d.url.scheme == "https" && d.url.host()!.hasSuffix("microsoft.com"), "\(d.url)")
+                #expect(d.sha256.count == 64 && d.sha256.allSatisfy(\.isHexDigit), "\(d.url)")
+            }
+        }
+        // VC++ 2015–2022's own URLs carry the file's SHA-256; the pinned hash must be that one.
+        for d in Recipe.vcrun2022.downloads { #expect(d.url.path.lowercased().contains(d.sha256)) }
+    }
+
+    @Test func setsOverridesSoWineLoadsMicrosoftsDLLs() {
+        let reg = Recipe.vcrun2013.overridesRegistryFile
+        #expect(reg.hasPrefix("Windows Registry Editor Version 5.00\r\n"))
+        #expect(reg.contains("[HKEY_CURRENT_USER\\Software\\Wine\\DllOverrides]"))
+        #expect(reg.contains("\"msvcr120\"=\"native,builtin\"\r\n"))
+    }
+
+    @Test func tellsMicrosoftsDLLFromWines() throws {
+        let b = try BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-rcp-\(UUID().uuidString)")).create(name: "R")
+        let system32 = b.driveC.appending(path: "windows/system32")
+        try fm.createDirectory(at: system32, withIntermediateDirectories: true)
+        let dll = system32.appending(path: "msvcp140.dll")
+        #expect(!Recipe.vcrun2022.isInstalled(in: b))                                  // missing
+        var wine = Data("MZ".utf8) + Data(repeating: 0, count: 62); wine += Data("Wine builtin DLL".utf8)
+        try wine.write(to: dll)
+        #expect(!Recipe.vcrun2022.isInstalled(in: b))                                  // Wine's own
+        try (Data("MZ".utf8) + Data(repeating: 0, count: 200)).write(to: dll)
+        #expect(Recipe.vcrun2022.isInstalled(in: b))                                   // Microsoft's
+    }
+
+    /// Before installing, Wine's stand-ins for the recipe's DLLs go (installers skip DLLs with newer versions);
+    /// Microsoft's DLLs and unrelated files stay.
+    @Test func clearsOnlyWinesOwnCopiesBeforeInstalling() throws {
+        let b = try BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-rcp-\(UUID().uuidString)")).create(name: "R")
+        let wine = Data("MZ".utf8) + Data(repeating: 0, count: 62) + Data("Wine builtin DLL".utf8)
+        let ms = Data("MZ".utf8) + Data(repeating: 0, count: 200)
+        for folder in ["system32", "syswow64"] {
+            let dir = b.driveC.appending(path: "windows/\(folder)")
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try wine.write(to: dir.appending(path: "msvcr120.dll"))
+            try ms.write(to: dir.appending(path: "msvcp120.dll"))
+            try wine.write(to: dir.appending(path: "kernel32.dll"))
+        }
+        let removed = Recipe.vcrun2013.removeBuiltinCopies(in: b).map { "\($0.deletingLastPathComponent().lastPathComponent)/\($0.lastPathComponent)" }
+        #expect(removed.sorted() == ["system32/msvcr120.dll", "syswow64/msvcr120.dll"])
+        #expect(fm.fileExists(atPath: b.driveC.appending(path: "windows/system32/msvcp120.dll").path))
+        #expect(fm.fileExists(atPath: b.driveC.appending(path: "windows/system32/kernel32.dll").path))
+    }
+
+    @Test func rejectsADownloadThatDoesntMatchAndReusesTheCache() async throws {
+        let dir = fm.temporaryDirectory.appending(path: "harbor-fetch-\(UUID().uuidString)")
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let source = dir.appending(path: "setup.exe")
+        try Data("installer".utf8).write(to: source)
+        let good = WineLauncher.sha256(Data("installer".utf8))
+        let cache = dir.appending(path: "cache")
+        try fm.createDirectory(at: cache, withIntermediateDirectories: true)
+
+        await #expect(throws: RecipeError.checksumMismatch("setup.exe")) {
+            try await WineLauncher.fetch(.init(url: source, sha256: String(repeating: "0", count: 64), arguments: []), into: cache)
+        }
+        let file = try await WineLauncher.fetch(.init(url: source, sha256: good, arguments: []), into: cache)
+        #expect(try Data(contentsOf: file) == Data("installer".utf8))
+        try fm.removeItem(at: source)                                                  // now only the cache has it
+        #expect(try await WineLauncher.fetch(.init(url: source, sha256: good, arguments: []), into: cache) == file)
+    }
+}
+
 @Suite struct RemovalTests {
     /// Removing a program's last bottle is undoable: the bottle goes to the Trash with everything in it.
     @Test func removedBottlesGoToTheTrash() throws {
