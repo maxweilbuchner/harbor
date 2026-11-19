@@ -1,0 +1,40 @@
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -1405,8 +1405,37 @@
+             [window.queue postEvent:event];
+             macdrv_release_event(event);
+         }
++
++        [self scheduleDockIconCheck]; /* HARBOR HACK */
+     }
+ 
++    /* HARBOR HACK - START: drop the Dock icon of a process that no longer shows any window.
++     *
++     * A process becomes a regular (Dock) app the first time it shows a window and never went back, so helper
++     * processes that showed a window once kept a Dock icon forever (Steam: steam.exe next to steamwebhelper.exe).
++     * Two seconds after the last window is hidden (so swapping one window for another doesn't flicker), the
++     * process becomes an accessory app again; transformProcessToForeground: promotes it on its next window.
++     * Minimized windows still count as shown. */
++    - (void) scheduleDockIconCheck
++    {
++        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(dropDockIconIfNoWindows) object:nil];
++        [self performSelector:@selector(dropDockIconIfNoWindows) withObject:nil afterDelay:2.0];
++    }
++
++    - (void) dropDockIconIfNoWindows
++    {
++        /* While hidden (Cmd-H) AppKit reports every window as not visible; the Dock icon is the way back. */
++        if ([NSApp activationPolicy] != NSApplicationActivationPolicyRegular || [NSApp isHidden])
++            return;
++        for (NSWindow* w in [NSApp windows])
++        {
++            if ([w isKindOfClass:[WineWindow class]] && ([w isVisible] || [w isMiniaturized]))
++                return;
++        }
++        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
++    }
++    /* HARBOR HACK - END */
++
+     - (BOOL) isAnyWineWindowVisible
+     {
+         for (WineWindow* w in [NSApp windows])
