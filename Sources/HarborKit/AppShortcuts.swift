@@ -113,7 +113,7 @@ public struct AppShortcuts: Sendable {
         return trimmed.isEmpty ? "Windows Program" : trimmed
     }
 
-    /// Builds an .icns from a PNG with sips + iconutil (small Windows icons are scaled up).
+    /// Builds an .icns from a PNG or JPEG with sips + iconutil (small Windows icons are scaled up).
     static func makeICNS(from png: URL, to icns: URL) -> Bool {
         let fm = FileManager.default
         let set = fm.temporaryDirectory.appending(path: "harbor-\(UUID().uuidString).iconset")
@@ -133,7 +133,8 @@ public struct AppShortcuts: Sendable {
             for scale in [1, 2] {
                 let name = scale == 1 ? "icon_\(size)x\(size).png" : "icon_\(size)x\(size)@2x.png"
                 let px = String(size * scale)
-                guard run("/usr/bin/sips", ["-z", px, px, png.path, "--out", set.appending(path: name).path]) else { return false }
+                // Explicit PNG output: sources may be JPEG (Steam's artwork), and iconutil only takes PNG.
+                guard run("/usr/bin/sips", ["-s", "format", "png", "-z", px, px, png.path, "--out", set.appending(path: name).path]) else { return false }
             }
         }
         return run("/usr/bin/iconutil", ["-c", "icns", set.path, "-o", icns.path])
