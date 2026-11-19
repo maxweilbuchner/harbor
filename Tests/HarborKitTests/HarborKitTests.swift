@@ -318,6 +318,13 @@ final class Marker {}
         #expect(a.productName == "Fixture Game")
     }
 
+    @Test func direct3D11AloneDoesNotMakeAGame() throws {
+        let a = try ProgramAnalysis.analyze(try fixture("d3dapp64"))
+        #expect(a.direct3D == 11)
+        #expect(!a.looksLikeGame)        // browsers, Electron and CAD tools import D3D11 too
+        #expect(try ProgramAnalysis.analyze(try fixture("game64")).imports.contains("xinput1_4.dll"))
+    }
+
     @Test func reads32BitPrograms() throws {
         let a = try ProgramAnalysis.analyze(try fixture("app32"))
         #expect(a.architecture == .x86)
@@ -481,6 +488,16 @@ final class Marker {}
         #expect(withD3DMetal.effectiveGraphics(for: p) == .wined3d)      // licence: games only
         p.isGame = true; p.graphics = .wined3d
         #expect(withD3DMetal.effectiveGraphics(for: p) == .wined3d)      // user override
+    }
+
+    @Test func bundledGameLibrariesMarkAGame() throws {
+        let dir = fm.temporaryDirectory.appending(path: "harbor-engine-\(UUID().uuidString)/bin")
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let app = try #require(Bundle.module.url(forResource: "d3dapp64", withExtension: "exe"))
+        try fm.copyItem(at: app, to: dir.appending(path: "engine.exe"))
+        #expect(!Bottle.looksLikeGame(dir.appending(path: "engine.exe")))       // D3D11 alone: an app
+        try Data().write(to: dir.appending(path: "OpenAL32.dll"))                 // Superposition/Heaven ship this
+        #expect(Bottle.looksLikeGame(dir.appending(path: "engine.exe")))
     }
 
     @Test func aLauncherNextToAGameCountsAsAGame() throws {
