@@ -1,0 +1,117 @@
+import Foundation
+import Testing
+@testable import HarborKit
+
+@Suite struct BottleTests {
+    func tempDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "harbor-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    @Test func settingsRoundTrip() throws {
+        let store = BottleStore(directory: try tempDir())
+        var b = try store.create(name: "Office Apps")
+        b.settings.graphics = .dxmt
+        b.settings.environment = ["FOO": "1"]
+        try b.save()
+        #expect(try Bottle.load(from: b.root) == b)
+        #expect(b.root.lastPathComponent == "office-apps")
+    }
+
+    @Test func slugsAreUnique() throws {
+        let store = BottleStore(directory: try tempDir())
+        let a = try store.create(name: "Games")
+        let b = try store.create(name: "Games")
+        #expect(a.root != b.root)
+        #expect(store.list().count == 2)
+        #expect(BottleStore.slug(for: "!!!") == "bottle")
+    }
+
+    @Test func environmentPointsAtPrefix() throws {
+        let store = BottleStore(directory: try tempDir())
+        var b = try store.create(name: "Env")
+        b.settings.environment = ["WINEDEBUG": "+loaddll"]
+        let wine = WineLauncher(runtime: WineRuntime(root: URL(filePath: "/nonexistent")))
+        let env = wine.environment(for: b, base: ["WINEDLLOVERRIDES": "d3d9=n"])
+        #expect(env["WINEPREFIX"] == b.prefix.path)
+        #expect(env["WINEDEBUG"] == "+loaddll")
+        #expect(env["WINEDLLOVERRIDES"] == "winemenubuilder.exe=d;d3d9=n")
+    }
+
+    @Test func installersGoThroughMsiexec() {
+        #expect(WineLauncher.arguments(toOpen: URL(filePath: "/x/Setup.MSI")) == ["msiexec", "/i", "/x/Setup.MSI"])
+        #expect(WineLauncher.arguments(toOpen: URL(filePath: "/x/game.exe")) == ["start", "/unix", "/x/game.exe"])
+    }
+
+    @Test func runtimeLocateRejectsInvalidRoots() throws {
+        let empty = try tempDir()
+        #expect(WineRuntime.locate(environment: ["HARBOR_WINE_ROOT": empty.path], bundle: Bundle(for: Marker.self), devRoot: empty) == nil)
+    }
+}
+
+final class Marker {}
+
+@Suite struct D3DMetalTests {
+    let fm = FileManager.default
+
+    func make(_ url: URL, _ text: String = "x") throws {
+        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url)
+    }
+
+    /// A fake base Wine and a fake redist with the real layout.
+    func fixture() throws -> (WineRuntime, D3DMetalRedist, URL) {
+        let root = fm.temporaryDirectory.appending(path: "harbor-d3d-\(UUID().uuidString)")
+        let wine = root.appending(path: "wine")
+        for tool in ["bin/wine", "bin/wineserver"] {
+            try make(wine.appending(path: tool), "#!/bin/sh\n")
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wine.appending(path: tool).path)
+        }
+        try make(wine.appending(path: "lib/wine/x86_64-unix/d3d12.so"), "wine-d3d12")
+        try make(wine.appending(path: "lib/wine/x86_64-unix/ntdll.so"), "ntdll")
+        try make(wine.appending(path: "lib/wine/x86_64-windows/d3d12.dll"), "wine-d3d12")
+
+        let lib = root.appending(path: "redist/lib")
+        try make(lib.appending(path: "external/libd3dshared.dylib"))
+        let plist = lib.appending(path: "external/D3DMetal.framework/Resources/Info.plist")
+        try fm.createDirectory(at: plist.deletingLastPathComponent(), withIntermediateDirectories: true)
+        (["CFBundleShortVersionString": "4.0b3"] as NSDictionary).write(to: plist, atomically: true)
+        try make(lib.appending(path: "wine/x86_64-unix/d3d12.so"), "apple-d3d12")
+        try make(lib.appending(path: "wine/x86_64-windows/d3d12.dll"), "apple-d3d12")
+        return (WineRuntime(root: wine), D3DMetalRedist(lib: lib), root)
+    }
+
+    @Test func overlayReplacesBuiltinsAndLeavesBaseAlone() throws {
+        let (base, redist, root) = try fixture()
+        #expect(redist.isValid)
+        #expect(redist.version == "4.0b3")
+        let overlay = try redist.runtime(basedOn: base, in: root.appending(path: "runtimes"))
+        let unix = overlay.root.appending(path: "lib/wine/x86_64-unix")
+        #expect(try String(contentsOf: unix.appending(path: "d3d12.so"), encoding: .utf8) == "apple-d3d12")
+        #expect(try String(contentsOf: unix.appending(path: "ntdll.so"), encoding: .utf8) == "ntdll")
+        #expect(try fm.destinationOfSymbolicLink(atPath: unix.appending(path: "libd3dshared.dylib").path)
+            == "../../external/libd3dshared.dylib")
+        #expect(fm.fileExists(atPath: unix.appending(path: "libd3dshared.dylib").path)) // symlink resolves
+        #expect(try String(contentsOf: base.root.appending(path: "lib/wine/x86_64-unix/d3d12.so"), encoding: .utf8) == "wine-d3d12")
+        #expect(overlay.isValid)
+        // Second call reuses the cached runtime.
+        #expect(try redist.runtime(basedOn: base, in: root.appending(path: "runtimes")) == overlay)
+    }
+
+    @Test func automaticPicksD3DMetalOnlyWhenInstalled() throws {
+        let (base, redist, root) = try fixture()
+        let store = BottleStore(directory: root.appending(path: "bottles"))
+        let bottle = try store.create(name: "Game")
+        let runtimes = root.appending(path: "runtimes")
+        #expect(WineLauncher(runtime: base, runtimesDirectory: runtimes).effectiveGraphics(for: bottle) == .wined3d)
+        let launcher = WineLauncher(runtime: base, d3dmetal: redist, runtimesDirectory: runtimes)
+        #expect(launcher.effectiveGraphics(for: bottle) == .d3dmetal)
+        let derived = try launcher.runtime(for: bottle).root
+        #expect(derived.deletingLastPathComponent().path(percentEncoded: false) == runtimes.path(percentEncoded: false) + "/",
+                "derived \(derived.path) vs \(runtimes.path)")
+        var office = try store.create(name: "Office")
+        office.settings.graphics = .wined3d
+        #expect(try launcher.runtime(for: office) == base)
+    }
+}
