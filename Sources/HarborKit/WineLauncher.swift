@@ -18,14 +18,17 @@ public struct WineLauncher: Sendable {
             .appending(path: "Harbor/Runtimes")
     }
 
-    /// The backend a bottle actually gets. Automatic prefers D3DMetal when it is installed; per-program choice
-    /// (from the executable's D3D imports) lands with DXMT/DXVK support.
+    /// The backend a bottle actually gets.
+    ///
+    /// D3DMetal is licensed only for games (GPTK license §2A(i)), so it is never chosen automatically until Harbor
+    /// can tell games from apps; a bottle gets it only when set to `.d3dmetal` explicitly. DXMT and DXVK aren't
+    /// shipped yet and honestly report plain Wine (wined3d) instead of pretending.
     public func effectiveGraphics(for bottle: Bottle) -> GraphicsBackend {
         switch bottle.settings.graphics {
-        case .automatic, .d3dmetal:
+        case .d3dmetal:
             return d3dmetal == nil ? .wined3d : .d3dmetal
-        case let other:
-            return other
+        case .automatic, .wined3d, .dxmt, .dxvk:
+            return .wined3d
         }
     }
 
@@ -46,12 +49,6 @@ public struct WineLauncher: Sendable {
         env["WINEDEBUG"] = env["WINEDEBUG"] ?? "fixme-all"
         // Keep Wine from writing Linux-style menu entries and file associations into the user's home.
         env["WINEDLLOVERRIDES"] = ["winemenubuilder.exe=d", env["WINEDLLOVERRIDES"]].compactMap { $0 }.joined(separator: ";")
-        switch effectiveGraphics(for: bottle) {
-        case .automatic, .wined3d, .dxvk, .d3dmetal:
-            break
-        case .dxmt:
-            env["DXMT_LOG_LEVEL"] = env["DXMT_LOG_LEVEL"] ?? "none"
-        }
         // User variables may add to, but not replace, what Harbor depends on.
         for (key, value) in bottle.settings.environment {
             switch key {

@@ -10,7 +10,7 @@ public enum GraphicsBackend: String, Codable, Sendable, CaseIterable {
     case dxmt
     /// DXVK over MoltenVK: D3D8–11 → Vulkan → Metal.
     case dxvk
-    /// Apple's D3DMetal from the Game Porting Toolkit (user-installed; not redistributed).
+    /// Apple's D3DMetal from the Game Porting Toolkit, shipped unmodified for non-commercial use. Games only.
     case d3dmetal
 }
 
