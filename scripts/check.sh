@@ -24,8 +24,9 @@ TEST="swift test --build-system native"
 # (Piping straight into grep would report grep's status and let a failed build pass.)
 run() {
   log=$(mktemp)
-  "$@" > "$log" 2>&1; rc=$?
-  grep -v "has been deprecated" "$log"; rm -f "$log"
+  # `if` keeps `set -e` from exiting before the output is shown; grep -v finding nothing isn't an error.
+  if "$@" > "$log" 2>&1; then rc=0; else rc=$?; fi
+  grep -v "has been deprecated" "$log" || true; rm -f "$log"
   [ $rc -eq 0 ] || { echo "check: FAILED: $*" >&2; exit $rc; }
 }
 run $BUILD
