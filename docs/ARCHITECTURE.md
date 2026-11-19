@@ -165,7 +165,14 @@ An independent review re-checked the plan against the code and runtime. Items ma
 11. **Per-bottle disk** ~330 MB → clone a pre-booted template prefix (near-instant creation, CoW).
 12. **Launchers are first-class.** Steam/Epic/Battle.net get a shared-bottle flow in the main UX, not "Advanced".
 
-## 13. Milestones (revised after review)
+## 13. Development
+
+- `scripts/fetch-runtime.sh` — downloads and verifies the dev Wine + D3DMetal runtime into `Runtime/`.
+- `scripts/check.sh` — the full bar (build, tests, newest-SDK guard); CI runs the same script.
+  SwiftPM's default build system records the deployment target as the SDK version, so the script uses the
+  native build system until the app moves to an Xcode project (M4).
+
+## 14. Milestones (revised after review)
 
 1. **M0 (done):** HarborKit bottles + launcher, CLI, D3DMetal derived runtime, unit tests, Wine smoke test.
 2. **M1 — foundations:** fix review items 5, 6, 9, 10; deployment target 26; first commit + CI (build, unit tests).

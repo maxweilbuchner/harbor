@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # scripts/check.sh selects the newest Xcode on the runner and fails if any product
+    # doesn't link against that Xcode's macOS SDK. Unit tests need no Wine runtime.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Show toolchains
+        run: ls -d /Applications/Xcode*.app
+      - name: Build, test, verify SDK
+        run: scripts/check.sh
