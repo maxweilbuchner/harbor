@@ -749,3 +749,26 @@ final class Marker {}
         #expect(SteamLibrary.games(in: try store.create(name: "Plain")).isEmpty)
     }
 }
+
+@Suite struct MaintenanceTests {
+    let fm = FileManager.default
+
+    @Test func removesOnlyStaleUnusedRuntimesAndTemplates() throws {
+        let base = fm.temporaryDirectory.appending(path: "harbor-gc-\(UUID().uuidString)")
+        let redist = D3DMetalRedist(lib: base.appending(path: "redist/lib"))
+        let launcher = WineLauncher(runtime: WineRuntime(root: base.appending(path: "wine")), d3dmetal: redist,
+                                    runtimesDirectory: base.appending(path: "Runtimes"))
+        let runtimes = base.appending(path: "Runtimes"), templates = base.appending(path: "Templates")
+        let current = runtimes.appending(path: redist.runtimeName(basedOn: launcher.runtime))
+        let currentTemplate = PrefixTemplate(launcher: launcher, directory: templates).root
+        let stale = runtimes.appending(path: "d3dmetal-4.0b3-old"), busy = runtimes.appending(path: "d3dmetal-4.0b3-busy")
+        let oldTemplate = templates.appending(path: "oldkey"), freshStaging = runtimes.appending(path: ".staging-x")
+        for dir in [current, currentTemplate, stale, busy, oldTemplate, freshStaging] {
+            try fm.createDirectory(at: dir.appending(path: "bin"), withIntermediateDirectories: true)
+        }
+        let removed = Maintenance.collectGarbage(launcher: launcher, runtimesDirectory: runtimes, templatesDirectory: templates,
+                                                 inUse: [busy.appending(path: "bin/wine").path])
+        #expect(Set(removed.map(\.lastPathComponent)) == ["d3dmetal-4.0b3-old", "oldkey"])
+        for kept in [current, currentTemplate, busy, freshStaging] { #expect(fm.fileExists(atPath: kept.path)) }
+    }
+}

@@ -74,13 +74,7 @@ public struct D3DMetalRedist: Sendable, Equatable {
     /// runtime is never deleted here, because programs may be running from it.
     public func runtime(basedOn base: WineRuntime, in directory: URL) throws -> WineRuntime {
         let fm = FileManager.default
-        // Includes the libraries Harbor patches (win32u) and the Mac driver, so a rebuilt runtime never keeps a
-        // stale copy of them in its derived D3DMetal runtime.
-        let unix = base.root.appending(path: "lib/wine/x86_64-unix")
-        let key = Self.fingerprint(of: [base.wine, unix.appending(path: "ntdll.so"), unix.appending(path: "win32u.so"),
-                                        unix.appending(path: "winemac.so"),
-                                        framework.appending(path: "Versions/A/D3DMetal"), sharedLibrary])
-        let name = "d3dmetal-\(version ?? "unknown")-\(key)"
+        let name = runtimeName(basedOn: base)
         let root = directory.appending(path: name)
         let overlay = WineRuntime(root: root)
         if Self.isComplete(root), overlay.isValid { return overlay }
@@ -116,6 +110,16 @@ public struct D3DMetalRedist: Sendable, Equatable {
             }
             return overlay
         }
+    }
+
+    /// Folder name of the derived runtime for `base`. Includes the libraries Harbor patches (win32u) and the Mac
+    /// driver, so a rebuilt runtime never keeps a stale copy of them.
+    public func runtimeName(basedOn base: WineRuntime) -> String {
+        let unix = base.root.appending(path: "lib/wine/x86_64-unix")
+        let key = Self.fingerprint(of: [base.wine, unix.appending(path: "ntdll.so"), unix.appending(path: "win32u.so"),
+                                        unix.appending(path: "winemac.so"),
+                                        framework.appending(path: "Versions/A/D3DMetal"), sharedLibrary])
+        return "d3dmetal-\(version ?? "unknown")-\(key)"
     }
 
     static let markerName = ".harbor-complete"

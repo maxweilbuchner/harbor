@@ -204,7 +204,11 @@ final class AppModel {
     /// within seconds instead of after a ~25 s setup.
     private func prepareTemplate() {
         guard let launcher else { return }
-        Task.detached(priority: .utility) { try? await PrefixTemplate(launcher: launcher).prepare() }
+        Task.detached(priority: .utility) {
+            // Old derived runtimes and templates (from earlier Wine builds) go first; in-use ones stay.
+            Maintenance.collectGarbage(launcher: launcher)
+            try? await PrefixTemplate(launcher: launcher).prepare()
+        }
     }
 
     func reload() {
