@@ -82,13 +82,24 @@ public struct Program: Codable, Sendable, Equatable, Identifiable {
     public init(name: String, windowsPath: String, arguments: String? = nil, workingDirectory: String? = nil,
                 isGame: Bool = false, graphics: GraphicsBackend? = nil) {
         id = UUID()
-        self.name = name
+        self.name = Self.cleanName(name)
         self.windowsPath = windowsPath
         self.arguments = arguments
         self.workingDirectory = workingDirectory
         self.isGame = isGame
         self.graphics = graphics
         addedAt = Date()
+    }
+}
+
+extension Program {
+    /// Names come from executables' metadata and shortcut file names: drop control characters (line breaks,
+    /// tabs, terminal escapes), collapse whitespace, and cap the length.
+    public static func cleanName(_ raw: String) -> String {
+        let visible = raw.unicodeScalars.map { CharacterSet.controlCharacters.contains($0) ? " " : String($0) }.joined()
+        let collapsed = visible.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let capped = String(collapsed.prefix(80))
+        return capped.isEmpty ? "Windows Program" : capped
     }
 }
 

@@ -560,7 +560,9 @@ final class Marker {}
         #expect(plist["CFBundleIconFile"] as? String == "AppIcon")
         #expect(fm.fileExists(atPath: app.appending(path: "Contents/Resources/AppIcon.icns").path))
         let script = try String(contentsOf: app.appending(path: "Contents/MacOS/launch"), encoding: .utf8)
-        #expect(script.contains("harbor://launch/\(program.id.uuidString)"))
+        #expect(!script.contains("Thing"))                                  // no names in the script
+        #expect(try String(contentsOf: app.appending(path: "Contents/Resources/harbor-shortcut"), encoding: .utf8)
+                == program.id.uuidString)
         #expect(fm.isExecutableFile(atPath: app.appending(path: "Contents/MacOS/launch").path))
         let verify = Process()
         verify.executableURL = URL(filePath: "/usr/bin/codesign")
@@ -569,6 +571,24 @@ final class Marker {}
         #expect(verify.terminationStatus == 0)
         // Directory URLs from contentsOfDirectory carry a trailing slash; compare the bundle names.
         #expect(shortcuts.existing().mapValues(\.lastPathComponent) == [program.id: app.lastPathComponent])
+    }
+
+    @Test func namesCannotCarryControlCharacters() {
+        #expect(Program.cleanName("Notes\ntouch /tmp/PWNED\n: ") == "Notes touch /tmp/PWNED :")
+        #expect(Program.cleanName("\u{1B}[31mRed\t Game ") == "[31mRed Game")
+        #expect(Program.cleanName("\n\n") == "Windows Program")
+        #expect(Program(name: "A\nB", windowsPath: #"C:\a.exe"#).name == "A B")
+    }
+
+    @Test func sameNamedProgramsKeepTheirShortcuts() throws {
+        let dir = fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)")
+        let shortcuts = AppShortcuts(directory: dir)
+        let a = Program(name: "Steam", windowsPath: #"C:\a.exe"#), b = Program(name: "Steam", windowsPath: #"C:\b.exe"#)
+        shortcuts.sync([a, b]) { _ in nil }
+        let first = try fm.attributesOfItem(atPath: dir.appending(path: "Steam 2.app").path)[.systemFileNumber] as? Int
+        shortcuts.sync([a, b]) { _ in nil }
+        let second = try fm.attributesOfItem(atPath: dir.appending(path: "Steam 2.app").path)[.systemFileNumber] as? Int
+        #expect(first != nil && first == second)                         // not deleted and recreated
     }
 
     @Test func syncAddsRenamesAndRemovesOnlyItsOwnShortcuts() throws {

@@ -39,10 +39,12 @@ public struct AppShortcuts: Sendable {
         var existing = existing()
         for program in programs {
             if let app = existing.removeValue(forKey: program.id) {
-                if app.deletingPathExtension().lastPathComponent == Self.fileName(program.name) { continue }
+                // "Name.app" or a numbered twin "Name 2.app" (two programs with the same name) both match.
+                let current = app.deletingPathExtension().lastPathComponent, base = Self.fileName(program.name)
+                if current == base || (current.hasPrefix(base + " ") && Int(current.dropFirst(base.count + 1)) != nil) { continue }
                 try? FileManager.default.removeItem(at: app)   // renamed: recreate under the new name
             }
-            try? create(for: program, iconPNG: icon(program))
+            _ = try? create(for: program, iconPNG: icon(program))
         }
         for (_, app) in existing { try? FileManager.default.removeItem(at: app) }
     }
@@ -62,10 +64,12 @@ public struct AppShortcuts: Sendable {
         try fm.createDirectory(at: contents.appending(path: "Resources"), withIntermediateDirectories: true)
         do {
             let script = contents.appending(path: "MacOS/launch")
+            // Static on purpose: names come from programs' own metadata, so nothing variable goes into a script.
+            // The program ID is read from the marker file next to it.
             try """
             #!/bin/sh
-            # Opens “\(program.name)” in Harbor.
-            exec /usr/bin/open "\(Self.launchURL(for: program).absoluteString)"
+            id=$(/bin/cat "$(/usr/bin/dirname "$0")/../Resources/\(Self.marker)")
+            exec /usr/bin/open "harbor://launch/$id"
             """.write(to: script, atomically: true, encoding: .utf8)
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
             try Data(program.id.uuidString.utf8).write(to: contents.appending(path: "Resources/\(Self.marker)"))
