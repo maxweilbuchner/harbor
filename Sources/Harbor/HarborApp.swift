@@ -114,6 +114,7 @@ final class AppModel {
             installer.removeOldVersions()
             launcher = Self.makeLauncher()
             runtimeDownload = nil
+            prepareTemplate()
         } catch {
             runtimeDownload = .failed(String(describing: error))
         }
@@ -139,6 +140,7 @@ final class AppModel {
 
     init() {
         reload()
+        prepareTemplate()
         // Distribution checks: `open --env HARBOR_SMOKE_TEST=/path/result.txt Harbor.app` makes the real, signed
         // app (launched through LaunchServices, as Gatekeeper sees it) set up a bottle, run a Windows command,
         // write the outcome and quit.
@@ -177,6 +179,13 @@ final class AppModel {
         }
         try? (lines.joined(separator: "\n") + "\n").write(to: output, atomically: true, encoding: .utf8)
         NSApplication.shared.terminate(nil)
+    }
+
+    /// Builds the pre-made Windows environment in the background, so dropping a program opens its installer
+    /// within seconds instead of after a ~25 s setup.
+    private func prepareTemplate() {
+        guard let launcher else { return }
+        Task.detached(priority: .utility) { try? await PrefixTemplate(launcher: launcher).prepare() }
     }
 
     func reload() {

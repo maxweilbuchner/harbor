@@ -10,6 +10,7 @@ import HarborKit
 //   harbor-cli programs <bottle>                    # scan the Start Menu into the bottle's library
 //   harbor-cli launch <bottle> <program name>
 //   harbor-cli add <file.exe|file.msi>                # the app's add-program flow
+//   harbor-cli prepare-template                       # pre-build the prefix new bottles clone
 //   harbor-cli gen-runtime-key                      # private key → ~/.config/harbor/runtime-signing.key
 //   harbor-cli sign-manifest <runtime.json>         # writes runtime.json.sig with that key
 //   harbor-cli install-runtime <manifest-url> [--into <dir>]
@@ -79,6 +80,11 @@ case "add" where args.count == 2:
         let icon = FileManager.default.fileExists(atPath: b.iconFile(for: p).path) ? "icon" : "no icon"
         print("added \(p.name)\t\(p.isGame ? "game" : "app")\t\(icon)\t\(p.windowsPath)\tbottle \(b.settings.name)")
     }
+case "prepare-template" where args.count == 1:
+    let template = PrefixTemplate(launcher: launcher())
+    let start = Date()
+    try await template.prepare()
+    print("template ready (\(String(format: "%.1f", Date().timeIntervalSince(start))) s)")
 case "launch" where args.count == 3:
     let b = bottle(args[1])
     guard let program = b.programs().first(where: { $0.name == args[2] }) else { fail("no program \(args[2]) in \(args[1]); run `programs` first") }
@@ -120,5 +126,5 @@ case "install-runtime" where args.count == 2 || (args.count == 4 && args[2] == "
     FileHandle.standardError.write(Data("\n".utf8))
     print("installed")
 default:
-    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
+    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
 }

@@ -492,3 +492,37 @@ final class Marker {}
         #expect(b.windowsPath(for: URL(filePath: "/etc/passwd")) == nil)
     }
 }
+
+@Suite struct PrefixTemplateTests {
+    let fm = FileManager.default
+
+    @Test func clonesGiveEachBottleItsOwnMachineIDAndVersion() throws {
+        let base = fm.temporaryDirectory.appending(path: "harbor-tpl-\(UUID().uuidString)")
+        let launcher = WineLauncher(runtime: WineRuntime(root: base.appending(path: "wine")))
+        let template = PrefixTemplate(launcher: launcher, directory: base.appending(path: "templates"))
+        let store = BottleStore(directory: base.appending(path: "bottles"))
+
+        var early = try store.create(name: "Early")
+        #expect(try template.clone(into: early) == false)              // not built yet: caller falls back
+
+        try fm.createDirectory(at: template.prefix.appending(path: "drive_c"), withIntermediateDirectories: true)
+        try #"[Software\\Microsoft\\Cryptography] 1"# .appending("\n\"MachineGuid\"=\"aaaaaaaa-0000-0000-0000-000000000000\"\n")
+            .write(to: template.prefix.appending(path: "system.reg"), atomically: true, encoding: .utf8)
+        try "[Software\\\\Wine] 1\n\"Version\"=\"win10\"\n"
+            .write(to: template.prefix.appending(path: "user.reg"), atomically: true, encoding: .utf8)
+        try Data().write(to: template.root.appending(path: D3DMetalRedist.markerName))
+        #expect(template.isReady)
+
+        early.settings.windowsVersion = .win7
+        #expect(try template.clone(into: early))
+        let a = try String(contentsOf: early.prefix.appending(path: "system.reg"), encoding: .utf8)
+        #expect(!a.contains("aaaaaaaa-0000"))
+        #expect(try String(contentsOf: early.prefix.appending(path: "user.reg"), encoding: .utf8).contains(#""Version"="win7""#))
+        let other = try store.create(name: "Other")
+        #expect(try template.clone(into: other))
+        let b = try String(contentsOf: other.prefix.appending(path: "system.reg"), encoding: .utf8)
+        #expect(a != b)                                                 // distinct machine IDs
+        #expect(try String(contentsOf: other.prefix.appending(path: "user.reg"), encoding: .utf8).contains(#""Version"="win10""#))
+        #expect(fm.fileExists(atPath: other.driveC.path))
+    }
+}

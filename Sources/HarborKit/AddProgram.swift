@@ -30,12 +30,15 @@ public struct AddProgram: Sendable {
 
     public let store: BottleStore
     public let launcher: WineLauncher
+    /// New bottles clone this pre-built prefix when it's ready (under a second instead of about 25 s).
+    public var template: PrefixTemplate?
     /// Folders larger than this are linked into the bottle instead of copied.
     public var copyLimit: Int64 = 512 * 1024 * 1024
 
-    public init(store: BottleStore, launcher: WineLauncher) {
+    public init(store: BottleStore, launcher: WineLauncher, template: PrefixTemplate? = nil) {
         self.store = store
         self.launcher = launcher
+        self.template = template ?? PrefixTemplate(launcher: launcher)
     }
 
     /// Returns the bottle and the programs added to it.
@@ -46,7 +49,8 @@ public struct AddProgram: Sendable {
         let name = Self.bottleName(for: analysis, file: file)
 
         progress(.preparingWindows(name: name))
-        let bottle = try await store.create(name: name, setUp: launcher.initialize)
+        let (launcher, template) = (self.launcher, self.template)
+        let bottle = try await store.create(name: name) { try await launcher.initialize($0, template: template) }
         do {
             let programs: [Program]
             if analysis.installer != nil {

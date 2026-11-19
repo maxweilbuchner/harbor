@@ -1,0 +1,108 @@
+import Foundation
+
+/// A pre-built Wine prefix that new bottles clone instead of running `wineboot --init` (about 25 s) when a
+/// program is dropped. Cloning is APFS copy-on-write: under a second, no extra disk until files change.
+///
+/// One template per runtime build, under `~/Library/Application Support/Harbor/Templates/<fingerprint>/`,
+/// built in the background once Windows support is installed. Built like the runtime cache: a lock file, a
+/// unique staging folder carrying its completion marker, an atomic rename.
+public struct PrefixTemplate: Sendable {
+    public let launcher: WineLauncher
+    public let directory: URL
+
+    public init(launcher: WineLauncher, directory: URL = PrefixTemplate.defaultDirectory) {
+        self.launcher = launcher
+        self.directory = directory
+    }
+
+    public static var defaultDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "Harbor/Templates")
+    }
+
+    /// Keyed on the Wine build, so a runtime update never pairs an old prefix with new Wine files.
+    var root: URL {
+        let runtime = launcher.runtime
+        let key = D3DMetalRedist.fingerprint(of: [runtime.wine, runtime.root.appending(path: "lib/wine/x86_64-unix/ntdll.so")])
+        return directory.appending(path: key)
+    }
+
+    var prefix: URL { root.appending(path: "prefix") }
+
+    public var isReady: Bool { D3DMetalRedist.isComplete(root) }
+
+    /// Builds the template if it doesn't exist yet. Safe to call repeatedly and from several processes.
+    public func prepare() async throws {
+        if isReady { return }
+        let fm = FileManager.default
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        let staging = directory.appending(path: ".staging-\(UUID().uuidString)")
+        // A throwaway bottle around the staging prefix, so the normal setup path does the work.
+        let bottle = Bottle(root: staging, settings: BottleSettings(name: "Template"))
+        do {
+            try bottle.save()
+            try await launcher.initialize(bottle)
+            // Let wineserver write the registry and exit before the files are cloned.
+            try await launcher.waitForShutdown(bottle)
+            try Data().write(to: staging.appending(path: D3DMetalRedist.markerName))
+            try withLock(directory.appending(path: ".lock")) {
+                if isReady { try? fm.removeItem(at: staging); return }
+                if fm.fileExists(atPath: root.path) {
+                    try fm.moveItem(at: root, to: directory.appending(path: ".stale-\(UUID().uuidString)"))
+                }
+                try fm.moveItem(at: staging, to: root)
+            }
+        } catch {
+            try? fm.removeItem(at: staging)
+            throw error
+        }
+    }
+
+    /// Gives `bottle` a prefix cloned from the template, with its own machine ID and Windows version.
+    /// Returns false (and does nothing) if the template isn't ready.
+    public func clone(into bottle: Bottle) throws -> Bool {
+        guard isReady else { return false }
+        try FileManager.default.copyItem(at: prefix, to: bottle.prefix)      // clonefile(2) on APFS
+        let system = bottle.prefix.appending(path: "system.reg")
+        if var text = try? String(contentsOf: system, encoding: .utf8),
+           let range = text.range(of: #""MachineGuid"="[0-9a-fA-F-]+""#, options: .regularExpression) {
+            text.replaceSubrange(range, with: "\"MachineGuid\"=\"\(UUID().uuidString.lowercased())\"")
+            try text.write(to: system, atomically: true, encoding: .utf8)
+        }
+        if bottle.settings.windowsVersion != BottleSettings(name: "").windowsVersion {
+            Self.setWindowsVersion(bottle.settings.windowsVersion.rawValue, in: bottle.prefix)
+        }
+        return true
+    }
+
+    /// Edits `[Software\\Wine]` "Version" in user.reg directly (no wineserver is running for a fresh clone).
+    static func setWindowsVersion(_ version: String, in prefix: URL) {
+        let user = prefix.appending(path: "user.reg")
+        guard var text = try? String(contentsOf: user, encoding: .utf8) else { return }
+        if let range = text.range(of: #"(?m)^"Version"="[^"]*"$"#, options: .regularExpression) {
+            text.replaceSubrange(range, with: "\"Version\"=\"\(version)\"")
+            try? text.write(to: user, atomically: true, encoding: .utf8)
+        }
+    }
+}
+
+extension WineLauncher {
+    /// Sets up a new bottle's prefix: from the template when it's ready (under a second), otherwise the full
+    /// `wineboot --init` (about 25 s).
+    public func initialize(_ bottle: Bottle, template: PrefixTemplate?) async throws {
+        if let template, try template.clone(into: bottle) { return }
+        try await initialize(bottle)
+    }
+
+    /// Waits until the bottle's wineserver has exited (it saves the registry on the way out).
+    public func waitForShutdown(_ bottle: Bottle) async throws {
+        let process = Process()
+        process.executableURL = runtime.wineserver
+        process.arguments = ["-w"]
+        process.environment = environment(for: bottle, runtime: runtime)
+        try process.run()
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async { process.waitUntilExit(); done.resume() }
+        }
+    }
+}
