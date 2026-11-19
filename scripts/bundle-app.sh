@@ -4,13 +4,15 @@
 #
 #   scripts/bundle-app.sh            # sign with "Developer ID Application"
 #   SIGN_IDENTITY=- scripts/bundle-app.sh   # ad-hoc (local testing only)
-#   HARBOR_RUNTIME_MANIFEST_URL=https://…/runtime.json scripts/bundle-app.sh   # where Windows support downloads from
+#   HARBOR_RUNTIME_MANIFEST_URL=http://127.0.0.1:8765/runtime.json scripts/bundle-app.sh   # test server
 set -eu
 cd "$(dirname "$0")/.."
 VERSION="${HARBOR_VERSION:-0.1.0}"
 BUILD="${HARBOR_BUILD:-$(git rev-list --count HEAD)}"
 IDENTITY="${SIGN_IDENTITY:-Developer ID Application}"
 BUNDLE_ID="io.github.maxweilbuchner.harbor"
+# Published by scripts/publish-runtime.sh; override to test against another server.
+RUNTIME_MANIFEST_URL="${HARBOR_RUNTIME_MANIFEST_URL:-https://github.com/maxweilbuchner/harbor/releases/download/runtime/runtime.json}"
 if [ -z "${DEVELOPER_DIR:-}" ]; then export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer; fi
 
 # Native build system: the default one records the deployment target as the SDK version (see scripts/check.sh).
@@ -40,7 +42,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Free, non-commercial software. See THIRD_PARTY_NOTICES.md.</string>
   <key>HarborRuntimePublicKey</key><string>$(cat scripts/runtime-signing.pub)</string>
-  $( [ -n "${HARBOR_RUNTIME_MANIFEST_URL:-}" ] && printf '<key>HarborRuntimeManifestURL</key><string>%s</string>' "$HARBOR_RUNTIME_MANIFEST_URL" )
+  <key>HarborRuntimeManifestURL</key><string>$RUNTIME_MANIFEST_URL</string>
   <key>CFBundleURLTypes</key>
   <array><dict>
     <key>CFBundleURLName</key><string>$BUNDLE_ID</string>
