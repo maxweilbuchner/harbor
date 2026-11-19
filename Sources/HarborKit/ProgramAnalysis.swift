@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 /// results rather than a crash.
 public struct ProgramAnalysis: Sendable, Equatable {
     public enum Architecture: String, Sendable { case x86, x64, arm64, unknown }
-    public enum Installer: String, Sendable { case msi, innoSetup, nsis, installShield, wixBurn, other }
+    public enum Installer: String, Sendable { case msi, innoSetup, nsis, installShield, wixBurn, selfExtracting, other }
 
     public var architecture: Architecture
     public var isGUI: Bool
@@ -82,8 +82,12 @@ public struct ProgramAnalysis: Sendable, Equatable {
     static func detectInstaller(_ data: Data, pe: PEFile, file: URL, description: String?) -> Installer? {
         if pe.sectionNames.contains(".wixburn") { return .wixBurn }
         // Installer engines leave recognisable markers in the stub or its appended data.
+        // Self-extracting archives (WinRAR's own installer is a RAR SFX) count as installers: run them, then
+        // find what they installed, instead of keeping the archive as the program.
         let markers: [(String, Installer)] = [("Inno Setup Setup Data", .innoSetup), ("Nullsoft.NSIS", .nsis),
-                                              ("NullsoftInst", .nsis), ("InstallShield", .installShield)]
+                                              ("NullsoftInst", .nsis), ("InstallShield", .installShield),
+                                              ("WinRAR SFX", .selfExtracting), ("sfxrar", .selfExtracting),
+                                              ("7-Zip SFX", .selfExtracting), ("7zS.sfx", .selfExtracting)]
         for (marker, kind) in markers where data.range(of: Data(marker.utf8)) != nil { return kind }
         let name = file.deletingPathExtension().lastPathComponent.lowercased()
         let text = (description ?? "").lowercased()

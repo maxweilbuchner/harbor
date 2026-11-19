@@ -189,12 +189,18 @@ extension Bottle {
         return url
     }
 
-    /// The bottle's Start Menu folders (all users and the Windows user Wine created).
+    /// Where installers leave shortcuts: the Start Menu (all users and the Windows user Wine created), and the
+    /// shared Public Desktop (WinRAR's installer creates only a desktop shortcut). A user's own Desktop counts
+    /// only when it's a real folder in the bottle: by default Wine links it to the Mac Desktop.
     var startMenuFolders: [URL] {
-        var folders = [driveC.appending(path: "ProgramData/Microsoft/Windows/Start Menu/Programs")]
+        let fm = FileManager.default
+        var folders = [driveC.appending(path: "ProgramData/Microsoft/Windows/Start Menu/Programs"),
+                       driveC.appending(path: "users/Public/Desktop")]
         let users = driveC.appending(path: "users")
-        for user in (try? FileManager.default.contentsOfDirectory(atPath: users.path)) ?? [] where user != "Public" {
+        for user in (try? fm.contentsOfDirectory(atPath: users.path)) ?? [] where user != "Public" {
             folders.append(users.appending(path: "\(user)/AppData/Roaming/Microsoft/Windows/Start Menu/Programs"))
+            let desktop = users.appending(path: "\(user)/Desktop")
+            if (try? fm.destinationOfSymbolicLink(atPath: desktop.path)) == nil { folders.append(desktop) }
         }
         return folders
     }
