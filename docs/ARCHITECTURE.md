@@ -187,6 +187,18 @@ An independent review re-checked the plan against the code and runtime. Items ma
    a windowed flip-model swap chain (30 presented frames). On stock Wine 11.21 + D3DMetal both crash at device
    creation, which confirms the reason for M2. Plain Wine: D3D12 (vkd3d → MoltenVK) passes; D3D11 only reaches
    feature level 9.3 on MoltenVK, so SM5 shaders fail, which is why DXMT/DXVK matter for D3D11 without D3DMetal.
+   **Real programs (2026-11-19):**
+   - Unigine Heaven 4.0 (32-bit only): silent Inno install in 16 s; its Qt WebKit launcher renders correctly.
+     OpenGL mode fails (`wglCreateContextAttribsARB` failed; likely a compatibility-profile request macOS can't
+     serve, unconfirmed). Can't use D3DMetal: the redist has no i386 DLLs.
+   - Unigine Superposition 1.1 (64-bit DX11) on D3DMetal: silent install in 136 s; engine reports
+     `Direct3D11 desc: AMD Compatibility Mode` / `Renderer: Apple`, loads all assets without errors, and the 3D
+     scene renders. **Bugs:** it always runs fullscreen at native size (windowed setting doesn't take effect), and
+     after leaving and re-entering fullscreen the screen stays blank.
+   - Found along the way: CrossOver's Wine names the Windows user `crossover` (Harbor should use its own);
+     `bcrypt: no encryption support` until GnuTLS is built; `superposition_cli.exe` is Pro-only.
+   **Next:** reproduce the fullscreen focus-loss blank screen in our own D3D11 test (fullscreen → lose focus →
+   restore → check pixels), then fix.
    Original plan: self-built console, D3D11 and D3D12 triangle test exes that write a PNG;
    env-gated integration tests on a self-hosted Mac; then one real DX11 and one DX12 game.
 5. **M4 — signing spike:** Developer ID app bundle (Xcode project or bundling script), notarization,
