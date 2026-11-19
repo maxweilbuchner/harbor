@@ -190,3 +190,12 @@ final class Marker {}
         #expect(try launcher.runtime(for: office) == base)
     }
 }
+
+@Suite struct RosettaTests {
+    @Test func intelNeedsNoRosetta() {
+        #expect(Rosetta.isAvailable(machine: "x86_64", runtimeExists: false))
+        #expect(!Rosetta.isAvailable(machine: "arm64", runtimeExists: false))
+        #expect(Rosetta.isAvailable(machine: "arm64", runtimeExists: true))
+        #expect(Rosetta.isAvailable) // this Mac has it (Wine runs here)
+    }
+}

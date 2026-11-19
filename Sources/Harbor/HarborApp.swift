@@ -28,6 +28,7 @@ final class AppModel {
     var bottles: [Bottle] = []
     var selection: Bottle.ID?
     var status: String?
+    var rosettaAvailable = Rosetta.isAvailable
 
     init() { reload() }
 
@@ -47,6 +48,21 @@ final class AppModel {
         } catch {
             reload()
             status = "Couldn’t set up \(name): \(error)"
+        }
+    }
+
+    func installRosetta() {
+        status = "Installing Rosetta…"
+        Task.detached {
+            // The system's administrator prompt; softwareupdate needs root to install Rosetta.
+            let script = NSAppleScript(source: "do shell script \"\(Rosetta.installCommand)\" with administrator privileges")
+            var error: NSDictionary?
+            script?.executeAndReturnError(&error)
+            let failure = (error?[NSAppleScript.errorMessage] as? String)
+            await MainActor.run {
+                self.rosettaAvailable = Rosetta.isAvailable
+                self.status = self.rosettaAvailable ? nil : "Rosetta wasn’t installed\(failure.map { ": \($0)" } ?? ".")"
+            }
         }
     }
 
@@ -85,7 +101,16 @@ struct ContentView: View {
                     .disabled(model.launcher == nil)
             }
         } detail: {
-            if model.launcher == nil {
+            if !model.rosettaAvailable {
+                ContentUnavailableView {
+                    Label("Rosetta Is Needed", systemImage: "cpu")
+                } description: {
+                    Text("Windows programs run through Apple’s Rosetta translation. It’s a free, one-time install from Apple.")
+                } actions: {
+                    Button("Install Rosetta") { model.installRosetta() }
+                        .buttonStyle(.borderedProminent)
+                }
+            } else if model.launcher == nil {
                 ContentUnavailableView("Wine Isn’t Installed", systemImage: "exclamationmark.triangle",
                                        description: Text("Run scripts/fetch-runtime.sh, then relaunch Harbor."))
             } else if model.bottles.isEmpty {
