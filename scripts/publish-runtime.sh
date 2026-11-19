@@ -2,8 +2,8 @@
 # Publishes build/dist/runtime (scripts/package-runtime.sh) plus the corresponding source archives to the
 # GitHub release tagged `runtime`, which the app downloads from:
 #   https://github.com/maxweilbuchner/harbor/releases/download/runtime/runtime.json
-# The release is never marked "latest", so app releases keep that slot. Old runtime archives are removed;
-# runtime.json and its signature are uploaded last, so the manifest never points at missing files.
+# The release is never marked "latest", so app releases keep that slot. New archives go up before the
+# manifest and old ones are removed after it, so the live manifest never points at missing files.
 set -eu
 cd "$(dirname "$0")/.."
 . scripts/versions.env
@@ -48,11 +48,12 @@ else
 fi
 
 ARCHIVES=$(ls "$DIST"/*.tar.xz)
+# Order matters for apps downloading meanwhile: new archives first, then the manifest that points at them,
+# and only then remove archives that no manifest references any more.
 gh release upload "$TAG" -R "$REPO" --clobber $ARCHIVES $SOURCES
-# Remove runtime archives that the new manifest no longer references.
+gh release upload "$TAG" -R "$REPO" --clobber "$DIST/runtime.json" "$DIST/runtime.json.sig"
 keep=$(for f in $ARCHIVES $SOURCES; do basename "$f"; done; echo runtime.json; echo runtime.json.sig)
 gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name' | while read -r name; do
   echo "$keep" | grep -qxF "$name" || { gh release delete-asset "$TAG" "$name" -R "$REPO" -y >/dev/null && echo "removed old $name"; }
 done
-gh release upload "$TAG" -R "$REPO" --clobber "$DIST/runtime.json" "$DIST/runtime.json.sig"
 echo "publish-runtime: https://github.com/$REPO/releases/tag/$TAG"

@@ -21,7 +21,7 @@ MINGW="$B/toolchain/llvm-mingw-$LLVM_MINGW_VERSION-ucrt-macos-universal/bin"
 JOBS=$(sysctl -n hw.ncpu)
 
 if [ "$(uname -m)" != x86_64 ]; then
-  exec arch -x86_64 /bin/sh "$0" "$@"
+  exec arch -x86_64 /bin/sh "$ROOT/scripts/build-wine.sh" "$@"   # absolute: we already cd'ed
 fi
 
 [ -d "$SRC/wine" ] || { echo "build-wine: run scripts/fetch-sources.sh first" >&2; exit 1; }
@@ -40,7 +40,9 @@ if [ ! -f "$DEPS/lib/libfreetype.dylib" ]; then
   rm -rf "$B/obj/freetype" && mkdir -p "$B/obj/freetype" && cd "$B/obj/freetype"
   "$B/src/freetype-$FREETYPE_VERSION/configure" --prefix="$DEPS" --host=x86_64-apple-darwin \
     --without-harfbuzz --without-png --without-brotli --without-bzip2 --with-zlib=yes
-  make -j"$JOBS" && make install
+  # Explicit exits: `make && make install` doesn't stop the script under `set -e` when make fails.
+  make -j"$JOBS" || { echo "build-wine: freetype failed to build" >&2; exit 1; }
+  make install || exit 1
   cd "$ROOT"
 fi
 
