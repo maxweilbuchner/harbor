@@ -248,7 +248,11 @@ An independent review re-checked the plan against the code and runtime. Items ma
    **M4 done.**
    Developer ID certificate expires 2027-02-01 (needs a G2 replacement before then). Original plan: Developer ID app bundle (Xcode project or bundling script), notarization,
    spawning a downloaded runtime outside the bundle, URL scheme, Sparkle.
-6. **M5 — add-program flow:** PE analysis, game/app classification, per-launch layer selection, template
+6. **M5 — add-program flow (in progress):** prefix template: new bottles clone a pre-built prefix
+   (`PrefixTemplate`, APFS copy-on-write, own MachineGuid, Windows version set in user.reg) instead of running
+   wineboot. Built once in the background after Windows support is installed (16 s); adding a program then
+   takes 0.7 s instead of ~25 s before the installer opens. Falls back to wineboot if not ready.
+   Original plan: PE analysis, game/app classification, per-launch layer selection, template
    prefixes, program index, Library UI, app shims (prototype Dock identity early), launcher bottles.
 7. **M6:** DXMT + DXVK/MoltenVK layers; Recipes + Diagnose; drive-mapping policy.
 8. **M7:** Runtime downloader + source offers, legal review, first public beta.
