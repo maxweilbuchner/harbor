@@ -24,7 +24,11 @@ for options in "$@"; do
   if [ -z "$id" ]; then echo "[$options] no sign-in window after 80 s"; continue; fi
   sleep 8   # let the page render
   name=$(echo "$options" | tr -c 'a-z0-9' '_')
-  screencapture -x -o -l "$id" "$OUT/$name.png"
+  rm -f "$OUT/$name.png"
+  # A window that vanished leaves no capture; never measure a previous run's PNG instead.
+  if ! screencapture -x -o -l "$id" "$OUT/$name.png" 2>/dev/null || [ ! -s "$OUT/$name.png" ]; then
+    echo "[$options] window vanished before capture"; continue
+  fi
   python3 -I - "$OUT/$name.png" "$options" <<'PY'
 import subprocess, sys, struct, zlib
 path, label = sys.argv[1], sys.argv[2]
