@@ -1,10 +1,12 @@
 #!/bin/sh
 # Checks what actually reaches the screen across fullscreen transitions (WindowsTests/graphics/d3d11fs.c).
 # Samples only an 8x8 block at the screen centre at each phase and compares its colour; nothing else is
-# recorded. Needs Screen Recording permission for the terminal and a GUI session; don't touch the Mac while
-# it runs (~25 s). Phase 3 briefly activates Finder, then switches back to the test (Cmd-Tab equivalent).
+# recorded. Needs Screen Recording and Accessibility permission for the terminal and a GUI session; don't
+# touch the Mac while it runs (~70 s). Phase 3 briefly activates Finder and switches back (Cmd-Tab);
+# phase 4 switches Spaces away and back, then opens/closes Mission Control (three-finger swipes).
 #
-#   WindowsTests/graphics/fullscreen.sh [backend] [passive]   # default d3dmetal; passive = app ignores reactivation
+#   WindowsTests/graphics/fullscreen.sh [backend] [passive|guided]   # default d3dmetal
+#     passive = the app ignores reactivation; guided = voice-prompted real three-finger swipe to another Space
 set -u
 cd "$(dirname "$0")/../.."
 BACKEND="${1:-d3dmetal}"
@@ -36,13 +38,16 @@ stride = ((w * bpp // 8) + 3) & ~3
 y = abs(h) // 2; x = w // 2
 b, g, r = d[off + y * stride + x * (bpp // 8): off + y * stride + x * (bpp // 8) + 3]
 ok = all(abs(a - e) <= 40 for a, e in zip((r, g, b), want))
+if label.endswith("-away"):  # while switched away, the game's colour must NOT be on screen
+    ok = not ok
+    want = ("not",) + want
 print(f"{'PASS' if ok else 'FAIL'} {label}: screen centre rgb=({r},{g},{b}) expected={want}")
 sys.exit(0 if ok else 1)
 PY
 }
 
 LOG="$OUT/$BACKEND${MODE:+-$MODE}.log"
-"$CLI" run "$BOTTLE" "$PWD/build/WindowsTests/graphics/d3d11fs.exe" $MODE > "$LOG" 2>&1 &
+"$CLI" run "$BOTTLE" "$PWD/build/WindowsTests/graphics/d3d11fs.exe" $([ "$MODE" = passive ] && echo passive) > "$LOG" 2>&1 &
 RUN=$!
 wait_for() { i=0; while ! grep -q "$1" "$LOG" 2>/dev/null; do sleep 0.2; i=$((i + 1)); [ $i -gt 600 ] && return 1; done; return 0; }
 
@@ -59,6 +64,21 @@ if wait_for "PHASE 3"; then
   front
   sleep 3
   sample "$BACKEND${MODE:+-$MODE}-3-after-focus-switch" 0,255,255 || status=1
+fi
+if wait_for "PHASE 4"; then
+  sleep 1.5
+  if [ "$MODE" = guided ]; then
+    # A real three-finger swipe to another Space and back, prompted by voice (the game covers the screen).
+    say "Swipe three fingers to another space now."; sleep 4
+    sample "$BACKEND-guided-4-space-away" 255,255,255 || { status=1; echo "  (still on the game: no Space switch happened)"; }
+    say "Now swipe back to the white screen."; sleep 5
+    sample "$BACKEND-guided-4-after-space-switch" 255,255,255 || status=1
+  fi
+  # Mission Control (three-finger swipe up). Opened via its app, which works even with shortcuts disabled.
+  open -a "Mission Control"; sleep 2
+  sample "$BACKEND${MODE:+-$MODE}-5-mission-control-away" 255,255,255 || { status=1; echo "  (Mission Control didn't open)"; }
+  open -a "Mission Control"; sleep 3
+  sample "$BACKEND${MODE:+-$MODE}-5-after-mission-control" 255,255,255 || status=1
 fi
 wait "$RUN"
 grep -E '^(INFO|FAIL)' "$LOG" | sed 's/^/  /'

@@ -5,6 +5,8 @@
  *   PHASE 3 cyan    after the host switches to another app and back (focus loss); we re-enter fullscreen on
  *                   WM_ACTIVATEAPP like well-behaved games do (argument "passive": we don't, like some
  *                   older engines; then the window should at least show its content windowed)
+ *   PHASE 4 white   after the host switches Spaces away and back (three-finger swipe), then opens and
+ *                   closes Mission Control (three-finger swipe up)
  * Uses the legacy DISCARD swap effect, as many DX11-era engines do. */
 #define COBJMACROS
 #define INITGUID
@@ -82,7 +84,8 @@ static void phase(int n, const char *name)
 int main(int argc, char **argv)
 {
     if (argc > 1 && !strcmp(argv[1], "passive")) reenter_on_activate = FALSE;
-    static const float green[3] = {0, 1, 0}, yellow[3] = {1, 1, 0}, cyan[3] = {0, 1, 1}, magenta[3] = {1, 0, 1};
+    static const float green[3] = {0, 1, 0}, yellow[3] = {1, 1, 0}, cyan[3] = {0, 1, 1}, magenta[3] = {1, 0, 1},
+                       white[3] = {1, 1, 1};
     WNDCLASSA wc = {0};
     wc.lpfnWndProc = wndproc;
     wc.hInstance = GetModuleHandleA(NULL);
@@ -112,7 +115,10 @@ int main(int argc, char **argv)
 
     phase(3, "await-focus-switch");
     present_for(cyan, 9000);
-    phase(4, "done");
+
+    phase(4, "await-space-switch");
+    present_for(white, 25000);
+    phase(5, "done");
 
     set_fullscreen(FALSE);
     present_for(magenta, 500);
