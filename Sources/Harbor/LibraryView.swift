@@ -191,6 +191,14 @@ struct ProgramMenu: View {
             Text("D3DMetal (Games)").tag(GraphicsBackend.d3dmetal)
             Text("Compatibility").tag(GraphicsBackend.wined3d)
         }
+        // Microsoft's own runtimes, for programs that need more than Wine's built-in versions.
+        Menu("Install Windows Component") {
+            ForEach(Recipe.all) { recipe in
+                let installed = recipe.isInstalled(in: item.bottle)
+                Button(installed ? "\(recipe.name) (Installed)" : recipe.name) { Task { await model.install(recipe, for: item) } }
+                    .disabled(installed)
+            }
+        }
         Divider()
         Button("Remove from Library…", role: .destructive) { model.confirmRemoval(item) }
     }
@@ -231,6 +239,11 @@ struct AddProgressSheet: View {
                 ProgressView().controlSize(.large)
                 Text(storeTitle(which, step)).font(.headline)
                 Text(storeDetail(which, step)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            case .component(let program):
+                ProgressView().controlSize(.large)
+                Text("Installing \(state.fileName)…").font(.headline)
+                Text("For \(program). Microsoft’s installer runs in the background; this takes about a minute.")
+                    .foregroundStyle(.secondary).multilineTextAlignment(.center)
             case .updating:
                 ProgressView().controlSize(.large)
                 Text("Updating Windows for \(state.fileName)…").font(.headline)

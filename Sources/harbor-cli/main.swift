@@ -14,6 +14,8 @@ import HarborKit
 //   harbor-cli analyze <file>                         # what Harbor reads from a program
 //   harbor-cli add-steam [--store <dir>]              # the app's one-click Steam setup
 //   harbor-cli add-epic [--store <dir>]               # the same for the Epic Games Store
+//   harbor-cli components <bottle>                    # Windows components (Visual C++) and whether installed
+//   harbor-cli install-component <bottle> <id>        # e.g. vcrun2022
 //   harbor-cli gen-runtime-key                      # private key → ~/.config/harbor/runtime-signing.key
 //   harbor-cli sign-manifest <runtime.json>         # writes runtime.json.sig with that key
 //   harbor-cli install-runtime <manifest-url> [--into <dir>]
@@ -87,6 +89,15 @@ case "add" where args.count == 2:
         let icon = FileManager.default.fileExists(atPath: b.iconFile(for: p).path) ? "icon" : "no icon"
         print("added \(p.name)\t\(p.isGame ? "game" : "app")\t\(icon)\t\(p.windowsPath)\tbottle \(b.settings.name)")
     }
+case "components" where args.count == 2:
+    // Windows components Harbor can install into a bottle (Microsoft's Visual C++ runtimes).
+    let b = bottle(args[1])
+    for r in Recipe.all { print("\(r.id)\t\(r.isInstalled(in: b) ? "installed" : "-")\t\(r.name)") }
+case "install-component" where args.count == 3:
+    let b = bottle(args[1])
+    guard let recipe = Recipe.named(args[2]) else { fail("unknown component \(args[2]); see `components <bottle>`") }
+    try await launcher().install(recipe, in: b)
+    print("\(recipe.name) installed in \(b.settings.name): \(recipe.isInstalled(in: b) ? "verified" : "NOT FOUND")")
 case "add-steam", "add-epic" where args.count == 1 || (args.count == 3 && args[1] == "--store"):
     // The app's "Add Steam" / "Add Epic Games Store": download the official installer, silent install into its
     // own bottle.
@@ -149,5 +160,5 @@ case "install-runtime" where args.count == 2 || (args.count == 4 && args[2] == "
     FileHandle.standardError.write(Data("\n".utf8))
     print("installed")
 default:
-    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | analyze <file> | add-steam [--store <dir>] | add-epic [--store <dir>] | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
+    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | analyze <file> | add-steam [--store <dir>] | add-epic [--store <dir>] | components <bottle> | install-component <bottle> <id> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
 }

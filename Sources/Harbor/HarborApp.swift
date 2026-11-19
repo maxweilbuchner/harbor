@@ -150,7 +150,7 @@ final class AppModel {
     var pendingDuplicate: (file: URL, existing: LibraryItem, name: String)?
 
     struct AddState: Identifiable, Equatable {
-        enum Phase: Equatable { case working(AddProgram.Step), store(GameStores.Store, GameStores.Step), updating, failed(String) }
+        enum Phase: Equatable { case working(AddProgram.Step), store(GameStores.Store, GameStores.Step), component(String), updating, failed(String) }
         let id = UUID()
         var fileName: String
         var phase: Phase
@@ -296,6 +296,18 @@ final class AppModel {
             status = programs.count == 1 ? "Added \(programs[0].name)" : "Added \(programs.count) programs"
         } catch {
             reload()
+            addState?.phase = .failed(String(describing: error))
+        }
+    }
+
+    /// Installs a Windows component (Visual C++ runtime) into the program's bottle, showing progress.
+    func install(_ recipe: Recipe, for item: LibraryItem) async {
+        guard let launcher, addState == nil else { return }
+        addState = AddState(fileName: recipe.name, phase: .component(item.program.name))
+        do {
+            try await launcher.install(recipe, in: item.bottle)
+            addState = nil
+        } catch {
             addState?.phase = .failed(String(describing: error))
         }
     }
