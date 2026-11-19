@@ -98,9 +98,19 @@ final class AppModel {
         let info = Bundle.main.infoDictionary ?? [:]
         guard let url = (env["HARBOR_RUNTIME_MANIFEST_URL"] ?? info["HarborRuntimeManifestURL"] as? String)
                 .flatMap(URL.init(string:)),
-              let keyText = env["HARBOR_RUNTIME_PUBLIC_KEY"] ?? info["HarborRuntimePublicKey"] as? String,
+              let keyText = Self.debugOverride(env["HARBOR_RUNTIME_PUBLIC_KEY"]) ?? info["HarborRuntimePublicKey"] as? String,
               let key = try? RuntimeSigning.publicKey(keyText) else { return nil }
         return RuntimeInstaller(manifestURL: url, publicKey: key)
+    }
+
+    /// Development builds may take the runtime signing key from the environment; release builds always use the
+    /// key in their Info.plist, so the environment can't swap in another signer.
+    private static func debugOverride(_ value: String?) -> String? {
+        #if DEBUG
+        return value
+        #else
+        return nil
+        #endif
     }
 
     var canDownloadRuntime: Bool { runtimeInstaller != nil }

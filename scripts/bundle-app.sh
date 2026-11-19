@@ -18,7 +18,12 @@ UPDATE_FEED_URL="${HARBOR_UPDATE_FEED_URL:-https://raw.githubusercontent.com/max
 if [ -z "${DEVELOPER_DIR:-}" ]; then export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer; fi
 
 # Native build system: the default one records the deployment target as the SDK version (see scripts/check.sh).
-swift build -c release --build-system native --product Harbor 2>&1 | grep -v "has been deprecated"
+# (Not piped into grep directly: that would report grep's status and bundle a stale binary after a failed build.)
+log=$(mktemp)
+if ! swift build -c release --build-system native --product Harbor > "$log" 2>&1; then
+  grep -v "has been deprecated" "$log" >&2; rm -f "$log"; echo "bundle-app: build failed" >&2; exit 1
+fi
+grep -v "has been deprecated" "$log" || true; rm -f "$log"
 BIN="$(swift build -c release --build-system native --show-bin-path 2>/dev/null)/Harbor"
 
 APP=build/app/Harbor.app
@@ -79,6 +84,6 @@ sign "$FW/Versions/B/Autoupdate"
 sign "$FW/Versions/B/Updater.app"
 sign "$FW"
 sign "$APP"
-codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 | tail -2
+codesign --verify --deep --strict --verbose=2 "$APP" || { echo "bundle-app: signature verification failed" >&2; exit 1; }
 codesign -dv "$APP" 2>&1 | grep -E 'Identifier|flags|TeamIdentifier' | sed -E 's/TeamIdentifier=.*/TeamIdentifier=(set)/'
 echo "bundle-app: $APP ($VERSION build $BUILD)"
