@@ -149,7 +149,7 @@ final class AppModel {
     var pendingDuplicate: (file: URL, existing: LibraryItem, name: String)?
 
     struct AddState: Identifiable, Equatable {
-        enum Phase: Equatable { case working(AddProgram.Step), failed(String) }
+        enum Phase: Equatable { case working(AddProgram.Step), store(GameStores.Step), failed(String) }
         let id = UUID()
         var fileName: String
         var phase: Phase
@@ -271,6 +271,29 @@ final class AppModel {
             reload()
             addState = nil
             status = programs.count == 1 ? "Added \(programs[0].name)" : "Added \(programs.count) programs"
+        } catch {
+            reload()
+            addState?.phase = .failed(String(describing: error))
+        }
+    }
+
+    /// One click: downloads Valve's installer, installs Steam into its own bottle, adds it and starts it.
+    func addSteam() async {
+        guard let launcher, addState == nil else { return }
+        let stores = GameStores(store: store, launcher: launcher)
+        if let bottle = stores.existingSteamBottle(),
+           let item = library.first(where: { $0.bottle == bottle && !$0.managedBySteam }) {
+            open(item)
+            return
+        }
+        addState = AddState(fileName: "Steam", phase: .store(.downloading))
+        do {
+            let (bottle, program) = try await stores.installSteam { step in
+                Task { @MainActor in self.addState?.phase = .store(step) }
+            }
+            reload()
+            addState = nil
+            if let item = library.first(where: { $0.bottle == bottle && $0.program.id == program.id }) { open(item) }
         } catch {
             reload()
             addState?.phase = .failed(String(describing: error))

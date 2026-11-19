@@ -52,8 +52,14 @@ struct LibraryView: View {
         .searchable(text: $search, placement: .toolbar, prompt: "Search Programs")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("Add Program", systemImage: "plus") { choosingFile = true }
-                    .help("Add a Windows program or installer")
+                // Click: choose a program or installer. Menu: one-click game stores.
+                Menu("Add Program", systemImage: "plus") {
+                    Button("Add Program…") { choosingFile = true }
+                    Button("Add Steam") { Task { await model.addSteam() } }
+                } primaryAction: {
+                    choosingFile = true
+                }
+                .help("Add a Windows program or installer")
             }
         }
         .fileImporter(isPresented: $choosingFile, allowedContentTypes: [.exe, UTType(filenameExtension: "msi") ?? .data], allowsMultipleSelection: false) { result in
@@ -88,7 +94,7 @@ struct LibraryView: View {
     @ViewBuilder
     private var content: some View {
         if model.library.isEmpty {
-            EmptyLibraryView(choose: { choosingFile = true })
+            EmptyLibraryView(choose: { choosingFile = true }, addSteam: { Task { await model.addSteam() } })
         } else if visible.isEmpty {
             if search.isEmpty {
                 ContentUnavailableView(filter == .games ? "No Games Yet" : "No Apps Yet", systemImage: filter.symbol,
@@ -181,6 +187,7 @@ struct ProgramMenu: View {
 /// First run: one obvious thing to do.
 struct EmptyLibraryView: View {
     let choose: () -> Void
+    let addSteam: () -> Void
 
     var body: some View {
         ContentUnavailableView {
@@ -188,7 +195,10 @@ struct EmptyLibraryView: View {
         } description: {
             Text("Drag a program or its installer (.exe or .msi) into this window. Harbor sets everything up.")
         } actions: {
-            Button("Choose File…", action: choose).buttonStyle(.borderedProminent)
+            HStack {
+                Button("Choose File…", action: choose).buttonStyle(.borderedProminent)
+                Button("Add Steam", action: addSteam)
+            }
         }
     }
 }
@@ -205,6 +215,10 @@ struct AddProgressSheet: View {
                 ProgressView().controlSize(.large)
                 Text(title(step)).font(.headline)
                 Text(detail(step)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            case .store(let step):
+                ProgressView().controlSize(.large)
+                Text(storeTitle(step)).font(.headline)
+                Text(storeDetail(step)).foregroundStyle(.secondary).multilineTextAlignment(.center)
             case .failed(let message):
                 Image(systemName: "exclamationmark.triangle").font(.largeTitle).foregroundStyle(.orange)
                 Text("Couldn’t Add \(state.fileName)").font(.headline)
@@ -214,6 +228,22 @@ struct AddProgressSheet: View {
         }
         .padding(28)
         .frame(width: 380)
+    }
+
+    private func storeTitle(_ step: GameStores.Step) -> String {
+        switch step {
+        case .downloading: "Downloading Steam…"
+        case .preparingWindows: "Preparing Windows for Steam…"
+        case .installing: "Installing Steam…"
+        }
+    }
+
+    private func storeDetail(_ step: GameStores.Step) -> String {
+        switch step {
+        case .downloading: "Getting the installer from Valve."
+        case .preparingWindows: "Setting up a separate Windows environment for your games."
+        case .installing: "Steam updates itself on its first start, which can take a few minutes."
+        }
     }
 
     private func title(_ step: AddProgram.Step) -> String {
