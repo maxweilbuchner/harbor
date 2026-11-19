@@ -30,7 +30,42 @@ final class AppModel {
     var status: String?
     var rosettaAvailable = Rosetta.isAvailable
 
-    init() { reload() }
+    init() {
+        reload()
+        // Distribution checks: `open --env HARBOR_SMOKE_TEST=/path/result.txt Harbor.app` makes the real, signed
+        // app (launched through LaunchServices, as Gatekeeper sees it) set up a bottle, run a Windows command,
+        // write the outcome and quit.
+        if let output = ProcessInfo.processInfo.environment["HARBOR_SMOKE_TEST"] {
+            Task { await runSmokeTest(writingTo: URL(filePath: output)) }
+        }
+    }
+
+    private func runSmokeTest(writingTo output: URL) async {
+        var lines = ["bundle \(Bundle.main.bundlePath)", "rosetta \(Rosetta.isAvailable)"]
+        if let launcher {
+            lines.append("runtime \(launcher.runtime.root.path)")
+            do {
+                let bottle = try await store.create(name: "Smoke Test \(Int(Date().timeIntervalSince1970))",
+                                                    setUp: launcher.initialize)
+                let capture = output.appendingPathExtension("wine")
+                FileManager.default.createFile(atPath: capture.path, contents: nil)
+                try await launcher.execute(bottle, arguments: ["cmd", "/c", "ver"],
+                                           output: try FileHandle(forWritingTo: capture))
+                let ver = (try? String(contentsOf: capture, encoding: .utf8))?
+                    .split(whereSeparator: \.isNewline).first { $0.contains("Windows") } ?? "?"
+                lines.append("PASS \(ver)")
+                try? launcher.shutdown(bottle)
+                try? FileManager.default.removeItem(at: bottle.root)
+                try? FileManager.default.removeItem(at: capture)
+            } catch {
+                lines.append("FAIL \(error)")
+            }
+        } else {
+            lines.append("FAIL no Wine runtime found")
+        }
+        try? (lines.joined(separator: "\n") + "\n").write(to: output, atomically: true, encoding: .utf8)
+        NSApplication.shared.terminate(nil)
+    }
 
     func reload() {
         bottles = store.list()
