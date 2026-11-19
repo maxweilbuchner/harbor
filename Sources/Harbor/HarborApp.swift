@@ -1,5 +1,6 @@
 import AppKit
 import HarborKit
+import Sparkle
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -10,6 +11,7 @@ struct HarborApp: App {
     init() {
         // Running from `swift run` has no bundle; make it a regular foreground app anyway.
         NSApplication.shared.setActivationPolicy(.regular)
+        _ = Updates.shared
     }
 
     var body: some Scene {
@@ -18,6 +20,49 @@ struct HarborApp: App {
                 .environment(model)
                 .frame(minWidth: 640, minHeight: 420)
         }
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { Updates.shared.checkForUpdates() }
+                    .disabled(!Updates.shared.isAvailable)
+            }
+        }
+    }
+}
+
+/// Sparkle app updates. Only runs inside a real Harbor.app (not under `swift run`), whose Info.plist carries
+/// SUFeedURL and SUPublicEDKey. `HARBOR_UPDATE_FEED_URL` overrides the feed for local update tests.
+@MainActor
+final class Updates: NSObject, SPUUpdaterDelegate {
+    static let shared = Updates()
+    private var controller: SPUStandardUpdaterController?
+
+    var isAvailable: Bool { controller != nil }
+
+    private override init() {
+        super.init()
+        guard Bundle.main.bundleURL.pathExtension == "app",
+              Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") != nil else { return }
+        controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
+        // Update tests (scripts/test-update.sh): check now, download in the background, install immediately.
+        if ProcessInfo.processInfo.environment["HARBOR_UPDATE_TEST"] != nil, let updater = controller?.updater {
+            updater.automaticallyDownloadsUpdates = true
+            updater.checkForUpdatesInBackground()
+        }
+    }
+
+    func checkForUpdates() {
+        controller?.checkForUpdates(nil)
+    }
+
+    nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
+        ProcessInfo.processInfo.environment["HARBOR_UPDATE_FEED_URL"]
+    }
+
+    nonisolated func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
+                             immediateInstallationBlock: @escaping () -> Void) -> Bool {
+        guard ProcessInfo.processInfo.environment["HARBOR_UPDATE_TEST"] != nil else { return false }
+        immediateInstallationBlock()
+        return true
     }
 }
 
