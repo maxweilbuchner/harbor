@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import HarborKit
 
@@ -73,11 +74,15 @@ final class Marker {}
         try make(wine.appending(path: "lib/wine/x86_64-windows/d3d12.dll"), "wine-d3d12")
 
         let lib = root.appending(path: "redist/lib")
-        try make(lib.appending(path: "external/libd3dshared.dylib"))
+        try make(lib.appending(path: "external/libd3dshared.dylib"), "apple-d3dshared")
+        try make(lib.appending(path: "external/D3DMetal.framework/Versions/A/D3DMetal"), "apple-framework")
         let plist = lib.appending(path: "external/D3DMetal.framework/Resources/Info.plist")
         try fm.createDirectory(at: plist.deletingLastPathComponent(), withIntermediateDirectories: true)
         (["CFBundleShortVersionString": "4.0b3"] as NSDictionary).write(to: plist, atomically: true)
-        try make(lib.appending(path: "wine/x86_64-unix/d3d12.so"), "apple-d3d12")
+        // Like Apple's redist: the unix glue is a relative symlink to libd3dshared.dylib.
+        try fm.createDirectory(at: lib.appending(path: "wine/x86_64-unix"), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: lib.appending(path: "wine/x86_64-unix/d3d12.so").path,
+                                  withDestinationPath: "../../external/libd3dshared.dylib")
         try make(lib.appending(path: "wine/x86_64-windows/d3d12.dll"), "apple-d3d12")
         return (WineRuntime(root: wine), D3DMetalRedist(lib: lib), root)
     }
@@ -88,15 +93,39 @@ final class Marker {}
         #expect(redist.version == "4.0b3")
         let overlay = try redist.runtime(basedOn: base, in: root.appending(path: "runtimes"))
         let unix = overlay.root.appending(path: "lib/wine/x86_64-unix")
-        #expect(try String(contentsOf: unix.appending(path: "d3d12.so"), encoding: .utf8) == "apple-d3d12")
+        // The copied symlink resolves to the overlay's own lib/external.
+        #expect(try String(contentsOf: unix.appending(path: "d3d12.so"), encoding: .utf8) == "apple-d3dshared")
+        #expect(unix.appending(path: "d3d12.so").resolvingSymlinksInPath().path.hasPrefix(overlay.root.resolvingSymlinksInPath().path))
+        #expect(try String(contentsOf: overlay.root.appending(path: "lib/wine/x86_64-windows/d3d12.dll"), encoding: .utf8) == "apple-d3d12")
         #expect(try String(contentsOf: unix.appending(path: "ntdll.so"), encoding: .utf8) == "ntdll")
-        #expect(try fm.destinationOfSymbolicLink(atPath: unix.appending(path: "libd3dshared.dylib").path)
-            == "../../external/libd3dshared.dylib")
-        #expect(fm.fileExists(atPath: unix.appending(path: "libd3dshared.dylib").path)) // symlink resolves
         #expect(try String(contentsOf: base.root.appending(path: "lib/wine/x86_64-unix/d3d12.so"), encoding: .utf8) == "wine-d3d12")
         #expect(overlay.isValid)
         // Second call reuses the cached runtime.
         #expect(try redist.runtime(basedOn: base, in: root.appending(path: "runtimes")) == overlay)
+    }
+
+    @Test func concurrentFirstLaunchesShareOneRuntime() throws {
+        let (base, redist, root) = try fixture()
+        let runtimes = root.appending(path: "runtimes")
+        let results = Mutex<[Result<URL, any Error>]>([])
+        DispatchQueue.concurrentPerform(iterations: 8) { _ in
+            let result = Result { try redist.runtime(basedOn: base, in: runtimes).root }
+            results.withLock { $0.append(result) }
+        }
+        let roots = try results.withLock { try $0.map { try $0.get() } }
+        #expect(Set(roots).count == 1)
+        let leftovers = try fm.contentsOfDirectory(atPath: runtimes.path).filter { $0.hasPrefix(".staging") }
+        #expect(leftovers.isEmpty)
+    }
+
+    @Test func changedBaseWineGetsAFreshRuntime() throws {
+        let (base, redist, root) = try fixture()
+        let runtimes = root.appending(path: "runtimes")
+        let first = try redist.runtime(basedOn: base, in: runtimes)
+        try make(base.root.appending(path: "lib/wine/x86_64-unix/ntdll.so"), "ntdll-updated-build")
+        let second = try redist.runtime(basedOn: base, in: runtimes)
+        #expect(first != second)
+        #expect(D3DMetalRedist.isComplete(first.root)) // the old one is left alone; it may still be in use
     }
 
     @Test func automaticPicksD3DMetalOnlyWhenInstalled() throws {
