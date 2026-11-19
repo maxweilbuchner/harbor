@@ -98,7 +98,8 @@ if [ ! -f Makefile ] || [ "${1:-}" = configure ]; then
     --without-netapi --without-oss --without-pcap --without-pcsclite --without-sane --without-udev \
     --without-usb --without-v4l2 --without-inotify \
     CPPFLAGS="-I$DEPS/include" LDFLAGS="-L$DEPS/lib" \
-    BISON=/opt/homebrew/opt/bison/bin/bison
+    BISON=/opt/homebrew/opt/bison/bin/bison \
+    ac_cv_func_pipe2=no   # in the macOS 27 SDK but not on older macOS; Wine calls it unguarded (weak import = crash)
 fi
 [ "${1:-}" = configure ] && exit 0
 make -j"$JOBS"
