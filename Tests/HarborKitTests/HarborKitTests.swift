@@ -897,7 +897,7 @@ final class Marker {}
         for name in ["20261119-100000-Quest.log", "20261119-110000-Quest-2.log", "20261119-120000-Quest-Editor.log", "20261119-090000-setup.log"] {
             try Data().write(to: b.logsDirectory.appending(path: name))
         }
-        #expect(b.latestLog(label: "Quest")?.lastPathComponent == "20261119-110000-Quest-2.log")
+        #expect(b.latestLog(label: "Quest")?.lastPathComponent == "20261119-100000-Quest.log")
         #expect(b.latestLog(label: "Quest Editor")?.lastPathComponent == "20261119-120000-Quest-Editor.log")
         #expect(b.latestLog(label: "Other") == nil)
     }

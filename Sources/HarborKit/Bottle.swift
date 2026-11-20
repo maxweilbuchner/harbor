@@ -80,7 +80,9 @@ public struct Bottle: Sendable, Equatable, Identifiable {
         return files.filter { $0.pathExtension == "log" }.sorted { $0.lastPathComponent > $1.lastPathComponent }
     }
 
-    /// Creates `logs/<timestamp>-<label>.log` for one run and keeps only the newest `keep` logs.
+    /// Creates `logs/<timestamp>-<label>.log` for one run and keeps only the newest `keep` logs. A second run in
+    /// the same second gets `<timestamp>.2-<label>.log`: the counter can't be mistaken for part of a label (a
+    /// program called "Quest 2" logs as `…-Quest-2.log`) and sorts after the first run's log.
     func newLog(label: String, keep: Int = 20) throws -> FileHandle {
         let fm = FileManager.default
         try fm.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
@@ -90,7 +92,7 @@ public struct Bottle: Sendable, Equatable, Identifiable {
         var url = logsDirectory.appending(path: "\(stamp)-\(safeLabel).log")
         var n = 2
         while fm.fileExists(atPath: url.path) {
-            url = logsDirectory.appending(path: "\(stamp)-\(safeLabel)-\(n).log")
+            url = logsDirectory.appending(path: "\(stamp).\(n)-\(safeLabel).log")
             n += 1
         }
         fm.createFile(atPath: url.path, contents: nil)
