@@ -22,7 +22,7 @@ public struct Diagnosis: Equatable, Sendable {
         case .missingLibrary(let dll, nil):
             return "\(program) is missing a file it needs (\(dll)). It usually comes with the program’s installer: try installing the program again with its full installer."
         case .dotNet:
-            return "\(program) is a .NET program and stopped inside .NET. Harbor’s built-in .NET support doesn’t cover everything it needs yet."
+            return "\(program) is a .NET program and stopped inside Harbor’s built-in .NET. Microsoft’s .NET Framework 4.8 may run it."
         case .antiCheat(let name):
             return "\(program) uses \(name) anti-cheat, which only runs on Windows itself. Games that need it can’t run in Harbor."
         case .crashed:
@@ -33,6 +33,7 @@ public struct Diagnosis: Equatable, Sendable {
     /// The component that fixes it, if any.
     public var recipe: Recipe? {
         if case .missingLibrary(_, let id?) = cause { return Recipe.named(id) }
+        if cause == .dotNet { return .dotnet48 }
         return nil
     }
 

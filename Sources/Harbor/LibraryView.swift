@@ -257,7 +257,7 @@ struct AddProgressSheet: View {
             case .component(let program):
                 ProgressView().controlSize(.large)
                 Text("Installing \(state.fileName)…").font(.headline)
-                Text("For \(program). Microsoft’s installer runs in the background; this takes about a minute.")
+                Text("For \(program). Microsoft’s installer runs in the background; this can take a few minutes.")
                     .foregroundStyle(.secondary).multilineTextAlignment(.center)
             case .updating:
                 ProgressView().controlSize(.large)
