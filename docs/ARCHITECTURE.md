@@ -280,7 +280,9 @@ An independent review re-checked the plan against the code and runtime. Items ma
    cloned into the bottle first (`Bottle.importForRunning`), since Wine can't start a Mac path without Z:. Not a
    sandbox: Wine still resolves `\\?\unix\…` paths for software written to use them. Recipes, first part (#5): Microsoft's Visual C++ 2015–2022/2013/2010 from the
    program's menu ("Install Windows Component") or `harbor-cli install-component`, hash-pinned, with the DLL
-   overrides that make Wine load them. Open: .NET 4.8 and DirectX extras (#10). Graphics layers (#7): DXMT v0.80 ships inside the runtime (lib/dxmt) and is overlaid per
+   overrides that make Wine load them. DirectX June 2010 extras added 2026-11-20 (#10): Microsoft's package unpacks, its DXSETUP
+   installs silently, and only the D3DX/d3dcompiler helper libraries are switched to native (XInput and audio stay
+   Wine's). Open: .NET 4.8 (#10). Graphics layers (#7): DXMT v0.80 ships inside the runtime (lib/dxmt) and is overlaid per
    launch for Direct3D 10/11 programs that aren't games (games keep D3DMetal); `run.sh dxmt` passes D3D11 where
    plain Wine fails (shader model 5). Never for D3D12: DXMT's dxgi breaks Wine's vkd3d. DXVK on MoltenVK: not
    pursued (MoltenVK lacks features DXVK needs; DXMT covers the same programs natively on Metal).

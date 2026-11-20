@@ -122,6 +122,36 @@ import Testing
     }
 }
 
+extension RecipeInstallTests {
+    /// A package that only unpacks (DirectX) gets its follow-up command run next, and its unpack folder removed.
+    @Test func unpackThenSetUpThenCleanUp() async throws {
+        let f = try fixture(exits: "")
+        var download = f.recipe.downloads[0]
+        download.followUp = [#"C:\windows\temp\harbor-unpack\SETUP.exe"#, "/silent"]
+        var recipe = Recipe(id: "dxtest", name: "Test", downloads: [download], overrides: ["d3dx9_43"], marker: "d3dx9_43.dll")
+        recipe.temporaryFolder = #"C:\windows\temp\harbor-unpack"#
+        let unpacked = f.bottle.driveC.appending(path: "windows/temp/harbor-unpack")
+        try fm.createDirectory(at: unpacked, withIntermediateDirectories: true)        // as the package would leave it
+        try Data().write(to: unpacked.appending(path: "SETUP.exe"))
+
+        try await f.launcher.install(recipe, in: f.bottle, cache: f.cache)
+        let calls = try String(contentsOf: f.calls, encoding: .utf8).split(separator: "\n").map(String.init)
+        let unpack = try #require(calls.firstIndex { $0.hasSuffix("vc_x64.exe /quiet") })
+        // (The stand-in's `echo` mangles the backslashes of the Windows path, so match the end.)
+        let setUp = try #require(calls.firstIndex { $0.hasSuffix("SETUP.exe /silent") })
+        #expect(unpack < setUp)
+        #expect(!fm.fileExists(atPath: unpacked.path))
+    }
+
+    @Test func theDirectXComponentKeepsWinesControllerAndAudioLibraries() {
+        let dx = Recipe.directx2010
+        #expect(dx.overrides.contains("d3dx9_43") && dx.overrides.contains("d3dx9_24") && dx.overrides.contains("d3dcompiler_43"))
+        #expect(!dx.overrides.contains { $0.hasPrefix("xinput") || $0.hasPrefix("xaudio") || $0.hasPrefix("x3daudio") || $0.hasPrefix("xact") })
+        #expect(!dx.overrides.contains("d3dcompiler_47"))          // newer than this package; Wine's own
+        #expect(dx.downloads[0].followUp.first?.hasSuffix("DXSETUP.exe") == true)
+    }
+}
+
 @Suite struct RuntimeCollectionTests {
     let fm = FileManager.default
 
