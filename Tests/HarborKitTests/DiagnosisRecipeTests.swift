@@ -237,3 +237,28 @@ extension RecipeInstallTests {
         for kept in f.stale { #expect(fm.fileExists(atPath: kept.path)) }
     }
 }
+
+@Suite struct DiagnosisScopeTests {
+    // From Max's Steam session, 2026-11-20: a Steam helper that fails at every start, in the game's log.
+    let helper = #"""
+    03c4:err:module:import_dll Library SDL2.dll (which is needed by L"C:\\Program Files (x86)\\Steam\\bin\\gldriverquery.exe") not found
+    03c4:err:module:loader_init Importing dlls for L"C:\\Program Files (x86)\\Steam\\bin\\gldriverquery.exe" failed, status c0000135
+    """#
+
+    /// A helper program's missing library isn't the launched program's problem.
+    @Test func aHelpersMissingLibraryIsNotBlamedOnTheProgram() {
+        #expect(Diagnosis.analyze(helper, program: #"C:\Program Files (x86)\Steam\steam.exe"#) == nil)
+        #expect(Diagnosis.analyze(helper, program: #"C:\Games\Maze\maze.exe"#) == nil)
+        // The helper itself, launched directly, is diagnosed (path compared without regard to case).
+        #expect(Diagnosis.analyze(helper, program: #"c:\program files (x86)\steam\BIN\gldriverquery.exe"#)?.cause
+                == .missingLibrary("SDL2.dll", recipe: nil))
+        // Without a program, any failure counts, as before.
+        #expect(Diagnosis.analyze(helper)?.cause == .missingLibrary("SDL2.dll", recipe: nil))
+    }
+
+    /// A crash is still reported whatever else the log holds.
+    @Test func aCrashIsStillReportedNextToAHelpersFailure() {
+        let log = helper + "\nwine: Unhandled page fault on read access to 0000000000000000 at address 000000014000149C (thread 00e0), starting debugger...\n"
+        #expect(Diagnosis.analyze(log, program: #"C:\Games\Maze\maze.exe"#)?.cause == .crashed)
+    }
+}

@@ -505,9 +505,12 @@ final class AppModel {
     /// Reads the run's log; a recognised cause gets an alert with what to do, anything else the exit code.
     func explainFailure(of item: LibraryItem, exitStatus: Int32) {
         // Reading the log (lossily: logs aren't always UTF-8) stays off the main actor.
-        let (bottle, name) = (item.bottle, item.program.name)
+        // A title started through its store: the exit status is the launcher's handover, not the game's, and the
+        // log is the whole store session's. Nothing reliable can be said, so nothing is.
+        if item.managedByStore && item.program.arguments != nil { return }
+        let (bottle, name, path) = (item.bottle, item.program.name, item.program.windowsPath)
         Task {
-            if let found = await Task.detached(operation: { bottle.diagnosis(forLatestRunOf: name) }).value {
+            if let found = await Task.detached(operation: { bottle.diagnosis(forLatestRunOf: name, program: path) }).value {
                 failure = Failure(item: item, diagnosis: found.diagnosis, log: found.log)
             } else {
                 status = "\(name) quit unexpectedly (\(exitStatus))"
