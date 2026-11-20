@@ -521,6 +521,8 @@ struct ContentView: View {
         } message: { failure in
             Text(failure.diagnosis.message(for: failure.item.program.name))
         }
+        // Stores install games on their own: look again whenever Harbor comes to the front.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.reload() }
         .confirmationDialog(removalTitle, isPresented: Binding(get: { model.pendingRemoval != nil },
                                                                set: { if !$0 { model.pendingRemoval = nil } }),
                             presenting: model.pendingRemoval) { item in

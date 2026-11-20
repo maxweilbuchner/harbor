@@ -82,6 +82,9 @@ public enum SteamLibrary {
     static func parseManifest(_ text: String) -> Game? {
         guard let id = KeyValues.values(forKey: "appid", in: text).first.flatMap(Int.init),
               let name = KeyValues.values(forKey: "name", in: text).first, !name.isEmpty else { return nil }
+        // StateFlags bit 4 = fully installed; without it the game is still downloading or updating for the first
+        // time and can't start yet. Manifests without the field (older Steam) count as installed.
+        if let flags = KeyValues.values(forKey: "StateFlags", in: text).first.flatMap(Int.init), flags & 4 == 0 { return nil }
         return Game(appID: id, name: name, installDirectory: KeyValues.values(forKey: "installdir", in: text).first ?? "")
     }
 
