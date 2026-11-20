@@ -154,14 +154,17 @@ extension Bottle {
         let inside = prefix.standardizedFileURL.resolvingSymlinksInPath().path + "/"
         var replaced: [URL] = []
         for user in (try? fm.contentsOfDirectory(at: users, includingPropertiesForKeys: nil)) ?? [] {
-            for entry in (try? fm.contentsOfDirectory(at: user, includingPropertiesForKeys: nil)) ?? [] {
-                guard let target = try? fm.destinationOfSymbolicLink(atPath: entry.path) else { continue }
-                let resolved = URL(filePath: target, relativeTo: user).standardizedFileURL.resolvingSymlinksInPath().path
-                guard !resolved.hasPrefix(inside) else { continue }
-                // removeItem on a link deletes the link itself, not its target.
-                guard (try? fm.removeItem(at: entry)) != nil,
-                      (try? fm.createDirectory(at: entry, withIntermediateDirectories: false)) != nil else { continue }
-                replaced.append(entry)
+            // The user's folders, and what's on the Windows Desktop: Wine put a "My Mac Desktop" link there.
+            for folder in [user, user.appending(path: "Desktop")] {
+                for entry in (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
+                    guard let target = try? fm.destinationOfSymbolicLink(atPath: entry.path) else { continue }
+                    let resolved = URL(filePath: target, relativeTo: folder).standardizedFileURL.resolvingSymlinksInPath().path
+                    guard !resolved.hasPrefix(inside) else { continue }
+                    // removeItem on a link deletes the link itself, not its target.
+                    guard (try? fm.removeItem(at: entry)) != nil,
+                          (try? fm.createDirectory(at: entry, withIntermediateDirectories: false)) != nil else { continue }
+                    replaced.append(entry)
+                }
             }
         }
         return replaced
