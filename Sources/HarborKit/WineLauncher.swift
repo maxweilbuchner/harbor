@@ -119,17 +119,23 @@ public struct WineLauncher: Sendable {
     ///   GPU process and leaves no window; with this option and scripts/patches/wine/0001 it renders.
     static let knownArguments: [String: [String]] = ["steam.exe": ["-cef-disable-gpu"]]
 
-    /// Splits a Windows command-line argument string on spaces outside double quotes.
+    /// Splits a Windows command-line argument string on spaces outside double quotes. Backslashes are special only
+    /// before a quote, as in CommandLineToArgvW: each pair is one backslash, and an odd one makes the quote literal.
     static func splitArguments(_ line: String) -> [String] {
         var out: [String] = []
         var current = ""
         var quoted = false
         var hasToken = false
+        var backslashes = 0
         for ch in line {
-            if ch == "\"" { quoted.toggle(); hasToken = true }
+            if ch == "\\" { backslashes += 1; hasToken = true; continue }
+            current += String(repeating: "\\", count: ch == "\"" ? backslashes / 2 : backslashes)
+            if ch == "\"" { if backslashes % 2 == 1 { current.append(ch) } else { quoted.toggle() }; hasToken = true }
             else if ch == " " && !quoted { if hasToken { out.append(current); current = ""; hasToken = false } }
             else { current.append(ch); hasToken = true }
+            backslashes = 0
         }
+        current += String(repeating: "\\", count: backslashes)
         if hasToken { out.append(current) }
         return out
     }
@@ -232,10 +238,10 @@ public struct WineLauncher: Sendable {
         return process
     }
 
-    /// Stops every Wine process in the bottle.
+    /// Stops every Wine process in the bottle. Uses the base runtime's wineserver (derived runtimes carry the same
+    /// one), so a graphics layer that can't be set up never keeps a bottle from stopping.
     public func shutdown(_ bottle: Bottle) throws {
         let process = Process()
-        let runtime = try runtime(for: bottle)
         process.executableURL = runtime.wineserver
         process.arguments = ["-k"]
         process.environment = environment(for: bottle, runtime: runtime)
