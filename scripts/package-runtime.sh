@@ -15,6 +15,13 @@ DVER="$D3DMETAL_VERSION"
 [ -x "$WINE/bin/wine" ] || { echo "package-runtime: $WINE has no bin/wine" >&2; exit 1; }
 [ -f "$D3D/lib/external/libd3dshared.dylib" ] && [ -f "$D3D/License.rtf" ] || { echo "package-runtime: $D3D needs lib/ and License.rtf" >&2; exit 1; }
 codesign -dv --verbose=2 "$WINE/bin/wine" 2>&1 | grep -q 'Authority=Developer ID Application' || { echo "package-runtime: Wine isn't Developer ID-signed (scripts/sign-runtime.sh)" >&2; exit 1; }
+# Apple's files must still be Apple's when they ship: the check scripts/fetch-runtime.sh makes after downloading,
+# repeated on the folder that is about to be packed. `anchor apple` = signed by Apple itself, checked
+# cryptographically. (PE DLLs carry no signature: those are covered only by the download's SHA-256.)
+codesign --verify --deep --strict "$D3D/lib/external/D3DMetal.framework" || { echo "package-runtime: D3DMetal.framework's signature is broken" >&2; exit 1; }
+for f in "$D3D/lib/external/libd3dshared.dylib" "$D3D"/lib/wine/x86_64-unix/*.so "$D3D/lib/external/D3DMetal.framework"; do
+  codesign --verify --strict "$f" && codesign --verify -R='anchor apple' "$f" 2>/dev/null || { echo "package-runtime: not signed by Apple: $f" >&2; exit 1; }
+done
 rm -rf "$OUT" && mkdir -p "$OUT"
 
 pack() { # $1 = archive name, $2 = source dir

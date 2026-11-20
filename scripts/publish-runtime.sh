@@ -50,10 +50,14 @@ fi
 ARCHIVES=$(ls "$DIST"/*.tar.xz)
 # Order matters for apps downloading meanwhile: new archives first, then the manifest that points at them,
 # and only then remove archives that no manifest references any more.
-# Skip files the release already has at the same size (the source archives rarely change: ~750 MB).
-present=$(gh release view "$TAG" -R "$REPO" --json assets -q '.assets[] | "\(.name) \(.size)"')
+# Skip files the release already has with the same SHA-256 (the source archives rarely change: ~750 MB).
+# Name and size aren't enough: a repack of the same size would stay unpublished under a manifest carrying its
+# hash. A file GitHub reports no digest for is uploaded again.
+present=$(gh release view "$TAG" -R "$REPO" --json assets -q '.assets[] | "\(.name) \(.digest // "unknown")"')
 for f in $ARCHIVES $SOURCES; do
-  if echo "$present" | grep -qxF "$(basename "$f") $(stat -f %z "$f")"; then echo "unchanged: $(basename "$f")"; continue; fi
+  sum=$(shasum -a 256 "$f" | cut -d' ' -f1)
+  [ -n "$sum" ] || { echo "publish-runtime: can't hash $f" >&2; exit 1; }
+  if echo "$present" | grep -qxF "$(basename "$f") sha256:$sum"; then echo "unchanged: $(basename "$f")"; continue; fi
   gh release upload "$TAG" -R "$REPO" --clobber "$f"
 done
 gh release upload "$TAG" -R "$REPO" --clobber "$DIST/runtime.json" "$DIST/runtime.json.sig"
