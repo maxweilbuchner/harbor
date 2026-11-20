@@ -150,6 +150,10 @@ An independent review re-checked the plan against the code and runtime. Items ma
    CodeWeavers' Wine comes from the LGPL itself. The GPTK license text is EA18380 (8/17/2023) ✔, the copy is
    from a third-party mirror, and the PE DLLs aren't covered by the Apple signature check. → Prefer extracting
    from Apple's own DMG in the release pipeline; keep D3DMetal a separate, removable download; full LGPL source
+   **Done 2026-11-20 (#26):** D3DMetal now comes from Apple's own Game Porting Toolkit image
+   (`scripts/import-d3dmetal.sh`, image SHA-256 pinned, Mach-Os checked with `anchor apple` by
+   `scripts/verify-d3dmetal.sh`). The mirror's copy was Apple's build 1 of 4.0b3 (2026-10-08); Apple's current
+   image is build 2 (2026-10-19), now pinned as 4.0b3-2.
    offer for every hosted binary (GStreamer, freetype, gmp, wine-mono, gecko…); legal read before public beta.
 5. **Runtime cache is unsafe.** Fixed staging name races (reproduced: 3/4 concurrent first launches crashed),
    a missing marker deletes a runtime that may be in use, and the cache key ignores in-place base/redist changes.
