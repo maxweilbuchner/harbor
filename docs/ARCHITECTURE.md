@@ -284,6 +284,11 @@ An independent review re-checked the plan against the code and runtime. Items ma
    launch for Direct3D 10/11 programs that aren't games (games keep D3DMetal); `run.sh dxmt` passes D3D11 where
    plain Wine fails (shader model 5). Never for D3D12: DXMT's dxgi breaks Wine's vkd3d. DXVK on MoltenVK: not
    pursued (MoltenVK lacks features DXVK needs; DXMT covers the same programs natively on Metal).
+   Store titles that aren't games (#31, 2026-11-20): D3DMetal is for games only, and stores sell software too.
+   Steam titles follow Steam's own records (`appcache/appinfo.vdf`, `common/type`; "Application"/"Tool" =
+   software), Epic titles the launcher's categories; "Treat as Game" in a title's menu overrides either
+   (`store-titles.json` in the bottle). Software starts by its own program rather than through the store, since
+   a title started by the store inherits the store's D3DMetal runtime.
    Runtime updates (#29, 2026-11-20): an installed runtime updates itself. Harbor checks the signed list at
    launch and when it comes to the front (at most every six hours), downloads pending components next to the
    installed ones (`.ready-<id>`), and switches when no bottle is running; the new Wine must start

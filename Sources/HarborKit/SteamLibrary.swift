@@ -54,6 +54,13 @@ public enum SteamLibrary {
         public var installDirectory: String
         /// When Steam wrote the game's record (its manifest file's creation), nil if unknown.
         public var installedAt: Date?
+        /// Its folder (`steamapps/common/<installDirectory>` of the library it's in).
+        public var folder: URL?
+        /// What Steam's own records say about it (kind, Windows program), if they have it.
+        public var info: SteamAppInfo.App?
+
+        /// The key of the user's game/software choice for it.
+        public var titleKey: String { "steam:\(appID)" }
     }
 
     /// Installed games from every Steam library folder (`steamapps/libraryfolders.vdf`), skipping tools such
@@ -73,8 +80,13 @@ public enum SteamLibrary {
                 guard let text = try? String(contentsOf: file, encoding: .utf8), var game = parseManifest(text),
                       seen.insert(game.appID).inserted, !isTool(game) else { continue }
                 game.installedAt = (try? file.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+                if !game.installDirectory.isEmpty { game.folder = library.appending(path: "common/\(game.installDirectory)") }
                 games.append(game)
             }
+        }
+        if !games.isEmpty, let cache = try? Data(contentsOf: steam.appending(path: "appcache/appinfo.vdf")) {
+            let info = SteamAppInfo.apps(in: cache, ids: Set(games.map(\.appID)))
+            for i in games.indices { games[i].info = info[games[i].appID] }
         }
         return games.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
@@ -98,8 +110,18 @@ public enum SteamLibrary {
     /// (its Mac shortcut and settings survive); so does its date, or every scan would sort it as just added.
     public static func program(for game: Game, steam: URL, in bottle: Bottle, salt: String) -> Program? {
         guard let steamExe = bottle.windowsPath(for: steam.appending(path: "steam.exe")) else { return nil }
+        let isGame = bottle.storeTitleChoices()[game.titleKey] ?? !(game.info?.isSoftware ?? false)
         var program = Program(name: game.name, windowsPath: steamExe, arguments: "-applaunch \(game.appID)",
-                              workingDirectory: bottle.windowsPath(for: steam), isGame: true)
+                              workingDirectory: bottle.windowsPath(for: steam), isGame: isGame)
+        // Software starts by its own program: started through Steam it would inherit Steam's D3DMetal runtime.
+        // (If Steam's records don't name the program, it still starts through Steam.)
+        if !isGame, let folder = game.folder, let exe = game.info?.executable,
+           let own = bottle.windowsPath(for: folder.appending(path: exe.replacingOccurrences(of: "\\", with: "/"))),
+           bottle.unixPath(forWindowsPath: own).map({ FileManager.default.fileExists(atPath: $0.path) }) == true {
+            program.windowsPath = own
+            program.arguments = game.info?.arguments
+            program.workingDirectory = String(own[..<(own.lastIndex(of: "\\") ?? own.endIndex)])
+        }
         program.id = stableID(appID: game.appID, bottle: bottle, salt: salt)
         program.addedAt = game.installedAt ?? .distantPast
         return program
