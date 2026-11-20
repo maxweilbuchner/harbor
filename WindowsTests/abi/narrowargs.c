@@ -45,10 +45,29 @@ static int check(const char *name, LPTHREAD_START_ROUTINE fn, int ok_min)
     return !ok;
 }
 
+/* RTL_ATOM is 16 bits: pass it with garbage in the register's upper bits, as a compiler that only writes the low
+ * word may leave it. Result 1 if both checks hold, 0 if not, -1 if the atom could not be created. */
+static DWORD WINAPI delete_dirty_atom(void *arg)
+{
+    typedef LONG (WINAPI *add_fn)(const WCHAR *, ULONG, unsigned short *);
+    typedef LONG (WINAPI *del_fn)(ULONG_PTR);
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    add_fn add = (add_fn)(void *)GetProcAddress(ntdll, "NtAddAtom");
+    del_fn del = (del_fn)(void *)GetProcAddress(ntdll, "NtDeleteAtom");
+    static const WCHAR name[] = L"harbor_narrow_atom";
+    unsigned short atom = 0;
+    if (!add || !del || add(name, sizeof(name) - sizeof(WCHAR), &atom) || !atom) { *(int *)arg = -1; return 0; }
+    /* An existing atom is deleted, and atom 0 is still refused (STATUS_INVALID_HANDLE): Apple clang tests all 32
+     * bits of the register for zero, so with garbage above the atom, 0 passed as valid. */
+    *(int *)arg = del((ULONG_PTR)0xdead0000 | atom) == 0 && del((ULONG_PTR)0xdead0000) == (LONG)0xC0000008;
+    return 0;
+}
+
 int main(void)
 {
     int failures = check("QueryDosDeviceW(NULL) entries", query_dos_devices, 1);
     failures += check("GetLogicalDrives mask", logical_drives, 1);
+    failures += check("NtDeleteAtom with dirty upper bits", delete_dirty_atom, 1);
     fflush(stdout);
     ExitProcess(failures ? 1 : 0);
 }

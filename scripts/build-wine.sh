@@ -80,13 +80,26 @@ build_dep() { # $1 = name, $2 = source dir, $3... = configure args
   HOGWEED_LIBS="-L$DEPS/lib -lhogweed" GMP_CFLAGS="-I$DEPS/include" GMP_LIBS="-L$DEPS/lib -lgmp" --disable-gost  # GnuTLS 3.8.3 bundles GOST code that clashes with Nettle 3.10
 
 # --- Wine ---
-# Harbor's patches on top of CrossOver's sources (LGPL; published in this repo). Idempotent: an already-applied
-# patch is skipped; one that doesn't apply stops the build.
+# Harbor's patches on top of CrossOver's sources (LGPL; published in this repo), applied in order. The source tree
+# records what it has in .harbor-patches (name and SHA-256), because a patch can't be recognised by test-reversing
+# it once a later patch changes the same file. A patch that changed after it was applied stops the build.
+STAMP="$SRC/wine/.harbor-patches"
+touch "$STAMP"
 for p in "$ROOT"/scripts/patches/wine/*.patch; do
   [ -f "$p" ] || continue
-  if patch -d "$SRC/wine" -p1 -R --dry-run -s -f < "$p" >/dev/null 2>&1; then continue; fi
-  patch -d "$SRC/wine" -p1 -s -f --no-backup-if-mismatch < "$p" || { echo "build-wine: $(basename "$p") doesn't apply" >&2; exit 1; }
-  echo "build-wine: applied $(basename "$p")"
+  name=$(basename "$p"); sum=$(shasum -a 256 "$p" | cut -d' ' -f1)
+  if grep -qxF "$name $sum" "$STAMP"; then continue; fi
+  if grep -q "^$name " "$STAMP"; then
+    echo "build-wine: $name changed since it was applied; remove $SRC/wine and run scripts/fetch-sources.sh" >&2; exit 1
+  fi
+  if patch -d "$SRC/wine" -p1 -s -f --no-backup-if-mismatch --dry-run < "$p" >/dev/null 2>&1; then
+    patch -d "$SRC/wine" -p1 -s -f --no-backup-if-mismatch < "$p" || exit 1
+    echo "build-wine: applied $name"
+  elif ! patch -d "$SRC/wine" -p1 -R --dry-run -s -f < "$p" >/dev/null 2>&1; then
+    # Neither applies nor reverses: not this tree's state (trees patched before the record existed pass the reverse test).
+    echo "build-wine: $name doesn't apply" >&2; exit 1
+  fi
+  echo "$name $sum" >> "$STAMP"
 done
 mkdir -p "$OBJ" && cd "$OBJ"
 if [ ! -f Makefile ] || [ "${1:-}" = configure ]; then
