@@ -17,7 +17,6 @@ OUT=build/WindowsTests/graphics/fullscreen
 BOTTLE="fullscreen-test-$$"
 mkdir -p "$OUT"
 "$CLI" create "$BOTTLE" >/dev/null || exit 1
-sed -i '' -E "s/\"graphics\" : \"[a-z0-9]+\"/\"graphics\" : \"$BACKEND\"/" "$CONF"
 
 # Screen centre in points of the main display (the one with the menu bar), where fullscreen games appear.
 # (Finder's desktop bounds span all displays.)
