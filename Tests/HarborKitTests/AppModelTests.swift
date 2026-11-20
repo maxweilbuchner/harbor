@@ -125,3 +125,50 @@ import Testing
         #expect(names(in: dir) == ["Other.app"])
     }
 }
+
+@Suite struct LibraryScanTests {
+    let fm = FileManager.default
+
+    /// A bottle holding Steam with one game, the Epic Games Launcher with one game, and one program of its own.
+    func mixedBottle() throws -> (bottle: Bottle, steamManifest: URL, epicManifest: URL) {
+        let store = BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-library-\(UUID().uuidString)"))
+        let b = try store.create(name: "Steam")
+        let steam = b.driveC.appending(path: "Program Files (x86)/Steam")
+        try fm.createDirectory(at: steam.appending(path: "steamapps"), withIntermediateDirectories: true)
+        try Data().write(to: steam.appending(path: "steam.exe"))
+        let steamManifest = steam.appending(path: "steamapps/appmanifest_620.acf")
+        try #""AppState" { "appid" "620" "name" "Portal 2" "installdir" "Portal 2" }"#
+            .write(to: steamManifest, atomically: true, encoding: .utf8)
+        let launcher = b.driveC.appending(path: "Program Files/Epic Games/Launcher/Portal/Binaries/Win64")
+        try fm.createDirectory(at: launcher, withIntermediateDirectories: true)
+        try Data().write(to: launcher.appending(path: "EpicGamesLauncher.exe"))
+        let manifests = b.driveC.appending(path: "ProgramData/Epic/EpicGamesLauncher/Data/Manifests")
+        try fm.createDirectory(at: manifests, withIntermediateDirectories: true)
+        let epicManifest = manifests.appending(path: "A1.item")
+        try #"{ "AppName": "Sugar", "DisplayName": "Alan Wake", "bIsApplication": true }"#
+            .write(to: epicManifest, atomically: true, encoding: .utf8)
+        try b.savePrograms([Program(name: "Steam", windowsPath: #"C:\Program Files (x86)\Steam\steam.exe"#, isGame: true)])
+        return (b, steamManifest, epicManifest)
+    }
+
+    @Test func aSteamBottleKeepsItsEpicGames() throws {
+        let (b, _, _) = try mixedBottle()
+        let entries = Library.scan([b])
+        #expect(Set(entries.map(\.program.name)) == ["Steam", "Portal 2", "Alan Wake"])
+        #expect(Set(entries.filter(\.managedByStore).map(\.program.name)) == ["Portal 2", "Alan Wake"])
+        #expect(entries.allSatisfy { $0.bottle == b })
+    }
+
+    @Test func storeGamesKeepTheirDateAcrossScans() throws {
+        let (b, steamManifest, epicManifest) = try mixedBottle()
+        // Installed a while ago: the manifests are older than the program the user added just now.
+        let installed = Date(timeIntervalSince1970: 1_700_000_000)
+        try fm.setAttributes([.creationDate: installed], ofItemAtPath: steamManifest.path)
+        try fm.setAttributes([.creationDate: installed.addingTimeInterval(60)], ofItemAtPath: epicManifest.path)
+        let first = Library.scan([b])
+        #expect(first.map(\.program.name) == ["Steam", "Alan Wake", "Portal 2"])   // newest first
+        #expect(first.first { $0.program.name == "Portal 2" }?.program.addedAt == installed)
+        #expect(first.first { $0.program.name == "Alan Wake" }?.program.addedAt == installed.addingTimeInterval(60))
+        #expect(Library.scan([b]) == first)
+    }
+}

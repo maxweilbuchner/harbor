@@ -18,6 +18,8 @@ public enum SteamLibrary {
         public var name: String
         /// Folder name under steamapps/common.
         public var installDirectory: String
+        /// When Steam wrote the game's record (its manifest file's creation), nil if unknown.
+        public var installedAt: Date?
     }
 
     /// Installed games from every Steam library folder (`steamapps/libraryfolders.vdf`), skipping tools such
@@ -34,8 +36,9 @@ public enum SteamLibrary {
         for library in libraries {
             let files = (try? FileManager.default.contentsOfDirectory(at: library, includingPropertiesForKeys: nil)) ?? []
             for file in files where file.lastPathComponent.hasPrefix("appmanifest_") && file.pathExtension == "acf" {
-                guard let text = try? String(contentsOf: file, encoding: .utf8), let game = parseManifest(text),
+                guard let text = try? String(contentsOf: file, encoding: .utf8), var game = parseManifest(text),
                       seen.insert(game.appID).inserted, !isTool(game) else { continue }
+                game.installedAt = (try? file.resourceValues(forKeys: [.creationDateKey]))?.creationDate
                 games.append(game)
             }
         }
@@ -55,12 +58,13 @@ public enum SteamLibrary {
     }
 
     /// A library entry for a Steam game. The ID is derived from the app ID, so it stays the same across scans
-    /// (its Mac shortcut and settings survive).
+    /// (its Mac shortcut and settings survive); so does its date, or every scan would sort it as just added.
     public static func program(for game: Game, steam: URL, in bottle: Bottle) -> Program? {
         guard let steamExe = bottle.windowsPath(for: steam.appending(path: "steam.exe")) else { return nil }
         var program = Program(name: game.name, windowsPath: steamExe, arguments: "-applaunch \(game.appID)",
                               workingDirectory: bottle.windowsPath(for: steam), isGame: true)
         program.id = stableID(appID: game.appID, bottle: bottle)
+        program.addedAt = game.installedAt ?? .distantPast
         return program
     }
 

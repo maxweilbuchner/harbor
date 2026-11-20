@@ -159,7 +159,8 @@ final class AppModel {
     var rosettaAvailable = Rosetta.isAvailable
 
     init() {
-        reload()
+        // The first scan happens before the window exists, so the library never flashes its empty state.
+        show(Self.scan(store))
         prepareTemplate()
         // Distribution checks: `open --env HARBOR_SMOKE_TEST=/path/result.txt Harbor.app` makes the real, signed
         // app (launched through LaunchServices, as Gatekeeper sees it) set up a bottle, run a Windows command,
@@ -223,31 +224,32 @@ final class AppModel {
         }
     }
 
-    func reload() {
-        bottles = store.list()
-        library = bottles.flatMap { bottle -> [LibraryItem] in
-            let own = bottle.programs().map { program in
-                LibraryItem(program: program, bottle: bottle, icon: NSImage(contentsOf: bottle.iconFile(for: program)),
-                            iconFile: bottle.iconFile(for: program))
-            }
-            // Games Steam installed in this bottle, read from Steam's own records each time.
-            // Games the Epic Games Launcher installed, from its install manifests.
-            let epic = EpicLibrary.games(in: bottle).compactMap { game -> LibraryItem? in
-                guard let program = EpicLibrary.program(for: game, in: bottle) else { return nil }
-                let art = EpicLibrary.icon(for: game, program: program, in: bottle)
-                return LibraryItem(program: program, bottle: bottle, icon: art.flatMap(NSImage.init(contentsOf:)),
-                                   managedByStore: true, iconFile: art)
-            }
-            guard let steam = SteamLibrary.steamFolder(in: bottle) else { return own + epic }
-            let games = SteamLibrary.games(in: bottle).compactMap { game -> LibraryItem? in
-                guard let program = SteamLibrary.program(for: game, steam: steam, in: bottle) else { return nil }
-                let art = SteamLibrary.iconSource(for: game, steam: steam)
-                return LibraryItem(program: program, bottle: bottle, icon: art.flatMap(NSImage.init(contentsOf:)),
-                                   managedByStore: true, iconFile: art)
-            }
-            return own + games
+    private var reloading: Task<Void, Never>?
+
+    /// Rescans the bottles off the main actor (store manifests and icons are many files). Reloads run one after
+    /// another; the returned task finishes once `library` shows this one's result.
+    @discardableResult
+    func reload() -> Task<Void, Never> {
+        let (store, previous) = (store, reloading)
+        let task = Task {
+            await previous?.value
+            show(await Task.detached { Self.scan(store) }.value)
         }
-        .sorted { $0.program.addedAt > $1.program.addedAt }
+        reloading = task
+        return task
+    }
+
+    private nonisolated static func scan(_ store: BottleStore) -> ([Bottle], [(LibraryEntry, NSImage?)]) {
+        let bottles = store.list()
+        return (bottles, Library.scan(bottles).map { ($0, $0.iconFile.flatMap(NSImage.init(contentsOf:))) })
+    }
+
+    private func show(_ scan: ([Bottle], [(LibraryEntry, NSImage?)])) {
+        bottles = scan.0
+        library = scan.1.map { entry, icon in
+            LibraryItem(program: entry.program, bottle: entry.bottle, icon: icon,
+                        managedByStore: entry.managedByStore, iconFile: entry.iconFile)
+        }
         syncShortcuts()
     }
 
@@ -264,9 +266,11 @@ final class AppModel {
     /// `harbor://launch/<program id>`, sent by the Mac app shortcuts.
     func handle(_ url: URL) {
         guard url.scheme == "harbor", url.host() == "launch",
-              let id = UUID(uuidString: url.lastPathComponent),
-              let item = library.first(where: { $0.id == id }) else { return }
-        open(item)
+              let id = UUID(uuidString: url.lastPathComponent) else { return }
+        Task {
+            await reloading?.value   // a program added a moment ago is in the library once its reload is done
+            if let item = library.first(where: { $0.id == id }) { open(item) }
+        }
     }
 
     /// Adds a dropped program or installer: a new bottle, the installer's own window if it has one, then the
@@ -290,7 +294,7 @@ final class AppModel {
                     if case .runningInstaller = step { self.bringWineToFront(since: Date()) }
                 }
             }
-            reload()
+            await reload().value
             addState = nil
             status = programs.count == 1 ? "Added \(programs[0].name)" : "Added \(programs.count) programs"
         } catch {
@@ -326,7 +330,7 @@ final class AppModel {
             let (bottle, program) = try await stores.install(which) { step in
                 Task { @MainActor in self.addState?.phase = .store(which, step) }
             }
-            reload()
+            await reload().value
             addState = nil
             if let item = library.first(where: { $0.bottle == bottle && $0.program.id == program.id }) { open(item) }
         } catch {
