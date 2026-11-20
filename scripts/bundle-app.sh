@@ -5,6 +5,9 @@
 #   scripts/bundle-app.sh            # sign with "Developer ID Application"
 #   SIGN_IDENTITY=- scripts/bundle-app.sh   # ad-hoc (local testing only)
 #   HARBOR_RUNTIME_MANIFEST_URL=http://127.0.0.1:8765/runtime.json scripts/bundle-app.sh   # test server
+#   HARBOR_UPDATE_FEED_URL=http://127.0.0.1:8765/appcast.xml HARBOR_UPDATE_TEST=1 scripts/bundle-app.sh   # update test
+# Test servers and the update-test flag are written into this bundle's Info.plist. The app itself reads no such
+# settings from its environment in release builds, and scripts/release-app.sh --publish refuses a test bundle.
 set -eu
 cd "$(dirname "$0")/.."
 VERSION="${HARBOR_VERSION:-0.1.0}"
@@ -57,6 +60,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>SUFeedURL</key><string>$UPDATE_FEED_URL</string>
   <key>SUPublicEDKey</key><string>$(cat scripts/sparkle-public.key)</string>
   <key>SUEnableAutomaticChecks</key><true/>
+$( [ -n "${HARBOR_UPDATE_TEST:-}" ] && echo '  <key>HarborUpdateTest</key><true/>' )
   <key>CFBundleURLTypes</key>
   <array><dict>
     <key>CFBundleURLName</key><string>$BUNDLE_ID</string>

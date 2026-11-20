@@ -36,8 +36,20 @@ struct HarborApp: App {
     }
 }
 
+/// Development builds may take update and download settings from the environment. Release builds never do: what
+/// they use is in their Info.plist, written when the bundle is built (scripts/bundle-app.sh takes test URLs then),
+/// so nothing in a user's environment can redirect a shipped app.
+func debugOverride(_ value: String?) -> String? {
+    #if DEBUG
+    return value
+    #else
+    return nil
+    #endif
+}
+
 /// Sparkle app updates. Only runs inside a real Harbor.app (not under `swift run`), whose Info.plist carries
-/// SUFeedURL and SUPublicEDKey. `HARBOR_UPDATE_FEED_URL` overrides the feed for local update tests.
+/// SUFeedURL and SUPublicEDKey. For update tests, scripts/bundle-app.sh builds a bundle with a test feed and the
+/// `HarborUpdateTest` flag (check at once, install without asking).
 @MainActor
 final class Updates: NSObject, SPUUpdaterDelegate {
     static let shared = Updates()
@@ -51,7 +63,7 @@ final class Updates: NSObject, SPUUpdaterDelegate {
               Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") != nil else { return }
         controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
         // Update tests (scripts/test-update.sh): check now, download in the background, install immediately.
-        if ProcessInfo.processInfo.environment["HARBOR_UPDATE_TEST"] != nil, let updater = controller?.updater {
+        if Self.isUpdateTest, let updater = controller?.updater {
             updater.automaticallyDownloadsUpdates = true
             updater.checkForUpdatesInBackground()
         }
@@ -61,13 +73,18 @@ final class Updates: NSObject, SPUUpdaterDelegate {
         controller?.checkForUpdates(nil)
     }
 
+    /// Set only in bundles built for update tests; scripts/release-app.sh refuses to publish one.
+    nonisolated static var isUpdateTest: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "HarborUpdateTest") as? Bool == true
+    }
+
     nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
-        ProcessInfo.processInfo.environment["HARBOR_UPDATE_FEED_URL"]
+        debugOverride(ProcessInfo.processInfo.environment["HARBOR_UPDATE_FEED_URL"])
     }
 
     nonisolated func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
                              immediateInstallationBlock: @escaping () -> Void) -> Bool {
-        guard ProcessInfo.processInfo.environment["HARBOR_UPDATE_TEST"] != nil else { return false }
+        guard Self.isUpdateTest else { return false }
         immediateInstallationBlock()
         return true
     }
@@ -91,26 +108,16 @@ final class AppModel {
         WineRuntime.locate().map { WineLauncher(runtime: $0, d3dmetal: D3DMetalRedist.locate()) }
     }
 
-    /// Where Windows support is downloaded from, and the key its list must be signed with (Info.plist,
-    /// overridable by environment for development).
+    /// Where Windows support is downloaded from, and the key its list must be signed with (Info.plist; development
+    /// builds may override both by environment).
     private var runtimeInstaller: RuntimeInstaller? {
         let env = ProcessInfo.processInfo.environment
         let info = Bundle.main.infoDictionary ?? [:]
-        guard let url = (env["HARBOR_RUNTIME_MANIFEST_URL"] ?? info["HarborRuntimeManifestURL"] as? String)
+        guard let url = (debugOverride(env["HARBOR_RUNTIME_MANIFEST_URL"]) ?? info["HarborRuntimeManifestURL"] as? String)
                 .flatMap(URL.init(string:)),
-              let keyText = Self.debugOverride(env["HARBOR_RUNTIME_PUBLIC_KEY"]) ?? info["HarborRuntimePublicKey"] as? String,
+              let keyText = debugOverride(env["HARBOR_RUNTIME_PUBLIC_KEY"]) ?? info["HarborRuntimePublicKey"] as? String,
               let key = try? RuntimeSigning.publicKey(keyText) else { return nil }
         return RuntimeInstaller(manifestURL: url, publicKey: key)
-    }
-
-    /// Development builds may take the runtime signing key from the environment; release builds always use the
-    /// key in their Info.plist, so the environment can't swap in another signer.
-    private static func debugOverride(_ value: String?) -> String? {
-        #if DEBUG
-        return value
-        #else
-        return nil
-        #endif
     }
 
     var canDownloadRuntime: Bool { runtimeInstaller != nil }
