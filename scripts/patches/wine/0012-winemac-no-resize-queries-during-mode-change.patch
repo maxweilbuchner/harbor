@@ -1,0 +1,87 @@
+--- a/dlls/winemac.drv/display.c
++++ b/dlls/winemac.drv/display.c
+@@ -782,6 +782,25 @@
+  *              ChangeDisplaySettings  (MACDRV.@)
+  *
+  */
++/* HARBOR HACK - START: no window-resize queries while this thread changes the display mode.
++ *
++ * win32u calls ChangeDisplaySettings with its display lock held. Setting the mode waits for the Cocoa main
++ * thread and meanwhile handles that thread's queries; macOS resizes windows for the new mode and asks about it
++ * (QUERY_RESIZE_START and friends), and answering needs the monitor's DPI, i.e. the same, non-recursive lock:
++ * the thread waits for itself forever. Seen with DXMT, whose IDXGISwapChain::SetFullscreenState changes the mode
++ * (d3d11fs hung in SetFullscreenState). While the flag is set those queries are declined (event.c). */
++__thread int macdrv_changing_display_mode;
++
++static int set_display_mode_no_resize_queries(CGDirectDisplayID id, CGDisplayModeRef mode)
++{
++    int ret;
++    macdrv_changing_display_mode++;
++    ret = macdrv_set_display_mode(id, mode);
++    macdrv_changing_display_mode--;
++    return ret;
++}
++/* HARBOR HACK - END */
++
+ LONG macdrv_ChangeDisplaySettings(LPDEVMODEW displays, LPCWSTR primary_name, HWND hwnd, DWORD flags, LPVOID lpvoid)
+ {
+     LONG ret = DISP_CHANGE_SUCCESSFUL;
+@@ -832,7 +851,7 @@
+                 bpp, mode->dmDisplayFrequency);
+             ret = DISP_CHANGE_BADMODE;
+         }
+-        else if (!macdrv_set_display_mode(CGMainDisplayID(), best_display_mode))
++        else if (!set_display_mode_no_resize_queries(CGMainDisplayID(), best_display_mode))
+         {
+             WARN("Failed to set display mode\n");
+             ret = DISP_CHANGE_FAILED;
+--- a/dlls/winemac.drv/event.c
++++ b/dlls/winemac.drv/event.c
+@@ -351,16 +351,29 @@
+             success = query_pasteboard_data(hwnd, query->pasteboard_data.type);
+             break;
+         case QUERY_RESIZE_SIZE:
+-            TRACE("QUERY_RESIZE_SIZE\n");
+-            success = query_resize_size(hwnd, query);
+-            break;
+         case QUERY_RESIZE_START:
+-            TRACE("QUERY_RESIZE_START\n");
+-            success = query_resize_start(hwnd);
+-            break;
+         case QUERY_MIN_MAX_INFO:
+-            TRACE("QUERY_MIN_MAX_INFO\n");
+-            success = query_min_max_info(hwnd);
++            /* HARBOR HACK: this thread holds win32u's display lock (see display.c); answering would take it again. */
++            if (macdrv_changing_display_mode)
++            {
++                TRACE("declining resize query %d during a display mode change\n", query->type);
++                break;
++            }
++            if (query->type == QUERY_RESIZE_SIZE)
++            {
++                TRACE("QUERY_RESIZE_SIZE\n");
++                success = query_resize_size(hwnd, query);
++            }
++            else if (query->type == QUERY_RESIZE_START)
++            {
++                TRACE("QUERY_RESIZE_START\n");
++                success = query_resize_start(hwnd);
++            }
++            else
++            {
++                TRACE("QUERY_MIN_MAX_INFO\n");
++                success = query_min_max_info(hwnd);
++            }
+             break;
+         default:
+             FIXME("unrecognized query type %d\n", query->type);
+--- a/dlls/winemac.drv/macdrv.h
++++ b/dlls/winemac.drv/macdrv.h
+@@ -242,6 +242,7 @@
+ extern void macdrv_reassert_window_position(HWND hwnd);
+ extern BOOL query_resize_size(HWND hwnd, macdrv_query *query);
+ extern BOOL query_resize_start(HWND hwnd);
++extern __thread int macdrv_changing_display_mode; /* HARBOR HACK, display.c */
+ extern BOOL query_min_max_info(HWND hwnd);
+ 
+ extern void macdrv_mouse_button(HWND hwnd, const macdrv_event *event);
