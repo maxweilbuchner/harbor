@@ -251,14 +251,13 @@ final class AppModel {
         syncShortcuts()
     }
 
-    /// Mac app shortcuts in ~/Applications/Harbor, one per program (off the main actor: icons go through sips).
+    /// Mac app shortcuts in ~/Applications/Harbor, one per program (off the main actor: icons go through sips;
+    /// one sync at a time, since reloads can follow each other faster than a sync takes).
     private func syncShortcuts() {
         let items = library.map { ($0.program, $0.iconFile ?? $0.bottle.iconFile(for: $0.program)) }
-        Task.detached(priority: .utility) {
-            let icons = Dictionary(items.map { ($0.0.id, $0.1) }, uniquingKeysWith: { a, _ in a })
-            AppShortcuts().sync(items.map(\.0)) { program in
-                icons[program.id].flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
-            }
+        let icons = Dictionary(items.map { ($0.0.id, $0.1) }, uniquingKeysWith: { a, _ in a })
+        AppShortcuts().scheduleSync(items.map(\.0)) { program in
+            icons[program.id].flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
         }
     }
 
