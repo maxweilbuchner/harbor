@@ -21,19 +21,31 @@ public struct WineLauncher: Sendable {
             .appending(path: "Harbor/Runtimes")
     }
 
-    /// The backend a bottle actually gets.
+    /// The backend a bottle's own commands get: everything that isn't a library launch (installers, `reg`,
+    /// recipes, wineboot).
     ///
-    /// D3DMetal is licensed only for games (GPTK license §2A(i)), so it is never chosen automatically until Harbor
-    /// can tell games from apps; a bottle gets it only when set to `.d3dmetal` explicitly. DXMT is used when set
+    /// D3DMetal is licensed only for games (GPTK license §2A(i)) and none of those commands is one, so a bottle
+    /// set to `.d3dmetal` runs them on plain Wine; games get D3DMetal per launch, below. DXMT is used when set
     /// and shipped. DXVK isn't shipped and honestly reports plain Wine (wined3d) instead of pretending.
     public func effectiveGraphics(for bottle: Bottle) -> GraphicsBackend {
         switch bottle.settings.graphics {
-        case .d3dmetal:
-            return d3dmetal == nil ? .wined3d : .d3dmetal
         case .dxmt:
             return dxmt == nil ? .wined3d : .dxmt
-        case .automatic, .wined3d, .dxvk:
+        case .automatic, .wined3d, .dxvk, .d3dmetal:
             return .wined3d
+        }
+    }
+
+    /// Whether `graphics` can be chosen for `program`: its layer has to be installed, and D3DMetal is for games
+    /// only (GPTK license §2A(i)).
+    public func offers(_ graphics: GraphicsBackend, for program: Program) -> Bool {
+        switch graphics {
+        case .d3dmetal:
+            return program.isGame && d3dmetal != nil
+        case .dxmt:
+            return dxmt != nil
+        case .automatic, .wined3d, .dxvk:
+            return true
         }
     }
 
@@ -44,11 +56,13 @@ public struct WineLauncher: Sendable {
     /// games only), even when the launched file itself has no DirectX imports: launchers (Superposition's,
     /// Steam) start the real game as a child process, which inherits the launcher's runtime. That's safe because
     /// D3DMetal only replaces the 64-bit DirectX builtins; 32-bit and non-DirectX processes behave as on plain
-    /// Wine. Everything that isn't a game runs on plain Wine.
+    /// Wine. Everything that isn't a game runs on plain Wine, also when D3DMetal was chosen for it.
+    ///
+    /// Known gap: everything added from Steam or Epic counts as a game, though stores sell other software too.
     public func effectiveGraphics(for program: Program) -> GraphicsBackend {
         switch program.graphics {
         case .d3dmetal?:
-            return d3dmetal == nil ? .wined3d : .d3dmetal
+            return offers(.d3dmetal, for: program) ? .d3dmetal : .wined3d
         case .dxmt?:
             return dxmt == nil ? .wined3d : .dxmt
         case .wined3d?, .dxvk?:

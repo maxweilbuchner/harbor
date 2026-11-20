@@ -183,12 +183,9 @@ final class Marker {}
         #expect(launcher.effectiveGraphics(for: bottle) == .wined3d)
         bottle.settings.graphics = .dxmt // not shipped yet
         #expect(launcher.effectiveGraphics(for: bottle) == .wined3d)
-        bottle.settings.graphics = .d3dmetal
-        #expect(WineLauncher(runtime: base, runtimesDirectory: runtimes).effectiveGraphics(for: bottle) == .wined3d)
-        #expect(launcher.effectiveGraphics(for: bottle) == .d3dmetal)
-        let derived = try launcher.runtime(for: bottle).root
-        #expect(derived.deletingLastPathComponent().path(percentEncoded: false) == runtimes.path(percentEncoded: false) + "/",
-                "derived \(derived.path) vs \(runtimes.path)")
+        bottle.settings.graphics = .d3dmetal // games only; a bottle's own commands (installers, reg) aren't games
+        #expect(launcher.effectiveGraphics(for: bottle) == .wined3d)
+        #expect(try launcher.runtime(for: bottle) == base)
         var office = try store.create(name: "Office")
         office.settings.graphics = .wined3d
         #expect(try launcher.runtime(for: office) == base)
