@@ -33,4 +33,34 @@ public enum Rosetta {
 
     /// The command that installs Rosetta; needs administrator rights, so callers run it with an auth prompt.
     public static let installCommand = "/usr/sbin/softwareupdate --install-rosetta --agree-to-license"
+
+    /// Installs Rosetta behind the system's administrator prompt and waits for it; call it off the main thread.
+    /// Returns what went wrong if it failed and said why (e.g. "User canceled.").
+    public static func install() -> String? {
+        runAppleScript("do shell script \"\(installCommand)\" with administrator privileges")
+    }
+
+    /// Runs AppleScript in `/usr/bin/osascript` rather than with NSAppleScript, which may only be used on the
+    /// main thread (where waiting for the prompt and the install would freeze the window). Returns the script's
+    /// error message, nil if it succeeded.
+    static func runAppleScript(_ source: String) -> String? {
+        let script = Process(), errors = Pipe()
+        script.executableURL = URL(filePath: "/usr/bin/osascript")
+        script.arguments = ["-e", source]
+        script.standardOutput = FileHandle.nullDevice
+        script.standardError = errors
+        do { try script.run() } catch { return error.localizedDescription }
+        let output = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        script.waitUntilExit()
+        return script.terminationStatus == 0 ? nil : errorMessage(fromOsascript: output)
+    }
+
+    /// The message in osascript's "0:112: execution error: User canceled. (-128)".
+    static func errorMessage(fromOsascript output: String) -> String? {
+        var message = Substring(output.trimmingCharacters(in: .whitespacesAndNewlines))
+        if let marker = message.range(of: "execution error: ") { message = message[marker.upperBound...] }
+        if message.hasSuffix(")"), let code = message.range(of: " (", options: .backwards),
+           Int(message[code.upperBound...].dropLast()) != nil { message = message[..<code.lowerBound] }
+        return message.isEmpty ? nil : String(message)
+    }
 }

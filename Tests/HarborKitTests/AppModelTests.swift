@@ -172,3 +172,21 @@ import Testing
         #expect(Library.scan([b]) == first)
     }
 }
+
+@Suite struct RosettaInstallTests {
+    @Test func appleScriptRunsOutsideTheCallingThread() async {
+        // From a background task, as the app does it: nothing here may need the main thread.
+        let (ok, failed) = await Task.detached {
+            (Rosetta.runAppleScript("return 1"), Rosetta.runAppleScript(#"error "Not today" number -128"#))
+        }.value
+        #expect(ok == nil)
+        #expect(failed == "Not today")
+    }
+
+    @Test func readsTheMessageFromOsascriptsError() {
+        #expect(Rosetta.errorMessage(fromOsascript: "0:112: execution error: User canceled. (-128)\n") == "User canceled.")
+        #expect(Rosetta.errorMessage(fromOsascript: "0:90: execution error: Install failed (try again) (1)") == "Install failed (try again)")
+        #expect(Rosetta.errorMessage(fromOsascript: "something else went wrong") == "something else went wrong")
+        #expect(Rosetta.errorMessage(fromOsascript: "\n") == nil)
+    }
+}
