@@ -408,12 +408,14 @@ final class AppModel {
 
     /// Reads the run's log; a recognised cause gets an alert with what to do, anything else the exit code.
     func explainFailure(of item: LibraryItem, exitStatus: Int32) {
-        if let log = item.bottle.latestLog(label: item.program.name),
-           let text = try? String(contentsOf: log, encoding: .utf8),
-           let diagnosis = Diagnosis.analyze(text) {
-            failure = Failure(item: item, diagnosis: diagnosis, log: log)
-        } else {
-            status = "\(item.program.name) quit unexpectedly (\(exitStatus))"
+        // Reading the log (lossily: logs aren't always UTF-8) stays off the main actor.
+        let (bottle, name) = (item.bottle, item.program.name)
+        Task {
+            if let found = await Task.detached(operation: { bottle.diagnosis(forLatestRunOf: name) }).value {
+                failure = Failure(item: item, diagnosis: found.diagnosis, log: found.log)
+            } else {
+                status = "\(name) quit unexpectedly (\(exitStatus))"
+            }
         }
     }
 
