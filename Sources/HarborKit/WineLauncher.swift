@@ -86,7 +86,7 @@ public struct WineLauncher: Sendable {
         return .dxmt
     }
 
-    func runtime(for graphics: GraphicsBackend) throws -> WineRuntime {
+    public func runtime(for graphics: GraphicsBackend) throws -> WineRuntime {
         if graphics == .d3dmetal, let d3dmetal {
             return try d3dmetal.runtime(basedOn: runtime, in: runtimesDirectory)
         }

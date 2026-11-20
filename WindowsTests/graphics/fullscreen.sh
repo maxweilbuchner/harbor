@@ -17,7 +17,6 @@ OUT=build/WindowsTests/graphics/fullscreen
 BOTTLE="fullscreen-test-$$"
 mkdir -p "$OUT"
 "$CLI" create "$BOTTLE" >/dev/null || exit 1
-CONF="$HOME/Library/Application Support/Harbor/Bottles/$BOTTLE/bottle.json"
 sed -i '' -E "s/\"graphics\" : \"[a-z0-9]+\"/\"graphics\" : \"$BACKEND\"/" "$CONF"
 
 # Screen centre in points of the main display (the one with the menu bar), where fullscreen games appear.
@@ -47,7 +46,7 @@ PY
 }
 
 LOG="$OUT/$BACKEND${MODE:+-$MODE}.log"
-"$CLI" run "$BOTTLE" "$PWD/build/WindowsTests/graphics/d3d11fs.exe" $([ "$MODE" = passive ] && echo passive) > "$LOG" 2>&1 &
+"$CLI" run-with "$BOTTLE" "$BACKEND" "$PWD/build/WindowsTests/graphics/d3d11fs.exe" $([ "$MODE" = passive ] && echo passive) > "$LOG" 2>&1 &
 RUN=$!
 wait_for() { i=0; while ! grep -q "$1" "$LOG" 2>/dev/null; do sleep 0.2; i=$((i + 1)); [ $i -gt 600 ] && return 1; done; return 0; }
 
