@@ -42,6 +42,9 @@ public enum RuntimeUpdateDecision: Equatable, Sendable {
     case refusedOlder
     /// The components need at least this Harbor build.
     case needsNewerApp(Int)
+    /// This very list was installed before, its Wine didn't start and the previous runtime was put back. It isn't
+    /// tried again; a newer list is.
+    case failedBefore
 }
 
 public enum RuntimeInstallError: Error, CustomStringConvertible, Equatable {
@@ -118,6 +121,20 @@ public struct RuntimeInstaller: Sendable {
 
     static let versionFile = ".harbor-version"
     static let sequenceFile = ".harbor-sequence"
+    static let failedSequenceFile = ".harbor-failed-sequence"
+
+    /// The sequence of a list whose runtime didn't start here (see `activateStaged`).
+    public var failedSequence: Int? {
+        (try? String(contentsOf: installedDirectory.appending(path: Self.failedSequenceFile), encoding: .utf8))
+            .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
+    /// Whether the installed runtime is at least the one `minimum` names (the app's `HarborMinimumRuntimeSequence`).
+    /// An installation without a recorded sequence is older than any minimum.
+    public func meetsMinimum(_ minimum: Int?) -> Bool {
+        guard let minimum else { return true }
+        return (installedSequence ?? Int.min) >= minimum
+    }
     static let readyPrefix = ".ready-"
 
     /// The sequence of the list the installed runtime came from, if it was recorded.
@@ -133,6 +150,7 @@ public struct RuntimeInstaller: Sendable {
         }
         let todo = pending(in: manifest)
         if todo.isEmpty { return .upToDate }
+        if let failed = failedSequence, let sequence = manifest.sequence, sequence == failed { return .failedBefore }
         if let needed = manifest.minimumAppBuild, let appBuild, appBuild < needed { return .needsNewerApp(needed) }
         return .available(todo)
     }
@@ -157,7 +175,7 @@ public struct RuntimeInstaller: Sendable {
                       progress: (@Sendable (Double) -> Void)? = nil) async throws {
         let todo: [RuntimeManifest.Component]
         switch decision(for: manifest, appBuild: appBuild) {
-        case .upToDate: return
+        case .upToDate, .failedBefore: return
         case .refusedOlder: throw RuntimeInstallError.olderThanInstalled
         case .needsNewerApp(let build): throw RuntimeInstallError.needsNewerApp(build)
         case .available(let components): todo = components
@@ -225,7 +243,9 @@ public struct RuntimeInstaller: Sendable {
             let staged = installedDirectory.appending(path: Self.readyPrefix + "sequence")
             guard verify(installedDirectory) else {
                 rollBack()
-                try? fm.removeItem(at: staged)
+                // Remember which list this was, so it isn't downloaded and tried again every few hours.
+                try? fm.removeItem(at: installedDirectory.appending(path: Self.failedSequenceFile))
+                try? fm.moveItem(at: staged, to: installedDirectory.appending(path: Self.failedSequenceFile))
                 throw RuntimeInstallError.verificationFailed
             }
             if fm.fileExists(atPath: staged.path) {

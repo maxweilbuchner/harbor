@@ -87,6 +87,30 @@ import Testing
         #expect(inst.installedVersion(of: "wine") == "1")
         #expect(inst.installedSequence == 100)
         #expect(!(try fm.contentsOfDirectory(atPath: installed.path)).contains { $0.hasPrefix(".ready-") })   // nothing left staged
+
+        // The same list isn't tried again...
+        let manifest = try await inst.fetchManifest()
+        #expect(inst.failedSequence == 200)
+        #expect(inst.decision(for: manifest, appBuild: nil) == .failedBefore)
+        try await inst.stage(manifest, appBuild: nil)
+        #expect(!inst.hasStagedUpdate)
+        // ...but a newer one is.
+        let next = try installer(try serve([("wine", "3", "wine v3"), ("d3dmetal", "2", "d3d v2")], sequence: 300, in: root), installed: installed)
+        let newer = try await next.fetchManifest()
+        #expect(next.decision(for: newer, appBuild: nil) == .available(newer.components))
+        try await next.stage(newer, appBuild: nil)
+        try next.activateStaged()
+        #expect(marker("wine", in: installed) == "wine v3" && next.installedSequence == 300)
+    }
+
+    /// An app can need a newer runtime than is installed; installations from before sequences count as older.
+    @Test func comparesTheInstalledRuntimeWithTheAppsMinimum() async throws {
+        let (_, installed) = try await installedV1()                     // sequence 100
+        let inst = try installer(URL(filePath: "/nonexistent/runtime.json"), installed: installed)
+        #expect(inst.meetsMinimum(nil) && inst.meetsMinimum(100) && inst.meetsMinimum(50))
+        #expect(!inst.meetsMinimum(101))
+        try fm.removeItem(at: installed.appending(path: ".harbor-sequence"))
+        #expect(!inst.meetsMinimum(1) && inst.meetsMinimum(nil))
     }
 
     @Test func anOlderSignedListCantDowngrade() async throws {

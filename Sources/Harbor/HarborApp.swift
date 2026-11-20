@@ -146,6 +146,17 @@ final class AppModel {
     }
     // MARK: Updating installed Windows support
 
+    /// The oldest runtime list this build works with (Info.plist, written by scripts/bundle-app.sh), if it has one.
+    private var minimumRuntimeSequence: Int? {
+        (Bundle.main.object(forInfoDictionaryKey: "HarborMinimumRuntimeSequence") as? NSNumber)?.intValue
+    }
+
+    /// Whether the installed Windows support is older than this Harbor needs.
+    var runtimeIsTooOld: Bool {
+        guard launcher != nil, let installer = runtimeInstaller else { return false }
+        return !installer.meetsMinimum(minimumRuntimeSequence)
+    }
+
     private var runtimeUpdateTask: Task<Void, Never>?
     private var lastRuntimeCheck = Date.distantPast
 
@@ -153,7 +164,8 @@ final class AppModel {
     /// installed one, and switches to it once nothing is running. Quiet: one status line, no dialogs.
     func checkForRuntimeUpdate() {
         guard launcher != nil, let installer = runtimeInstaller, runtimeUpdateTask == nil else { return }
-        guard installer.hasStagedUpdate || Date().timeIntervalSince(lastRuntimeCheck) > 6 * 3600 else { return }
+        // An app that needs newer Windows support than is installed doesn't wait for the usual interval.
+        guard installer.hasStagedUpdate || runtimeIsTooOld || Date().timeIntervalSince(lastRuntimeCheck) > 6 * 3600 else { return }
         lastRuntimeCheck = Date()
         let build = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String).flatMap(Int.init)
         runtimeUpdateTask = Task {
@@ -164,7 +176,7 @@ final class AppModel {
             if !installer.hasStagedUpdate {
                 guard let manifest = try? await installer.fetchManifest() else { return }
                 switch installer.decision(for: manifest, appBuild: build) {
-                case .upToDate, .refusedOlder:
+                case .upToDate, .refusedOlder, .failedBefore:
                     return
                 case .needsNewerApp:
                     status = "Newer Windows support is available for a newer Harbor. Choose Harbor > Check for Updates…"
@@ -419,6 +431,11 @@ final class AppModel {
 
     func open(_ item: LibraryItem) {
         guard let launcher else { return }
+        if runtimeIsTooOld {
+            status = "Harbor is updating its Windows support, which this version needs. \(item.program.name) can start when that’s done."
+            checkForRuntimeUpdate()
+            return
+        }
         // After a runtime update, Wine first refreshes the bottle's Windows files (20–30 s). Say so instead of
         // leaving people looking at nothing. Not while the bottle is still running from before the update (the
         // program is usually already open there, and the update would wait for it to quit).

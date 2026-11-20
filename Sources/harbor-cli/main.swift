@@ -197,6 +197,7 @@ case "update-runtime" where args.count == 2 || (args.count == 4 && args[2] == "-
     case .upToDate where !installer.hasStagedUpdate: print("up to date"); exit(0)
     case .refusedOlder: fail("the list is older than the installed runtime")
     case .needsNewerApp(let build): fail("needs Harbor build \(build)")
+    case .failedBefore: fail("this list's runtime didn't start here before; waiting for a newer one")
     case .available(let components): print("staging \(components.map { "\($0.id) \($0.version)" }.joined(separator: ", "))")
     case .upToDate: break
     }
