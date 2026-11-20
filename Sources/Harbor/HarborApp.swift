@@ -377,14 +377,14 @@ final class AppModel {
     }
 
     /// macOS doesn't activate a process Harbor starts; without this a game's fullscreen window would stay
-    /// behind Harbor. Watches for Wine's app processes (run from Harbor's runtimes) for up to 60 s.
+    /// behind Harbor. Watches for Wine's app processes (of Harbor's runtimes) started since `start`, for up to 60 s.
     func bringWineToFront(since start: Date) {
-        let roots = [WineRuntime.installedDirectory.path, WineLauncher.defaultRuntimesDirectory.path] + [launcher?.runtime.root.path].compactMap { $0 }
+        let roots = [WineRuntime.installedDirectory, WineLauncher.defaultRuntimesDirectory] + [launcher?.runtime.root].compactMap { $0 }
         Task {
             for _ in 0..<120 {
                 if let app = NSWorkspace.shared.runningApplications.first(where: { app in
-                    guard let exe = app.executableURL?.path, let launched = app.launchDate else { return false }
-                    return launched >= start.addingTimeInterval(-1) && roots.contains { exe.hasPrefix($0) }
+                    guard let exe = app.executableURL, let launched = WineApps.startDate(of: app.processIdentifier) else { return false }
+                    return launched >= start.addingTimeInterval(-1) && WineApps.isHarborWine(executable: exe, runtimes: roots)
                 }) {
                     app.activate()
                     return
