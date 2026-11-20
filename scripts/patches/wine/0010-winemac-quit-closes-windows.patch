@@ -1,0 +1,19 @@
+--- a/dlls/winemac.drv/dllmain.c
++++ b/dlls/winemac.drv/dllmain.c
+@@ -179,6 +179,16 @@
+             TRACE("%sterminating process\n", qi->result ? "" : "not ");
+             if (qi->result)
+                 TerminateProcess(GetCurrentProcess(), 0);
++            else if (!qi->flags)
++            {
++                /* HARBOR HACK: Quit chosen by the user (Cmd-Q, the Dock). Many programs, games above all,
++                 * answer no to "may the session end?"; a Mac app asked to quit closes its windows, so ask the
++                 * program the way its close button would. It can still ask to save or refuse. */
++                UINT i;
++                for (i = 0; i < qi->count; i++)
++                    if (IsWindowVisible(qi->wins[i]) && !GetWindow(qi->wins[i], GW_OWNER))
++                        PostMessageW(qi->wins[i], WM_CLOSE, 0, 0);
++            }
+ 
+             HeapFree(GetProcessHeap(), 0, qi->wins);
+             HeapFree(GetProcessHeap(), 0, qi);
