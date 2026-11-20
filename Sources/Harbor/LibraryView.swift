@@ -188,7 +188,9 @@ struct ProgramMenu: View {
         Toggle("Treat as Game", isOn: Binding(get: { item.program.isGame }, set: { model.setGame(item, $0) }))
         Picker("Graphics", selection: Binding(get: { item.program.graphics ?? .automatic }, set: { model.setGraphics(item, $0) })) {
             Text("Automatic").tag(GraphicsBackend.automatic)
+            // Apple licenses D3DMetal for games only.
             Text("D3DMetal (Games)").tag(GraphicsBackend.d3dmetal)
+                .selectionDisabled(model.launcher?.offers(.d3dmetal, for: item.program) != true)
             Text("DXMT").tag(GraphicsBackend.dxmt)
             Text("Compatibility").tag(GraphicsBackend.wined3d)
         }
