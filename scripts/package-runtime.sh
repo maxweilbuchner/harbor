@@ -31,8 +31,8 @@ pack "wine-$WVER.tar.xz" "$WINE"
 pack "d3dmetal-$DVER.tar.xz" "$D3D"
 cp "$WINE/.harbor-source" "$OUT/.harbor-source"   # for the release notes (scripts/publish-runtime.sh)
 
-python3 -I - "$OUT" "$WVER" "$DVER" <<'PY'
-import hashlib, json, os, sys
+RUNTIME_MIN_APP_BUILD="${RUNTIME_MIN_APP_BUILD:-}" python3 -I - "$OUT" "$WVER" "$DVER" <<'PY'
+import hashlib, json, os, sys, time
 out, wver, dver = sys.argv[1:4]
 def entry(cid, version, name):
     path = os.path.join(out, name)
@@ -40,8 +40,11 @@ def entry(cid, version, name):
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""): h.update(chunk)
     return {"id": cid, "version": version, "url": name, "sha256": h.hexdigest(), "size": os.path.getsize(path)}
-manifest = {"schema": 1, "components": [entry("wine", wver, f"wine-{wver}.tar.xz"),
-                                        entry("d3dmetal", dver, f"d3dmetal-{dver}.tar.xz")]}
+# sequence: grows with every list; installed runtimes refuse smaller ones (no downgrade by replaying an old list).
+# minimumAppBuild: set RUNTIME_MIN_APP_BUILD in versions.env when these components need a newer Harbor.
+manifest = {"schema": 1, "sequence": int(time.time()),
+            "components": [entry("wine", wver, f"wine-{wver}.tar.xz"), entry("d3dmetal", dver, f"d3dmetal-{dver}.tar.xz")]}
+if os.environ.get("RUNTIME_MIN_APP_BUILD"): manifest["minimumAppBuild"] = int(os.environ["RUNTIME_MIN_APP_BUILD"])
 with open(os.path.join(out, "runtime.json"), "w") as f: json.dump(manifest, f, indent=2, sort_keys=True)
 PY
 CLI="$(swift build --build-system native --show-bin-path 2>/dev/null)/harbor-cli"

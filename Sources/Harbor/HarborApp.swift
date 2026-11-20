@@ -144,6 +144,61 @@ final class AppModel {
             runtimeDownload = .failed(String(describing: error))
         }
     }
+    // MARK: Updating installed Windows support
+
+    private var runtimeUpdateTask: Task<Void, Never>?
+    private var lastRuntimeCheck = Date.distantPast
+
+    /// Looks for newer Windows support (at most every six hours), downloads it in the background next to the
+    /// installed one, and switches to it once nothing is running. Quiet: one status line, no dialogs.
+    func checkForRuntimeUpdate() {
+        guard launcher != nil, let installer = runtimeInstaller, runtimeUpdateTask == nil else { return }
+        guard installer.hasStagedUpdate || Date().timeIntervalSince(lastRuntimeCheck) > 6 * 3600 else { return }
+        lastRuntimeCheck = Date()
+        let build = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String).flatMap(Int.init)
+        runtimeUpdateTask = Task {
+            defer { runtimeUpdateTask = nil }
+            if !installer.hasStagedUpdate {
+                guard let manifest = try? await installer.fetchManifest() else { return }
+                switch installer.decision(for: manifest, appBuild: build) {
+                case .upToDate, .refusedOlder:
+                    return
+                case .needsNewerApp:
+                    status = "Newer Windows support is available for a newer Harbor. Choose Harbor > Check for Updates…"
+                    return
+                case .available:
+                    status = "Downloading an update to Windows support…"
+                    do { try await installer.stage(manifest, appBuild: build) } catch {
+                        status = "Windows support couldn’t be updated: \(error)"
+                        return
+                    }
+                    status = "An update to Windows support is ready. It’s installed once no Windows program is running."
+                }
+            }
+            await activateRuntimeUpdateIfIdle(installer)
+        }
+    }
+
+    /// Switches to a downloaded runtime, but only while nothing uses the current one. The new Wine must start, or
+    /// the previous one is put back.
+    private func activateRuntimeUpdateIfIdle(_ installer: RuntimeInstaller) async {
+        let store = store
+        guard installer.hasStagedUpdate, addState == nil, running.isEmpty,
+              await Task.detached(operation: { !store.list().contains { $0.isRunning() } }).value else { return }
+        do {
+            try await Task.detached {
+                try installer.activateStaged { installed in WineRuntime(root: installed.appending(path: "wine")).starts() }
+                installer.removeOldVersions()
+            }.value
+            launcher = Self.makeLauncher()
+            prepareTemplate()
+            updateBottlesInBackground()
+            status = "Windows support was updated."
+        } catch {
+            status = "Windows support couldn’t be updated: \(error)"
+        }
+    }
+
     var bottles: [Bottle] = []
     /// Every program in every bottle, newest first.
     var library: [LibraryItem] = []
@@ -174,6 +229,8 @@ final class AppModel {
         // write the outcome and quit.
         if let output = ProcessInfo.processInfo.environment["HARBOR_SMOKE_TEST"] {
             Task { await runSmokeTest(writingTo: URL(filePath: output)) }
+        } else {
+            checkForRuntimeUpdate()
         }
     }
 
@@ -374,6 +431,7 @@ final class AppModel {
                     Task { @MainActor in
                         self.running.remove(id)
                         if exitStatus != 0 { self.explainFailure(of: item, exitStatus: exitStatus) }
+                        self.checkForRuntimeUpdate()
                     }
                 }
                 await MainActor.run { self.bringWineToFront(since: started) }
@@ -529,7 +587,10 @@ struct ContentView: View {
             Text(failure.diagnosis.message(for: failure.item.program.name))
         }
         // Stores install games on their own: look again whenever Harbor comes to the front.
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.reload() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.reload()
+            model.checkForRuntimeUpdate()
+        }
         .confirmationDialog(removalTitle, isPresented: Binding(get: { model.pendingRemoval != nil },
                                                                set: { if !$0 { model.pendingRemoval = nil } }),
                             presenting: model.pendingRemoval) { item in
