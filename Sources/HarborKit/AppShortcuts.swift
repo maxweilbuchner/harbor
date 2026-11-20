@@ -22,31 +22,53 @@ public struct AppShortcuts: Sendable {
 
     /// Program ID → shortcut app, for the shortcuts Harbor made.
     public func existing() -> [UUID: URL] {
-        var found: [UUID: URL] = [:]
-        for app in (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        all().compactMapValues(\.first)
+    }
+
+    /// Program ID → every shortcut app carrying it, in name order (more than one only after something went wrong).
+    func all() -> [UUID: [URL]] {
+        var found: [UUID: [URL]] = [:]
+        for app in ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [])
+            .sorted(by: { $0.deletingPathExtension().lastPathComponent.localizedStandardCompare($1.deletingPathExtension().lastPathComponent) == .orderedAscending })
         where app.pathExtension == "app" {
             if let text = try? String(contentsOf: app.appending(path: "Contents/Resources/\(Self.marker)"), encoding: .utf8),
                let id = UUID(uuidString: text.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                found[id] = app
+                found[id, default: []].append(app)
             }
         }
         return found
     }
 
     /// Makes every program have exactly one shortcut, and removes Harbor shortcuts whose program is gone.
-    /// `icon` gives each program's PNG icon file, if it has one.
+    /// `icon` gives each program's PNG icon file, if it has one. Not for overlapping calls: see `scheduleSync`.
     public func sync(_ programs: [Program], icon: (Program) -> URL?) {
-        var existing = existing()
+        var existing = all()
         for program in programs {
-            if let app = existing.removeValue(forKey: program.id) {
-                // "Name.app" or a numbered twin "Name 2.app" (two programs with the same name) both match.
-                let current = app.deletingPathExtension().lastPathComponent, base = Self.fileName(program.name)
-                if current == base || (current.hasPrefix(base + " ") && Int(current.dropFirst(base.count + 1)) != nil) { continue }
-                try? FileManager.default.removeItem(at: app)   // renamed: recreate under the new name
+            // "Name.app" or a numbered twin "Name 2.app" (two programs with the same name) both match.
+            let base = Self.fileName(program.name)
+            var apps = existing.removeValue(forKey: program.id) ?? []
+            let kept = apps.firstIndex { app in
+                let current = app.deletingPathExtension().lastPathComponent
+                return current == base || (current.hasPrefix(base + " ") && Int(current.dropFirst(base.count + 1)) != nil)
             }
-            _ = try? create(for: program, iconPNG: icon(program))
+            if let kept { apps.remove(at: kept) }
+            for app in apps { try? FileManager.default.removeItem(at: app) }   // renamed (recreated under the new name), or a duplicate
+            if kept == nil { _ = try? create(for: program, iconPNG: icon(program)) }
         }
-        for (_, app) in existing { try? FileManager.default.removeItem(at: app) }
+        for app in existing.values.joined() { try? FileManager.default.removeItem(at: app) }
+    }
+
+    /// One at a time and in the order asked for: a sync that overlapped another saw none of its shortcuts and
+    /// made every one a second time, and a late older sync would undo a newer one.
+    private static let queue = DispatchQueue(label: "io.github.maxweilbuchner.harbor.shortcuts", qos: .utility)
+
+    /// `sync` in the background, after every sync scheduled before it. `done` runs when it has finished.
+    public func scheduleSync(_ programs: [Program], icon: @escaping @Sendable (Program) -> URL?,
+                             done: (@Sendable () -> Void)? = nil) {
+        Self.queue.async {
+            sync(programs, icon: icon)
+            done?()
+        }
     }
 
     @discardableResult
@@ -104,7 +126,7 @@ public struct AppShortcuts: Sendable {
 
     /// Removes the shortcut for `id`, if Harbor made one.
     public func remove(_ id: UUID) {
-        if let app = existing()[id] { try? FileManager.default.removeItem(at: app) }
+        for app in all()[id] ?? [] { try? FileManager.default.removeItem(at: app) }
     }
 
     static func fileName(_ name: String) -> String {

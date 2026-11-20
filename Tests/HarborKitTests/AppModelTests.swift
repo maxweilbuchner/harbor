@@ -68,3 +68,60 @@ import Testing
         #expect(WineApps.startDate(of: 99_999_999) == nil)
     }
 }
+
+@Suite struct ShortcutSyncTests {
+    let fm = FileManager.default
+
+    func names(in dir: URL) -> [String] {
+        ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasSuffix(".app") }.sorted()
+    }
+
+    @Test func overlappingSyncsLeaveOneShortcutPerProgram() async {
+        let dir = fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)")
+        let shortcuts = AppShortcuts(directory: dir)
+        let programs = ["Alpha", "Beta", "Gamma"].map { Program(name: $0, windowsPath: #"C:\p.exe"#) }
+        // Two reloads in quick succession: the second sync is asked for while the first is still signing.
+        await withCheckedContinuation { finished in
+            shortcuts.scheduleSync(programs) { _ in nil }
+            shortcuts.scheduleSync(programs, icon: { _ in nil }, done: { finished.resume() })
+        }
+        #expect(names(in: dir) == ["Alpha.app", "Beta.app", "Gamma.app"])
+    }
+
+    @Test func scheduledSyncsRunInTheOrderAskedFor() async {
+        let dir = fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)")
+        let shortcuts = AppShortcuts(directory: dir)
+        let a = Program(name: "Alpha", windowsPath: #"C:\a.exe"#), b = Program(name: "Beta", windowsPath: #"C:\b.exe"#)
+        await withCheckedContinuation { finished in
+            shortcuts.scheduleSync([a, b]) { _ in nil }
+            shortcuts.scheduleSync([a]) { _ in nil }
+            shortcuts.scheduleSync([b], icon: { _ in nil }, done: { finished.resume() })
+        }
+        #expect(names(in: dir) == ["Beta.app"])   // the last request wins
+    }
+
+    @Test func syncRemovesDuplicateShortcutsOfOneProgram() throws {
+        let dir = fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)")
+        let shortcuts = AppShortcuts(directory: dir)
+        let game = Program(name: "Game 3", windowsPath: #"C:\g.exe"#), twin = Program(name: "Game 3", windowsPath: #"C:\h.exe"#)
+        // What overlapping syncs used to leave behind: two shortcuts carrying the same program ID.
+        try shortcuts.create(for: game, iconPNG: nil)
+        try shortcuts.create(for: game, iconPNG: nil)
+        try shortcuts.create(for: twin, iconPNG: nil)
+        #expect(names(in: dir) == ["Game 3 2.app", "Game 3 3.app", "Game 3.app"])
+        shortcuts.sync([game, twin]) { _ in nil }
+        #expect(names(in: dir) == ["Game 3 3.app", "Game 3.app"])   // the other program of that name keeps its own
+        #expect(shortcuts.existing().mapValues(\.lastPathComponent) == [game.id: "Game 3.app", twin.id: "Game 3 3.app"])
+    }
+
+    @Test func removeDeletesEveryShortcutOfTheProgram() throws {
+        let dir = fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)")
+        let shortcuts = AppShortcuts(directory: dir)
+        let game = Program(name: "Game", windowsPath: #"C:\g.exe"#), other = Program(name: "Other", windowsPath: #"C:\o.exe"#)
+        try shortcuts.create(for: game, iconPNG: nil)
+        try shortcuts.create(for: game, iconPNG: nil)
+        try shortcuts.create(for: other, iconPNG: nil)
+        shortcuts.remove(game.id)
+        #expect(names(in: dir) == ["Other.app"])
+    }
+}
