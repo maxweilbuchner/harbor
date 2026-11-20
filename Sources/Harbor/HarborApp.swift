@@ -158,6 +158,9 @@ final class AppModel {
         let build = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String).flatMap(Int.init)
         runtimeUpdateTask = Task {
             defer { runtimeUpdateTask = nil }
+            // Runtimes moved aside by an earlier switch (e.g. one that was interrupted) go once nothing can use them.
+            let store = store
+            await Task.detached { if !store.list().contains(where: { $0.isRunning() }) { installer.removeOldVersions() } }.value
             if !installer.hasStagedUpdate {
                 guard let manifest = try? await installer.fetchManifest() else { return }
                 switch installer.decision(for: manifest, appBuild: build) {
