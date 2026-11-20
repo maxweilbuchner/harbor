@@ -764,13 +764,13 @@ final class Marker {}
         #expect(games.map(\.name) == [#"Hades "Deluxe""#, "Portal 2"])
         #expect(games.map(\.appID) == [1145360, 620])
         let steamFolder = try #require(SteamLibrary.steamFolder(in: b))
-        let p = try #require(SteamLibrary.program(for: games[1], steam: steamFolder, in: b))
+        let p = try #require(SteamLibrary.program(for: games[1], steam: steamFolder, in: b, salt: "salt"))
         #expect(p.windowsPath == #"C:\Program Files (x86)\Steam\steam.exe"#)
         #expect(p.arguments == "-applaunch 620")
         #expect(p.isGame)
         // The same game gets the same ID on every scan (its Mac shortcut survives), different games differ.
-        #expect(SteamLibrary.stableID(appID: 620, bottle: b) == p.id)
-        #expect(SteamLibrary.stableID(appID: 621, bottle: b) != p.id)
+        #expect(SteamLibrary.stableID(appID: 620, bottle: b, salt: "salt") == p.id)
+        #expect(SteamLibrary.stableID(appID: 621, bottle: b, salt: "salt") != p.id)
     }
 
     @Test func bottlesWithoutSteamHaveNoSteamGames() throws {
@@ -1050,13 +1050,13 @@ final class Marker {}
         #expect(games[1].executable == #"C:\Program Files\Epic Games\Fortnite\FortniteGame\Binaries\Win64\FortniteLauncher.exe"#)
         #expect(games[0].executable == #"C:\Games\Sugar\Wake.exe"#)
 
-        let p = try #require(EpicLibrary.program(for: games[1], in: b))
+        let p = try #require(EpicLibrary.program(for: games[1], in: b, salt: "salt"))
         #expect(p.windowsPath == #"C:\Program Files\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe"#)
         #expect(p.arguments == "com.epicgames.launcher://apps/ns-Fortnite%3AitemFortnite%3AFortnite?action=launch&silent=true")
         #expect(p.isGame)
         // Stable across scans, distinct per game.
-        #expect(EpicLibrary.program(for: games[1], in: b)?.id == p.id)
-        #expect(EpicLibrary.program(for: games[0], in: b)?.id != p.id)
+        #expect(EpicLibrary.program(for: games[1], in: b, salt: "salt")?.id == p.id)
+        #expect(EpicLibrary.program(for: games[0], in: b, salt: "salt")?.id != p.id)
     }
 
     @Test func takesTheIconFromTheGamesExecutable() throws {
@@ -1068,7 +1068,7 @@ final class Marker {}
         try manifest(app: "Fix", name: "Fix", location: #"C:\\Games\\Fix"#, exe: "fix.exe")
             .write(to: manifests.appending(path: "F.item"), atomically: true, encoding: .utf8)
         let game = try #require(EpicLibrary.games(in: b).first)
-        let icon = EpicLibrary.icon(for: game, program: try #require(EpicLibrary.program(for: game, in: b)), in: b)
+        let icon = EpicLibrary.icon(for: game, program: try #require(EpicLibrary.program(for: game, in: b, salt: "salt")), in: b)
         #expect(icon.map { fm.fileExists(atPath: $0.path) } == true)
     }
 

@@ -241,7 +241,7 @@ final class AppModel {
 
     private nonisolated static func scan(_ store: BottleStore) -> ([Bottle], [(LibraryEntry, NSImage?)]) {
         let bottles = store.list()
-        return (bottles, Library.scan(bottles).map { ($0, $0.iconFile.flatMap(NSImage.init(contentsOf:))) })
+        return (bottles, Library.scan(bottles, salt: LaunchSalt()).map { ($0, $0.iconFile.flatMap(NSImage.init(contentsOf:))) })
     }
 
     private func show(_ scan: ([Bottle], [(LibraryEntry, NSImage?)])) {

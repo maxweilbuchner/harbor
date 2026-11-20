@@ -1,4 +1,38 @@
+import CryptoKit
 import Foundation
+
+/// A random secret made once per Mac and mixed into the library IDs of store games. Those IDs are derived (so
+/// they survive rescans), and `harbor://launch/<id>` starts a program: derived from the bottle and app ID alone,
+/// any web page could name an installed game.
+public struct LaunchSalt: Sendable {
+    public let file: URL
+
+    public init(file: URL = LaunchSalt.defaultFile) {
+        self.file = file
+    }
+
+    /// `~/Library/Application Support/Harbor/launch-salt`.
+    public static var defaultFile: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: "Harbor/launch-salt")
+    }
+
+    /// The salt, made and saved on first use. The same on every later call, so IDs stay stable on this Mac.
+    public func value() -> String {
+        if let saved = saved() { return saved }
+        let fresh = (0..<32).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max)) }.joined()
+        let fm = FileManager.default
+        try? fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data(fresh.utf8).write(to: file, options: .atomic)
+        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        return saved() ?? fresh
+    }
+
+    private func saved() -> String? {
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+        let salt = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return salt.count >= 32 ? salt : nil   // anything shorter isn't one of ours: replace it
+    }
+}
 
 /// Games installed by Steam inside a bottle, read from Steam's own records, so they appear in Harbor's library
 /// next to everything else. Each launches through Steam (`steam.exe -applaunch <id>`), which keeps Steam's
@@ -57,29 +91,24 @@ public enum SteamLibrary {
         toolIDs.contains(game.appID) || game.name.hasPrefix("Proton") || game.name.hasPrefix("Steam Linux Runtime")
     }
 
-    /// A library entry for a Steam game. The ID is derived from the app ID, so it stays the same across scans
+    /// A library entry for a Steam game. The ID is derived from the app ID and this Mac's `salt`, so it stays the same across scans
     /// (its Mac shortcut and settings survive); so does its date, or every scan would sort it as just added.
-    public static func program(for game: Game, steam: URL, in bottle: Bottle) -> Program? {
+    public static func program(for game: Game, steam: URL, in bottle: Bottle, salt: String) -> Program? {
         guard let steamExe = bottle.windowsPath(for: steam.appending(path: "steam.exe")) else { return nil }
         var program = Program(name: game.name, windowsPath: steamExe, arguments: "-applaunch \(game.appID)",
                               workingDirectory: bottle.windowsPath(for: steam), isGame: true)
-        program.id = stableID(appID: game.appID, bottle: bottle)
+        program.id = stableID(appID: game.appID, bottle: bottle, salt: salt)
         program.addedAt = game.installedAt ?? .distantPast
         return program
     }
 
-    static func stableID(appID: Int, bottle: Bottle) -> UUID {
-        stableID(seed: "steam:\(bottle.root.lastPathComponent):\(appID)")
+    static func stableID(appID: Int, bottle: Bottle, salt: String) -> UUID {
+        stableID(seed: "steam:\(bottle.root.lastPathComponent):\(appID)", salt: salt)
     }
 
-    /// Name-based ID: FNV-1a of `seed` spread over 16 bytes.
-    static func stableID(seed: String) -> UUID {
-        var bytes = [UInt8](repeating: 0, count: 16)
-        var hash: UInt64 = 0xcbf29ce484222325
-        for (i, byte) in (seed + "#" + seed).utf8.enumerated() {
-            hash = (hash ^ UInt64(byte)) &* 0x100000001b3
-            bytes[i % 16] ^= UInt8(truncatingIfNeeded: hash >> 24)
-        }
+    /// Name-based ID: the first 16 bytes of SHA-256 over `salt` and `seed`. Without the salt it can't be guessed.
+    static func stableID(seed: String, salt: String) -> UUID {
+        var bytes = Array(SHA256.hash(data: Data((salt + "\n" + seed).utf8)).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x50   // version 5 layout (name-based)
         bytes[8] = (bytes[8] & 0x3F) | 0x80
         return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
