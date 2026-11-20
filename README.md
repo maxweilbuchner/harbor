@@ -7,14 +7,23 @@ Harbor is free, non-commercial software built on [Wine](https://www.winehq.org) 
 CrossOver sources), Apple's [D3DMetal](https://developer.apple.com/games/game-porting-toolkit/) for
 DirectX 11/12 games and [DXMT](https://github.com/3Shain/dxmt) for other Direct3D 10/11 programs.
 
-> **Status: early development.** The engine works (bottles, signed runtime downloads, DirectX 11/12 rendering
-> on D3DMetal, HTTPS), but the app's library and add-program flow are still being built. Not ready for
-> everyday use yet. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the plan and verified results.
+> **Status: early release (0.1).** Adding programs and installers, Steam and the Epic Games Store, DirectX 11/12
+> games on D3DMetal and automatic updates work; expect rough edges and programs that don't run yet. See
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the plan and verified results, and the
+> [issues](https://github.com/maxweilbuchner/harbor/issues) for what's known.
+
+## Download
+
+Get **Harbor-x.y.z.zip** from the [latest release](https://github.com/maxweilbuchner/harbor/releases/latest),
+unzip it and move Harbor to Applications. On first start Harbor downloads its Windows support (about 400 MB).
+Both the app and the Windows support update themselves afterwards.
 
 ## What works today
 
-- **Windows environments ("bottles")** set up in about 25 s, with .NET (wine-mono) and Gecko installed
-  silently.
+- **Add a program by dropping it in:** installers run with their own windows and what they install appears in the
+  library; programs that need no installer are copied in. Each gets its own Windows environment ("bottle"),
+  ready in under a second.
+- **Steam and the Epic Games Store** in one click; the games they install appear in the library.
 - **DirectX 11 and 12 through D3DMetal 4**, offscreen and in windows, including fullscreen, Space switches
   and Mission Control.
 - **Direct3D 10 and 11 through DXMT** for programs that aren't games.
