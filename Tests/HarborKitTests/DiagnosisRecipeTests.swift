@@ -74,3 +74,50 @@ import Testing
         #expect(try String(contentsOf: #require(b.latestLog(label: "Foo 2")), encoding: .utf8) == "sibling again")
     }
 }
+
+@Suite struct RecipeInstallTests {
+    let fm = FileManager.default
+
+    @Test func alreadyInstalledAndRestartNeededCountAsInstalled() {
+        for status: Int32 in [0, 1638, 3010, 102, 194] { #expect(Recipe.installerSucceeded(status)) }
+        // 1603 is a fatal installer error (99 as Wine reports it), 1602 a cancelled one.
+        for status: Int32 in [1, 99, 1602, 1603, -1, 255] { #expect(!Recipe.installerSucceeded(status)) }
+    }
+
+    /// A launcher whose "wine" is a script that records its arguments and exits as `exits` says, a bottle, and a
+    /// recipe whose two installers are already in the download cache.
+    func fixture(exits: String) throws -> (launcher: WineLauncher, bottle: Bottle, recipe: Recipe, cache: URL, calls: URL) {
+        let base = fm.temporaryDirectory.appending(path: "harbor-recipe-\(UUID().uuidString)")
+        let wine = base.appending(path: "wine/bin/wine"), cache = base.appending(path: "cache"), calls = base.appending(path: "calls")
+        try fm.createDirectory(at: wine.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createDirectory(at: cache, withIntermediateDirectories: true)
+        try "#!/bin/sh\necho \"$*\" >> '\(calls.path)'\ncase \"$*\" in \(exits) esac\n".write(to: wine, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wine.path)
+        let downloads = try ["vc_x64.exe", "vc_x86.exe"].map { name in
+            let data = Data(name.utf8), hash = WineLauncher.sha256(data)
+            try data.write(to: cache.appending(path: "\(hash)-\(name)"))
+            return Recipe.Download(url: URL(string: "https://example.invalid/\(name)")!, sha256: hash, arguments: ["/quiet"])
+        }
+        let recipe = Recipe(id: "vctest", name: "Test", downloads: downloads, overrides: ["msvcp140"], marker: "msvcp140.dll")
+        let bottle = try BottleStore(directory: base.appending(path: "bottles")).create(name: "R")
+        return (WineLauncher(runtime: WineRuntime(root: base.appending(path: "wine"))), bottle, recipe, cache, calls)
+    }
+
+    func installersRun(_ calls: URL) throws -> [String] {
+        try String(contentsOf: calls, encoding: .utf8).split(separator: "\n").filter { $0.hasSuffix("/quiet") }
+            .map { String($0.contains("vc_x64.exe") ? "x64" : "x86") }
+    }
+
+    @Test func anAlreadyInstalledRuntimeIsNotAFailureAndBothArchitecturesRun() async throws {
+        // What VC_redist does when a newer version is present (1638) and when it wants a restart (3010).
+        let f = try fixture(exits: "*vc_x64.exe*) exit 102;; *vc_x86.exe*) exit 194;;")
+        try await f.launcher.install(f.recipe, in: f.bottle, cache: f.cache)
+        #expect(try installersRun(f.calls) == ["x64", "x86"])
+    }
+
+    @Test func aFailedInstallerStillLetsTheOtherArchitectureRunAndIsReported() async throws {
+        let f = try fixture(exits: "*vc_x64.exe*) exit 99;;")
+        await #expect(throws: WineExitError.self) { try await f.launcher.install(f.recipe, in: f.bottle, cache: f.cache) }
+        #expect(try installersRun(f.calls) == ["x64", "x86"])
+    }
+}

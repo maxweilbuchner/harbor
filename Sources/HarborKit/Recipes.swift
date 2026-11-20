@@ -81,6 +81,13 @@ public struct Recipe: Sendable, Identifiable, Equatable {
         return removed
     }
 
+    /// Whether an installer's exit status means the component is there: 0, 1638 (this or a newer version is
+    /// already installed) and 3010 (installed, wants a restart). A process's status reaches macOS as its low
+    /// byte only, so Wine reports those two as 102 and 194.
+    public static func installerSucceeded(_ status: Int32) -> Bool {
+        [0, 1638, 3010, 1638 & 0xff, 3010 & 0xff].contains(status)
+    }
+
     static func isWineBuiltin(_ dll: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: dll) else { return false }
         defer { try? handle.close() }
@@ -106,7 +113,8 @@ public enum RecipeError: Error, CustomStringConvertible, Equatable {
 
 extension WineLauncher {
     /// Downloads (or reuses from the cache), verifies and silently runs a recipe's installers in `bottle`, then
-    /// sets its DLL overrides.
+    /// sets its DLL overrides. Every installer runs (32-bit programs need theirs even when the 64-bit one
+    /// failed); the first real failure is thrown afterwards.
     public func install(_ recipe: Recipe, in bottle: Bottle,
                         cache: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appending(path: "Harbor/Recipes")) async throws {
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
@@ -124,9 +132,15 @@ extension WineLauncher {
         defer { try? FileManager.default.removeItem(at: reg) }
         try await execute(bottle, arguments: ["reg", "import", #"C:\windows\temp\"# + reg.lastPathComponent], label: recipe.id)
         recipe.removeBuiltinCopies(in: bottle)
+        var failure: WineExitError?
         for (n, download) in recipe.downloads.enumerated() {
-            try await execute(bottle, arguments: [files[n]!.path] + download.arguments, label: recipe.id)
+            do {
+                try await execute(bottle, arguments: [files[n]!.path] + download.arguments, label: recipe.id)
+            } catch let error as WineExitError {
+                if !Recipe.installerSucceeded(error.status) { failure = failure ?? error }
+            }
         }
+        if let failure { throw failure }
     }
 
     /// The installer file, from the cache when its hash still matches.
