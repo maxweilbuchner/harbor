@@ -21,6 +21,24 @@ public struct WineRuntime: Sendable, Equatable {
     public static let checkoutRoot = URL(filePath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
+    /// Whether this Wine starts at all (`wine --version` exits 0 within `timeout` seconds). Used to prove a freshly
+    /// installed runtime before the previous one is given up.
+    public func starts(timeout: TimeInterval = 60) -> Bool {
+        let process = Process()
+        process.executableURL = wine
+        process.arguments = ["--version"]
+        var environment = ProcessInfo.processInfo.environment
+        environment["DYLD_FALLBACK_LIBRARY_PATH"] = root.appending(path: "lib").path
+        process.environment = environment
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return false }
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+        if process.isRunning { process.terminate(); return false }
+        return process.terminationStatus == 0
+    }
+
     public var isValid: Bool {
         let fm = FileManager.default
         return fm.isExecutableFile(atPath: wine.path) && fm.isExecutableFile(atPath: wineserver.path)

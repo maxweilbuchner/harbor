@@ -20,6 +20,7 @@ import HarborKit
 //   harbor-cli gen-runtime-key                      # private key → ~/.config/harbor/runtime-signing.key
 //   harbor-cli sign-manifest <runtime.json>         # writes runtime.json.sig with that key
 //   harbor-cli install-runtime <manifest-url> [--into <dir>]
+//   harbor-cli update-runtime <manifest-url> [--into <dir>]   # stage, switch, prove it starts (rolls back if not)
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("harbor-cli: \(message)\n".utf8))
@@ -158,6 +159,29 @@ case "sign-manifest" where args.count == 2:
     _ = try JSONDecoder().decode(RuntimeManifest.self, from: data) // refuse to sign something malformed
     try Data(try RuntimeSigning.sign(data, privateKey: key).utf8).write(to: manifest.appendingPathExtension("sig"))
     print("signed \(manifest.path)")
+case "update-runtime" where args.count == 2 || (args.count == 4 && args[2] == "--into"):
+    // The app's background update, in one go: stage what the signed list offers next to the installed runtime,
+    // switch to it, prove the new Wine starts (else the previous one is put back). Only with no bottle running.
+    guard let url = URL(string: args[1]), url.scheme != nil else { fail("not a URL: \(args[1])") }
+    let publicKey = try RuntimeSigning.publicKey(
+        ProcessInfo.processInfo.environment["HARBOR_RUNTIME_PUBLIC_KEY"]
+            ?? (try String(contentsOf: WineRuntime.checkoutRoot.appending(path: "scripts/runtime-signing.pub"), encoding: .utf8))
+                .trimmingCharacters(in: .whitespacesAndNewlines))
+    let into = args.count == 4 ? URL(filePath: args[3]) : WineRuntime.installedDirectory
+    if args.count == 2, store.list().contains(where: { $0.isRunning() }) { fail("a bottle is running; quit its programs first") }
+    let installer = RuntimeInstaller(manifestURL: url, publicKey: publicKey, installedDirectory: into)
+    let manifest = try await installer.fetchManifest()
+    switch installer.decision(for: manifest, appBuild: nil) {
+    case .upToDate where !installer.hasStagedUpdate: print("up to date"); exit(0)
+    case .refusedOlder: fail("the list is older than the installed runtime")
+    case .needsNewerApp(let build): fail("needs Harbor build \(build)")
+    case .available(let components): print("staging \(components.map { "\($0.id) \($0.version)" }.joined(separator: ", "))")
+    case .upToDate: break
+    }
+    try await installer.stage(manifest, appBuild: nil)
+    try installer.activateStaged { installed in WineRuntime(root: installed.appending(path: "wine")).starts() }
+    installer.removeOldVersions()
+    print("updated: wine \(installer.installedVersion(of: "wine") ?? "-"), d3dmetal \(installer.installedVersion(of: "d3dmetal") ?? "-"), sequence \(installer.installedSequence.map(String.init) ?? "-")")
 case "install-runtime" where args.count == 2 || (args.count == 4 && args[2] == "--into"):
     guard let url = URL(string: args[1]), url.scheme != nil else { fail("not a URL: \(args[1])") }
     let publicKey = try RuntimeSigning.publicKey(
@@ -176,5 +200,5 @@ case "install-runtime" where args.count == 2 || (args.count == 4 && args[2] == "
     FileHandle.standardError.write(Data("\n".utf8))
     print("installed")
 default:
-    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | run-with <bottle> <layer> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | analyze <file> | add-steam [--store <dir>] | add-epic [--store <dir>] | components <bottle> | install-component <bottle> <id> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
+    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | run-with <bottle> <layer> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | analyze <file> | add-steam [--store <dir>] | add-epic [--store <dir>] | components <bottle> | install-component <bottle> <id> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>] | update-runtime <url> [--into <dir>]")
 }

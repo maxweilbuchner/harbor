@@ -281,4 +281,10 @@ An independent review re-checked the plan against the code and runtime. Items ma
    launch for Direct3D 10/11 programs that aren't games (games keep D3DMetal); `run.sh dxmt` passes D3D11 where
    plain Wine fails (shader model 5). Never for D3D12: DXMT's dxgi breaks Wine's vkd3d. DXVK on MoltenVK: not
    pursued (MoltenVK lacks features DXVK needs; DXMT covers the same programs natively on Metal).
+   Runtime updates (#29, 2026-11-20): an installed runtime updates itself. Harbor checks the signed list at
+   launch and when it comes to the front (at most every six hours), downloads pending components next to the
+   installed ones (`.ready-<id>`), and switches when no bottle is running; the new Wine must start
+   (`wine --version`) or the previous one is put back. Lists carry a `sequence` (packaging time): an installation
+   refuses lists older than its own, and `minimumAppBuild` holds back components that need a newer Harbor.
+   `harbor-cli update-runtime` does the same from the command line.
 8. **M7:** Runtime downloader + source offers, legal review, first public beta.

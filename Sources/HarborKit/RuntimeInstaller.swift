@@ -20,11 +20,28 @@ public struct RuntimeManifest: Codable, Sendable, Equatable {
     public static let currentSchema = 1
     public var schema: Int
     public var components: [Component]
+    /// Grows with every published list (the packaging time). An installed runtime remembers the one it came from
+    /// and refuses lists with a smaller one, so an old signed list served again can't downgrade it.
+    public var sequence: Int?
+    /// The oldest Harbor build (CFBundleVersion) that can use these components, if they need a newer app.
+    public var minimumAppBuild: Int?
 
-    public init(components: [Component]) {
+    public init(components: [Component], sequence: Int? = nil, minimumAppBuild: Int? = nil) {
         schema = Self.currentSchema
         self.components = components
+        self.sequence = sequence
+        self.minimumAppBuild = minimumAppBuild
     }
+}
+
+/// What a fetched runtime list means for this installation.
+public enum RuntimeUpdateDecision: Equatable, Sendable {
+    case upToDate
+    case available([RuntimeManifest.Component])
+    /// The list is older than what's installed (or carries no sequence although the installation has one).
+    case refusedOlder
+    /// The components need at least this Harbor build.
+    case needsNewerApp(Int)
 }
 
 public enum RuntimeInstallError: Error, CustomStringConvertible, Equatable {
@@ -33,6 +50,9 @@ public enum RuntimeInstallError: Error, CustomStringConvertible, Equatable {
     case checksumMismatch(component: String)
     case invalidComponent(String)
     case extractFailed(component: String, status: Int32)
+    case olderThanInstalled
+    case needsNewerApp(Int)
+    case verificationFailed
 
     public var description: String {
         switch self {
@@ -41,6 +61,9 @@ public enum RuntimeInstallError: Error, CustomStringConvertible, Equatable {
         case .checksumMismatch(let c): "The \(c) download is damaged (checksum mismatch)."
         case .invalidComponent(let c): "Unknown runtime component “\(c)”."
         case .extractFailed(let c, let s): "Couldn't unpack \(c) (tar exit \(s))."
+        case .olderThanInstalled: "The runtime list is older than the installed Windows support."
+        case .needsNewerApp(let b): "This Windows support needs a newer Harbor (build \(b))."
+        case .verificationFailed: "The updated Windows support didn't start; the previous version was kept."
         }
     }
 }
@@ -94,6 +117,123 @@ public struct RuntimeInstaller: Sendable {
     }
 
     static let versionFile = ".harbor-version"
+    static let sequenceFile = ".harbor-sequence"
+    static let readyPrefix = ".ready-"
+
+    /// The sequence of the list the installed runtime came from, if it was recorded.
+    public var installedSequence: Int? {
+        (try? String(contentsOf: installedDirectory.appending(path: Self.sequenceFile), encoding: .utf8))
+            .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
+    /// What `manifest` means here. `appBuild` is this Harbor's build number (nil: don't check).
+    public func decision(for manifest: RuntimeManifest, appBuild: Int?) -> RuntimeUpdateDecision {
+        if let installed = installedSequence {
+            guard let sequence = manifest.sequence, sequence >= installed else { return .refusedOlder }
+        }
+        let todo = pending(in: manifest)
+        if todo.isEmpty { return .upToDate }
+        if let needed = manifest.minimumAppBuild, let appBuild, appBuild < needed { return .needsNewerApp(needed) }
+        return .available(todo)
+    }
+
+    private func recordSequence(of manifest: RuntimeManifest) {
+        guard let sequence = manifest.sequence else { return }
+        try? Data("\(sequence)\n".utf8).write(to: installedDirectory.appending(path: Self.sequenceFile))
+    }
+
+    // MARK: Updating an installed runtime
+
+    /// Whether a downloaded update is waiting to be switched to (`activateStaged`).
+    public var hasStagedUpdate: Bool {
+        ((try? FileManager.default.contentsOfDirectory(atPath: installedDirectory.path)) ?? [])
+            .contains { $0.hasPrefix(Self.readyPrefix) && $0 != Self.readyPrefix + "sequence" }
+    }
+
+    /// Downloads, verifies and unpacks every pending component next to the installed ones (`.ready-<id>`), without
+    /// touching what's in use. Safe while Windows programs run. Throws instead of staging a list that
+    /// `decision(for:appBuild:)` doesn't allow.
+    public func stage(_ manifest: RuntimeManifest, appBuild: Int?,
+                      progress: (@Sendable (Double) -> Void)? = nil) async throws {
+        let todo: [RuntimeManifest.Component]
+        switch decision(for: manifest, appBuild: appBuild) {
+        case .upToDate: return
+        case .refusedOlder: throw RuntimeInstallError.olderThanInstalled
+        case .needsNewerApp(let build): throw RuntimeInstallError.needsNewerApp(build)
+        case .available(let components): todo = components
+        }
+        let fm = FileManager.default
+        let total = Double(max(todo.reduce(0) { $0 + $1.size }, 1))
+        var done: Int64 = 0
+        for component in todo {
+            let base = done
+            let ready = installedDirectory.appending(path: Self.readyPrefix + component.id)
+            // Already downloaded by an earlier run.
+            if (try? String(contentsOf: ready.appending(path: Self.versionFile), encoding: .utf8)) == component.version {
+                done += component.size
+                continue
+            }
+            let archive = try await fetch(component) { bytes in progress?(Double(base + bytes) / total) }
+            defer { try? fm.removeItem(at: archive) }
+            try withLock(installedDirectory.appending(path: ".lock")) {
+                let staging = try unpack(component, archive: archive)
+                try? fm.removeItem(at: ready)
+                try fm.moveItem(at: staging, to: ready)
+            }
+            done += component.size
+        }
+        if let sequence = manifest.sequence {
+            try Data("\(sequence)\n".utf8).write(to: installedDirectory.appending(path: Self.readyPrefix + "sequence"))
+        }
+        progress?(1)
+    }
+
+    /// Switches to the staged components. Call only when no Windows program is running. `verify` gets the installed
+    /// directory after the switch and says whether the new runtime works; if it doesn't, the previous components
+    /// are put back and `verificationFailed` is thrown. The previous versions stay as `.old-*` until
+    /// `removeOldVersions()`.
+    public func activateStaged(verify: (URL) -> Bool = { _ in true }) throws {
+        let fm = FileManager.default
+        try withLock(installedDirectory.appending(path: ".lock")) {
+            let ready = ((try? fm.contentsOfDirectory(atPath: installedDirectory.path)) ?? [])
+                .filter { $0.hasPrefix(Self.readyPrefix) && Self.allowedIDs.contains(String($0.dropFirst(Self.readyPrefix.count))) }
+            guard !ready.isEmpty else { return }
+            var swapped: [(target: URL, previous: URL?)] = []
+            func rollBack() {
+                for (target, previous) in swapped.reversed() {
+                    try? fm.removeItem(at: target)
+                    if let previous { try? fm.moveItem(at: previous, to: target) }
+                }
+            }
+            do {
+                for name in ready.sorted() {
+                    let id = String(name.dropFirst(Self.readyPrefix.count))
+                    let target = installedDirectory.appending(path: id)
+                    var previous: URL?
+                    if fm.fileExists(atPath: target.path) {
+                        let aside = installedDirectory.appending(path: ".old-\(id)-\(UUID().uuidString)")
+                        try fm.moveItem(at: target, to: aside)
+                        previous = aside
+                    }
+                    swapped.append((target, previous))
+                    try fm.moveItem(at: installedDirectory.appending(path: name), to: target)
+                }
+            } catch {
+                rollBack()
+                throw error
+            }
+            let staged = installedDirectory.appending(path: Self.readyPrefix + "sequence")
+            guard verify(installedDirectory) else {
+                rollBack()
+                try? fm.removeItem(at: staged)
+                throw RuntimeInstallError.verificationFailed
+            }
+            if fm.fileExists(atPath: staged.path) {
+                try? fm.removeItem(at: installedDirectory.appending(path: Self.sequenceFile))
+                try? fm.moveItem(at: staged, to: installedDirectory.appending(path: Self.sequenceFile))
+            }
+        }
+    }
 
     /// Installs every pending component. `progress` gets the fraction of all pending bytes downloaded so far.
     public func installPending(_ manifest: RuntimeManifest,
@@ -106,36 +246,55 @@ public struct RuntimeInstaller: Sendable {
             try await install(component) { bytes in progress?(Double(base + bytes) / total) }
             done += component.size
         }
+        recordSequence(of: manifest)
         progress?(1)
+    }
+
+    /// Downloads a component's archive and checks it against the list's SHA-256.
+    private func fetch(_ component: RuntimeManifest.Component, progress: (@Sendable (Int64) -> Void)?) async throws -> URL {
+        guard Self.allowedIDs.contains(component.id) else { throw RuntimeInstallError.invalidComponent(component.id) }
+        try FileManager.default.createDirectory(at: installedDirectory, withIntermediateDirectories: true)
+        let source = URL(string: component.url, relativeTo: manifestURL)!.absoluteURL
+        let archive = try await download(source, progress: progress)
+        guard try Self.sha256(of: archive) == component.sha256.lowercased() else {
+            try? FileManager.default.removeItem(at: archive)
+            throw RuntimeInstallError.checksumMismatch(component: component.id)
+        }
+        return archive
+    }
+
+    /// Unpacks a verified archive into a new staging folder (with its version file) and returns it.
+    private func unpack(_ component: RuntimeManifest.Component, archive: URL) throws -> URL {
+        let fm = FileManager.default
+        let staging = installedDirectory.appending(path: ".staging-\(UUID().uuidString)")
+        try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+        do {
+            let tar = Process()
+            tar.executableURL = URL(filePath: "/usr/bin/tar")
+            tar.arguments = ["-xf", archive.path, "-C", staging.path]
+            try tar.run()
+            tar.waitUntilExit()
+            guard tar.terminationStatus == 0 else {
+                throw RuntimeInstallError.extractFailed(component: component.id, status: tar.terminationStatus)
+            }
+            try Data(component.version.utf8).write(to: staging.appending(path: Self.versionFile))
+            return staging
+        } catch {
+            try? fm.removeItem(at: staging)
+            throw error
+        }
     }
 
     /// Downloads, verifies and atomically installs one component.
     public func install(_ component: RuntimeManifest.Component,
                         progress: (@Sendable (Int64) -> Void)? = nil) async throws {
-        guard Self.allowedIDs.contains(component.id) else { throw RuntimeInstallError.invalidComponent(component.id) }
         let fm = FileManager.default
-        try fm.createDirectory(at: installedDirectory, withIntermediateDirectories: true)
-        let source = URL(string: component.url, relativeTo: manifestURL)!.absoluteURL
-        let archive = try await download(source, progress: progress)
+        let archive = try await fetch(component, progress: progress)
         defer { try? fm.removeItem(at: archive) }
 
-        guard try Self.sha256(of: archive) == component.sha256.lowercased() else {
-            throw RuntimeInstallError.checksumMismatch(component: component.id)
-        }
-
         try withLock(installedDirectory.appending(path: ".lock")) {
-            let staging = installedDirectory.appending(path: ".staging-\(UUID().uuidString)")
-            try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+            let staging = try unpack(component, archive: archive)
             do {
-                let tar = Process()
-                tar.executableURL = URL(filePath: "/usr/bin/tar")
-                tar.arguments = ["-xf", archive.path, "-C", staging.path]
-                try tar.run()
-                tar.waitUntilExit()
-                guard tar.terminationStatus == 0 else {
-                    throw RuntimeInstallError.extractFailed(component: component.id, status: tar.terminationStatus)
-                }
-                try Data(component.version.utf8).write(to: staging.appending(path: Self.versionFile))
                 let target = installedDirectory.appending(path: component.id)
                 if fm.fileExists(atPath: target.path) {
                     // Bottles may be running from the old one; move it aside, never delete it under them.
