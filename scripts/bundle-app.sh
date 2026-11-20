@@ -10,6 +10,7 @@
 # settings from its environment in release builds, and scripts/release-app.sh --publish refuses a test bundle.
 set -eu
 cd "$(dirname "$0")/.."
+. scripts/versions.env
 VERSION="${HARBOR_VERSION:-0.1.0}"
 BUILD="${HARBOR_BUILD:-$(git rev-list --count HEAD)}"
 IDENTITY="${SIGN_IDENTITY:-Developer ID Application}"
@@ -61,6 +62,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>SUPublicEDKey</key><string>$(cat scripts/sparkle-public.key)</string>
   <key>SUEnableAutomaticChecks</key><true/>
 $( [ -n "${HARBOR_UPDATE_TEST:-}" ] && echo '  <key>HarborUpdateTest</key><true/>' )
+$( [ -n "${RUNTIME_MIN_SEQUENCE:-}" ] && echo "  <key>HarborMinimumRuntimeSequence</key><integer>$RUNTIME_MIN_SEQUENCE</integer>" )
   <key>CFBundleURLTypes</key>
   <array><dict>
     <key>CFBundleURLName</key><string>$BUNDLE_ID</string>

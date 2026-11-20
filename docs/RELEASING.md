@@ -38,6 +38,9 @@ environment, and `--publish` refuses a bundle built with them.
 - **The new runtime needs the new app** (for example a new component the old app can't use): release the app
   first, then publish the runtime with `RUNTIME_MIN_APP_BUILD=<the app's build number>` set for
   `package-runtime.sh`. Older apps keep their runtime and tell the user to update Harbor.
-- **The new app needs the new runtime:** publish the runtime first and wait until it's live, then release the
-  app. (There is no "minimum runtime" check in the app yet; an app that can't work with an older runtime should
-  not ship before that exists.)
+- **The new app needs the new runtime:** publish the runtime first, note the `sequence` in its `runtime.json`, set
+  `RUNTIME_MIN_SEQUENCE` to it in `scripts/versions.env`, then release the app. An app that finds an older runtime
+  installed updates it at once and holds program starts until that's done.
+
+A runtime update whose Wine doesn't start on a Mac is rolled back there and that list isn't tried again on that
+Mac; publish a fixed runtime (a new list, with a new sequence) to reach it.
