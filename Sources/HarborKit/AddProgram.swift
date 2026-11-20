@@ -126,37 +126,65 @@ public struct AddProgram: Sendable {
         return program
     }
 
-    /// The folder that holds the whole program `file` belongs to, or nil if it sits in a shared folder (then only
-    /// the file itself may be copied). Walks up from folders like `Binaries/Win64` or `bin`, which hold a game's
-    /// executable while its data sits higher up (Unreal: `<Root>/<Game>/Binaries/Win64`, `<Root>/Engine`).
+    /// The folder that holds the whole program `file` belongs to, or nil if it sits in a shared folder or in one
+    /// that isn't recognisably the program's own (then only the file itself may be copied). Walks up from
+    /// folders like `Binaries/Win64` or `bin`, which hold a game's executable while its data sits higher up
+    /// (Unreal: `<Root>/<Game>/Binaries/Win64`, `<Root>/Engine`); every folder on the way must be the program's.
     static func programRoot(for file: URL) -> URL? {
         let fm = FileManager.default
         var folder = file.deletingLastPathComponent().standardizedFileURL
-        if isSharedFolder(folder) { return nil }
+        guard !isSharedFolder(folder), holdsOneProgram(folder) else { return nil }
         let binaryFolders: Set<String> = ["bin", "bin32", "bin64", "binaries", "win32", "win64", "x86", "x64", "x86_64",
                                           "amd64", "release", "shipping", "retail"]
         while true {
             let parent = folder.deletingLastPathComponent()
-            guard parent.path != folder.path, !isSharedFolder(parent, below: true) else { break }
+            guard parent.path != folder.path, !isSharedFolder(parent) else { break }
             let isBinaryFolder = binaryFolders.contains(folder.lastPathComponent.lowercased())
             let besideEngine = fm.fileExists(atPath: parent.appending(path: "Engine").path)   // Unreal's root
-            guard isBinaryFolder || besideEngine else { break }
+            guard isBinaryFolder || besideEngine, holdsOneProgram(parent, apartFrom: folder) else { break }
             folder = parent
         }
         return folder
     }
 
+    /// Whether `folder` with everything below it is one program's, so that it may be copied whole. DLLs beside
+    /// the program or an Unreal `Engine` folder show it. Without them, the subfolders (other than `own`, the
+    /// one the program was found in) must hold nothing that looks like someone else's: no other programs (a
+    /// folder of games), no personal documents, no dot-files (a synced or working folder), and few enough
+    /// files to tell. The folder's own files are `isSharedFolder`'s to judge.
+    static func holdsOneProgram(_ folder: URL, apartFrom own: URL? = nil) -> Bool {
+        let fm = FileManager.default
+        if containsLibraries(folder) || fm.fileExists(atPath: folder.appending(path: "Engine").path) { return true }
+        guard let walker = fm.enumerator(at: folder, includingPropertiesForKeys: [.isDirectoryKey]) else { return false }
+        var seen = 0
+        for case let url as URL in walker {
+            let name = url.lastPathComponent
+            if name == ".DS_Store" || name.hasPrefix("._") { continue }      // Finder's, on any disk
+            if name.hasPrefix(".") { return false }
+            if walker.level == 1 {
+                if name == own?.lastPathComponent { walker.skipDescendants() }
+                continue
+            }
+            seen += 1
+            let type = url.pathExtension.lowercased()
+            if seen > unprovenFolderLimit || ["exe", "msi"].contains(type) || personalDocumentExtensions.contains(type) {
+                return false
+            }
+        }
+        return true
+    }
+
     /// Folders that hold unrelated files, from which only the program itself may be copied: the home folder, its
-    /// standard folders, iCloud Drive, any Downloads/Desktop/Documents folder, Applications, disk roots, and any
-    /// folder containing personal documents (a program's own folder doesn't hold PDFs and photos).
-    /// `below`: reached by walking up from a program's own binary folder, which already shows it's a program's
-    /// folder; then only named shared folders count, not the personal-documents check.
-    static func isSharedFolder(_ folder: URL, below: Bool = false) -> Bool {
+    /// standard folders, iCloud Drive and other cloud storage, any Downloads/Desktop/Documents folder,
+    /// Applications, disk roots, and any folder containing personal documents (a program's own folder doesn't
+    /// hold PDFs and photos).
+    static func isSharedFolder(_ folder: URL) -> Bool {
         let fm = FileManager.default
         let path = folder.standardizedFileURL.resolvingSymlinksInPath().path
         let home = fm.homeDirectoryForCurrentUser.standardizedFileURL.resolvingSymlinksInPath().path
         let iCloud = home + "/Library/Mobile Documents/com~apple~CloudDocs"
-        var shared: Set<String> = ["/", "/Applications", "/Users", "/Volumes", home, iCloud]
+        let cloudStorage = home + "/Library/CloudStorage"                  // Dropbox, Google Drive, OneDrive, …
+        var shared: Set<String> = ["/", "/Applications", "/Users", "/Volumes", home, iCloud, cloudStorage]
         for name in ["Downloads", "Desktop", "Documents", "Applications", "Library", "Movies", "Music", "Pictures", "Public"] {
             shared.insert(home + "/" + name)
         }
@@ -164,11 +192,16 @@ public struct AddProgram: Sendable {
         let name = folder.lastPathComponent.lowercased()
         if ["downloads", "desktop", "documents"].contains(name) { return true }
         if path.hasPrefix(iCloud + "/") && path.dropFirst(iCloud.count + 1).split(separator: "/").count <= 1 { return true }
+        // A provider's root and the drive inside it (`GoogleDrive-<account>/My Drive`).
+        if path.hasPrefix(cloudStorage + "/") && path.dropFirst(cloudStorage.count + 1).split(separator: "/").count <= 2 { return true }
         let parts = path.split(separator: "/")
         if parts.count == 2 && parts[0] == "Volumes" { return true }             // a disk's root, e.g. /Volumes/USB
         // Games ship pictures, videos and manuals too; a folder with DLLs next to the program is the program's.
-        return !below && containsPersonalDocuments(folder) && !containsLibraries(folder)
+        return containsPersonalDocuments(folder) && !containsLibraries(folder)
     }
+
+    /// More files than this below a folder without DLLs: too many to check that they're all the program's.
+    static let unprovenFolderLimit = 5000
 
     static func containsLibraries(_ folder: URL) -> Bool {
         let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
