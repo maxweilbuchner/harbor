@@ -4,9 +4,10 @@ import Foundation
 /// `lib/dxmt/` (scripts/build-wine.sh): d3d11, d3d10core, dxgi and winemetal for both architectures, plus
 /// `winemetal.so` for Wine's Unix side.
 ///
-/// It's for Direct3D 10/11 programs that aren't games (games get D3DMetal): Wine's own D3D11 on MoltenVK stops at
-/// feature level 9.3, so shader model 5 programs fail there (WindowsTests/graphics: wined3d fails d3d11tri, DXMT
-/// passes it). Its dxgi replaces Wine's, which Wine's Direct3D 12 (vkd3d) needs, so it's never used for D3D12.
+/// It's for Direct3D 10/11 programs that aren't games, and for 32-bit games (64-bit games get D3DMetal, which has
+/// no 32-bit DLLs): Wine's own D3D11 on MoltenVK stops at feature level 9.3, so shader model 5 programs fail there
+/// (WindowsTests/graphics: wined3d fails d3d11tri, DXMT passes it). Its dxgi replaces Wine's, which Wine's
+/// Direct3D 12 (vkd3d) needs, so it's never used for D3D12 (`WineLauncher.effectiveGraphics(for:executable:)`).
 public struct DXMT: Sendable, Equatable {
     public let lib: URL
 

@@ -72,13 +72,17 @@ public struct WineLauncher: Sendable {
         }
     }
 
-    /// The backend for launching `program` from `executable`: as above, plus DXMT for programs that aren't games
-    /// but link Direct3D 10/11 (Wine's own D3D11 can't run shader model 5 on MoltenVK). Direct3D 12 programs stay
-    /// on Wine, whose D3D12 needs Wine's dxgi.
+    /// The backend for launching `program` from `executable`: as above, plus DXMT for programs that link Direct3D
+    /// 10/11 (Wine's own D3D11 can't run shader model 5 on MoltenVK) and are either not games or 32-bit games,
+    /// for which D3DMetal has no DLLs. Other games stay off it, with or without D3DMetal: their launchers start
+    /// Direct3D 12 children, and DXMT's dxgi replaces Wine's, which Wine's D3D12 needs, for the whole process tree.
+    /// For the same reason nothing gets DXMT whose folder holds a Direct3D 12 program.
     public func effectiveGraphics(for program: Program, executable: URL) -> GraphicsBackend {
         let chosen = effectiveGraphics(for: program)
-        guard chosen == .wined3d, program.graphics ?? .automatic == .automatic, dxmt != nil,
-              let d3d = (try? ProgramAnalysis.analyze(executable))?.direct3D, (10...11).contains(d3d) else { return chosen }
+        guard program.graphics ?? .automatic == .automatic, dxmt != nil,
+              let analysis = try? ProgramAnalysis.analyze(executable), let d3d = analysis.direct3D, (10...11).contains(d3d),
+              !program.isGame || analysis.architecture == .x86,
+              !ProgramAnalysis.usesDirect3D12(in: executable.deletingLastPathComponent()) else { return chosen }
         return .dxmt
     }
 

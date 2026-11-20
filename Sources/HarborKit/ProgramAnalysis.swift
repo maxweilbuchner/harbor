@@ -27,8 +27,9 @@ public struct ProgramAnalysis: Sendable, Equatable {
     /// Highest Direct3D generation the program links against (12, 11, 10, 9, 8), if any.
     public var direct3D: Int? {
         if imports.contains("d3d12.dll") { return 12 }
-        if imports.contains("d3d11.dll") || imports.contains("dxgi.dll") { return 11 }
-        if imports.contains("d3d10.dll") || imports.contains("d3d10_1.dll") { return 10 }
+        // dxgi.dll alone doesn't count: Direct3D 12 programs that load d3d12.dll at run time import it too.
+        if imports.contains("d3d11.dll") { return 11 }
+        if !imports.isDisjoint(with: ["d3d10.dll", "d3d10_1.dll", "d3d10core.dll"]) { return 10 }
         if imports.contains("d3d9.dll") { return 9 }
         if imports.contains("d3d8.dll") { return 8 }
         return nil
@@ -70,6 +71,23 @@ public struct ProgramAnalysis: Sendable, Equatable {
         result.iconPNG = pe.largestIconPNG()
         result.installer = detectInstaller(data, pe: pe, file: file, description: result.fileDescription)
         return result
+    }
+
+    /// Whether `folder` holds anything that uses Direct3D 12: a program or library importing d3d12.dll, at any
+    /// depth, or a copy of d3d12.dll itself. Launchers start the real program from their own folder.
+    public static func usesDirect3D12(in folder: URL) -> Bool {
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil) else { return false }
+        // One budget for the whole walk, so a program kept in a huge folder still launches promptly.
+        var budget = 4096
+        for case let file as URL in walker {
+            budget -= 1
+            guard budget >= 0 else { break }
+            guard ["exe", "dll"].contains(file.pathExtension.lowercased()) else { continue }
+            if file.lastPathComponent.lowercased() == "d3d12.dll" { return true }
+            if let data = try? Data(contentsOf: file, options: .mappedIfSafe),
+               PEFile(data)?.importedDLLs().contains("d3d12.dll") == true { return true }
+        }
+        return false
     }
 
     init(architecture: Architecture, isGUI: Bool, imports: Set<String>, installer: Installer? = nil) {
