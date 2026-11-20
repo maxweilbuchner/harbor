@@ -291,7 +291,7 @@ struct AddProgressSheet: View {
         switch step {
         case .analyzing: "Checking what kind of program this is."
         case .preparingWindows: "This takes about half a minute the first time."
-        case .runningInstaller: "Finish the installer’s window to continue."
+        case .runningInstaller: "Finish the installer’s window to continue. If it starts the program at the end, quit the program too."
         case .findingPrograms: "Looking for what the installer added."
         }
     }
