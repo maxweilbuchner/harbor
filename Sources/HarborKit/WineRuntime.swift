@@ -32,10 +32,10 @@ public struct WineRuntime: Sendable, Equatable {
         process.environment = environment
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
         guard (try? process.run()) != nil else { return false }
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
-        if process.isRunning { process.terminate(); return false }
+        if exited.wait(timeout: .now() + timeout) == .timedOut { process.terminate(); return false }
         return process.terminationStatus == 0
     }
 

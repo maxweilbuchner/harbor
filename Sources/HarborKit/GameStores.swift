@@ -71,9 +71,12 @@ public struct GameStores: Sendable {
         let bottle = try await store.create(name: which.bottleName) { try await launcher.initialize($0, template: template) }
         do {
             progress(.installing)
-            try await launcher.execute(bottle, arguments: which.silentInstall(installer.path), label: "\(which.name) setup")
+            let local = try bottle.importForRunning(installer)     // Wine can't run it from the Mac's temp folder
+            try await launcher.execute(bottle, arguments: which.silentInstall(bottle.windowsPath(for: local) ?? local.path),
+                                       label: "\(which.name) setup")
             try await nameWindows(of: which, in: bottle)
             try await launcher.waitForShutdown(bottle)
+            bottle.clearImports()
             guard let program = storeProgram(which, in: bottle) else { throw AddProgram.Failure.installerFoundNothing(name: which.name) }
             try bottle.savePrograms([program])
             return (bottle, program)

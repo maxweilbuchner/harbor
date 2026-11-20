@@ -179,10 +179,12 @@ public struct WineLauncher: Sendable {
     /// Arguments to `bin/wine` for opening `file`: installers through msiexec, everything else via `start /wait /unix`
     /// so Wine resolves the working directory the way Explorer would, and the launched process lives exactly as
     /// long as the program (plain `start` returns immediately, so Harbor would lose track of it).
-    public static func arguments(toOpen file: URL, extra: [String] = []) -> [String] {
+    /// `windowsPath`: the file's path inside the bottle, which msiexec needs (it is a Windows program and can't read
+    /// a Mac path once drive Z: is gone).
+    public static func arguments(toOpen file: URL, windowsPath: String? = nil, extra: [String] = []) -> [String] {
         switch file.pathExtension.lowercased() {
         case "msi":
-            return ["msiexec", "/i", file.path] + extra
+            return ["msiexec", "/i", windowsPath ?? file.path] + extra
         default:
             let known = (knownArguments[file.lastPathComponent.lowercased()] ?? []).filter { !extra.contains($0) }
             return ["start", "/wait", "/unix", file.path] + extra + known
@@ -195,12 +197,18 @@ public struct WineLauncher: Sendable {
         try await execute(bottle, arguments: ["reg", "add", #"HKCU\Software\Wine"#, "/v", "Version", "/d", bottle.settings.windowsVersion.rawValue, "/f"], label: "setup")
         // Harbor explains crashes itself (Diagnose); Wine's own "Program Error" dialog would only confuse.
         try await execute(bottle, arguments: ["reg", "add", #"HKCU\Software\Wine\WineDbg"#, "/v", "ShowCrashDialog", "/t", "REG_DWORD", "/d", "0", "/f"], label: "setup")
+        // A new prefix: nothing uses drive Z: yet, so it can go now even though wineserver lingers for a moment
+        // (later starts only touch it while the bottle is stopped).
+        bottle.applyMacFilesAccess()
     }
 
     /// Opens a Windows program or installer inside `bottle`. `onExit` runs when the program itself exits.
     @discardableResult
     public func open(_ file: URL, in bottle: Bottle, onExit: (@Sendable (Int32) -> Void)? = nil) throws -> Process {
-        try run(bottle, arguments: Self.arguments(toOpen: file), label: file.deletingPathExtension().lastPathComponent, onExit: onExit)
+        // Wine can't start a file by its Mac path once drive Z: is gone: run a copy inside the bottle.
+        let local = try bottle.importForRunning(file)
+        return try run(bottle, arguments: Self.arguments(toOpen: local, windowsPath: bottle.windowsPath(for: local)),
+                       label: file.deletingPathExtension().lastPathComponent, onExit: onExit)
     }
 
     /// Runs Wine and waits for it, throwing `WineExitError` on a non-zero status.
@@ -223,7 +231,11 @@ public struct WineLauncher: Sendable {
         let process = Process()
         let runtime = try chosen ?? runtime(for: bottle)
         // Older bottles still link their Documents etc. to the Mac's; replace those links before Windows starts.
-        if !bottle.isRunning() { bottle.unshareUserFolders() }
+        // Also the place where drive Z: (the whole Mac) is removed or kept, per the bottle's setting.
+        if !bottle.isRunning() {
+            bottle.unshareUserFolders()
+            bottle.applyMacFilesAccess()
+        }
         process.executableURL = runtime.wine
         process.arguments = arguments
         process.environment = environment(for: bottle, runtime: runtime)
@@ -245,8 +257,7 @@ public struct WineLauncher: Sendable {
         process.executableURL = runtime.wineserver
         process.arguments = ["-k"]
         process.environment = environment(for: bottle, runtime: runtime)
-        try process.run()
-        process.waitUntilExit()
+        try process.runAndWait()
     }
 }
 

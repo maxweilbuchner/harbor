@@ -9,7 +9,7 @@ mkdir -p build/WindowsTests/net
 "$CC" -O2 -Wall -o build/WindowsTests/net/https.exe WindowsTests/net/https.c -lwinhttp || exit 1
 CLI="$(swift build --build-system native --show-bin-path 2>/dev/null)/harbor-cli"
 BOTTLE="net-test-$$"
-"$CLI" create "$BOTTLE" >/dev/null || exit 1
+"$CLI" create "$BOTTLE" --mac-files >/dev/null || exit 1
 "$CLI" run "$BOTTLE" "$PWD/build/WindowsTests/net/https.exe" "${1:-example.com}" 2>/dev/null | grep -E '^(PASS|FAIL)'
 status=$?
 "$CLI" stop "$BOTTLE"

@@ -74,14 +74,15 @@ public struct AddProgram: Sendable {
         let before = Set(bottle.startMenuPrograms().map { $0.windowsPath.lowercased() })
         let exesBefore = programFilesExecutables(in: bottle)
         progress(.runningInstaller(name: name))
-        let process = try launcher.open(file, in: bottle)
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global().async { process.waitUntilExit(); done.resume() }
+        // The exit handler is installed before the installer starts, so its end can't be missed.
+        try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
+            do { try launcher.open(file, in: bottle) { _ in done.resume() } } catch { done.resume(throwing: error) }
         }
         // Bootstrapper installers start the real setup and exit at once; wait until every Windows process in
         // the bottle has finished (wineserver exits then), or the scan below would run mid-install. That
         // includes a program the installer starts at its end; the sheet asks the user to quit it.
         try await launcher.waitForShutdown(bottle)
+        bottle.clearImports()          // the installer's copy inside the bottle
         progress(.findingPrograms)
         let new = bottle.startMenuPrograms().filter { !before.contains($0.windowsPath.lowercased()) }
         if !new.isEmpty { return new }

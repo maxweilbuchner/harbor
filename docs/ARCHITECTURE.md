@@ -273,7 +273,10 @@ An independent review re-checked the plan against the code and runtime. Items ma
    prefixes, program index, Library UI, app shims (prototype Dock identity early), launcher bottles.
 7. **M6:** DXMT + DXVK/MoltenVK layers; Recipes + Diagnose; drive-mapping policy. Drive mapping, first part
    (#4): bottles no longer link My Documents/Downloads/Music/Pictures/Videos to the Mac's folders (Wine patch
-   0007; existing bottles migrate on their next start). Open: the `Z:` drive (#8). Recipes, first part (#5): Microsoft's Visual C++ 2015–2022/2013/2010 from the
+   0007; existing bottles migrate on their next start). The `Z:` drive (#8, 2026-11-20): bottles have no drive Z: (the whole Mac)
+   unless "Allow Access to My Mac's Files" is on for them (`BottleSettings.macFilesAccess`); files to run are
+   cloned into the bottle first (`Bottle.importForRunning`), since Wine can't start a Mac path without Z:. Not a
+   sandbox: Wine still resolves `\\?\unix\…` paths for software written to use them. Recipes, first part (#5): Microsoft's Visual C++ 2015–2022/2013/2010 from the
    program's menu ("Install Windows Component") or `harbor-cli install-component`, hash-pinned, with the DLL
    overrides that make Wine load them. Open: .NET 4.8 and DirectX extras (#10). Graphics layers (#7): DXMT v0.80 ships inside the runtime (lib/dxmt) and is overlaid per
    launch for Direct3D 10/11 programs that aren't games (games keep D3DMetal); `run.sh dxmt` passes D3D11 where
