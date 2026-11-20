@@ -152,6 +152,55 @@ extension RecipeInstallTests {
     }
 }
 
+extension RecipeInstallTests {
+    @Test func findsWineMonosPackagesInTheUninstallerList() {
+        let list = """
+        {C6477445-52D3-59D1-8F55-F34D8490D631}|||Wine Mono Runtime
+        {0591009C-75D7-5F33-B5DF-4F47111155EC}|||Wine Mono Windows Support
+        {1D8E6291-B0D5-35EC-8441-6616F567A0F7}|||Microsoft Visual C++ 2010  x64 Redistributable
+        Wine Mono|||not an id
+        009c:err:ntoskrnl:ZwLoadDriver failed
+        """
+        #expect(WineLauncher.wineMonoPackages(inUninstallerList: list)
+                == ["{C6477445-52D3-59D1-8F55-F34D8490D631}", "{0591009C-75D7-5F33-B5DF-4F47111155EC}"])
+    }
+
+    /// .NET's installers refuse Windows 10: each runs with an older Windows presented, in order, and the bottle's own
+    /// version comes back at the end. Wine Mono goes first.
+    @Test func presentsOlderWindowsToInstallersAndRestoresTheBottlesVersion() async throws {
+        let f = try fixture(exits: "")
+        var first = f.recipe.downloads[0], second = f.recipe.downloads[1]
+        first.windowsVersion = "winxp64"
+        second.windowsVersion = "win7"
+        var recipe = Recipe(id: "nettest", name: "Test", downloads: [first, second], overrides: ["mscoree"], marker: "mscoree.dll")
+        recipe.replacesWineMono = true
+        try await f.launcher.install(recipe, in: f.bottle, cache: f.cache)
+        let calls = try String(contentsOf: f.calls, encoding: .utf8).split(separator: "\n").map(String.init)
+        func index(_ suffix: String) throws -> Int { try #require(calls.firstIndex { $0.hasSuffix(suffix) }, "\(suffix) in \(calls)") }
+        // Wine Mono is removed before the overrides are imported (its uninstaller needs Wine's mscoree).
+        let order = [try index("uninstaller --list"), try #require(calls.firstIndex { $0.hasPrefix("reg import") }), try index("/d winxp64 /f"), try index("vc_x64.exe /quiet"),
+                     try index("/d win7 /f"), try index("vc_x86.exe /quiet"), try index("/d win10 /f")]
+        #expect(order == order.sorted())
+        // Settings meant for afterwards are imported last.
+        var late = recipe
+        late.registryAfterInstall = "[HKEY_CURRENT_USER\\Software\\X]\r\n"
+        try await f.launcher.install(late, in: f.bottle, cache: f.cache)
+        let again = try String(contentsOf: f.calls, encoding: .utf8).split(separator: "\n").map(String.init)
+        #expect(again.last?.hasPrefix("reg import") == true && again.last?.contains("-after.reg") == true)
+    }
+
+    @Test func theDotNetComponentKeepsWinesUpdateFromAskingMicrosoftsMscoree() {
+        let reg = Recipe.dotnet48.overridesRegistryFile
+        #expect(reg.contains("\"mscoree\"=\"native,builtin\"\r\n"))
+        // The rundll32 setting comes after the installers (they use rundll32 with mscoree themselves).
+        #expect(!reg.contains("rundll32"))
+        #expect(Recipe.dotnet48.registryAfterInstall.contains("[HKEY_CURRENT_USER\\Software\\Wine\\AppDefaults\\rundll32.exe\\DllOverrides]\r\n\"mscoree\"=\"\"\r\n"))
+        #expect(Recipe.dotnet48.replacesWineMono)
+        #expect(Recipe.dotnet48.downloads.map(\.windowsVersion) == ["winxp64", "win7"])
+        #expect(Diagnosis(cause: .dotNet).recipe == .dotnet48)
+    }
+}
+
 @Suite struct RuntimeCollectionTests {
     let fm = FileManager.default
 

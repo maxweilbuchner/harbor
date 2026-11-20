@@ -15,6 +15,9 @@ public struct Recipe: Sendable, Identifiable, Equatable {
         /// A command to run after the download itself, for packages that only unpack (a Windows path and its
         /// arguments).
         public var followUp: [String] = []
+        /// The Windows version to present while this installer runs ("winxp64", "win7"), for installers that refuse
+        /// newer ones. The bottle's own version is restored afterwards.
+        public var windowsVersion: String?
     }
 
     public let id: String
@@ -26,8 +29,37 @@ public struct Recipe: Sendable, Identifiable, Equatable {
     public let marker: String
     /// A folder in the bottle the installation unpacks into, removed afterwards (Windows path).
     public var temporaryFolder: String?
+    /// Whether Wine Mono (Wine's own .NET) is uninstalled first: Microsoft's .NET can't share a bottle with it.
+    public var replacesWineMono = false
+    /// More registry settings, in .reg form (sections only), applied after the installers have run.
+    public var registryAfterInstall = ""
 
-    public static let all: [Recipe] = [vcrun2022, vcrun2013, vcrun2010, directx2010]
+    public static let all: [Recipe] = [vcrun2022, vcrun2013, vcrun2010, directx2010, dotnet48]
+
+    /// Microsoft's .NET Framework 4.8 in place of Wine Mono, for programs Mono can't run.
+    ///
+    /// Three things make it install and keep working (each found by trying it on Harbor's Wine):
+    /// - .NET 4.8's installer says "already installed" on Windows 10, where it is part of the system, so Windows 7
+    ///   is presented while it runs. It doesn't bring `mscoree.dll` (part of Windows since 7), the entry point of
+    ///   every .NET program, so .NET 4.0 is installed first, with Windows XP presented, which does.
+    /// - Wine's stand-in for `mscoree.dll` is removed first and overridden, or Microsoft's is never used.
+    /// - Wine re-registers `mscoree.dll` with rundll32 on every prefix update. Microsoft's answers that with an
+    ///   error dialog nobody sees, and the update waits forever; for rundll32 alone the DLL is therefore disabled.
+    ///   Only after the installation: .NET's own installer uses rundll32 with mscoree and fails without it.
+    public static let dotnet48 = Recipe(
+        id: "dotnet48", name: ".NET Framework 4.8",
+        downloads: [
+            Download(url: URL(string: "https://download.microsoft.com/download/9/5/A/95A9616B-7A37-4AF6-BC36-D6EA96C8DAAE/dotNetFx40_Full_x86_x64.exe")!,
+                     sha256: "65e064258f2e418816b304f646ff9e87af101e4c9552ab064bb74d281c38659f",
+                     arguments: ["/q", "/norestart"], windowsVersion: "winxp64"),
+            Download(url: URL(string: "https://download.microsoft.com/download/f/3/a/f3a6af84-da23-40a5-8d1c-49cc10c8e76f/NDP48-x86-x64-AllOS-ENU.exe")!,
+                     sha256: "0a3a390c47e639d0f7fc65b21195fee6b7f65b066f80f70c60fab191d14b7e40",
+                     arguments: ["/sfxlang:1027", "/q", "/norestart"], windowsVersion: "win7"),
+        ],
+        overrides: ["mscoree"],
+        marker: "mscoree.dll",
+        replacesWineMono: true,
+        registryAfterInstall: "[HKEY_CURRENT_USER\\Software\\Wine\\AppDefaults\\rundll32.exe\\DllOverrides]\r\n\"mscoree\"=\"\"\r\n")
 
     /// The DirectX End-User Runtimes of June 2010: the D3DX helper libraries and old shader compilers that games
     /// of the DirectX 9–11 era ship against. Microsoft's package unpacks its cabinets, then its DXSETUP installs
@@ -125,10 +157,12 @@ public struct Recipe: Sendable, Identifiable, Equatable {
 
 public enum RecipeError: Error, CustomStringConvertible, Equatable {
     case checksumMismatch(String)
+    case bottleInUse
 
     public var description: String {
         switch self {
         case .checksumMismatch(let file): "The download of \(file) didn’t match Microsoft’s published file. Nothing was installed."
+        case .bottleInUse: "Quit this program, and any installed together with it, before installing this component."
         }
     }
 }
@@ -144,6 +178,17 @@ extension WineLauncher {
             for (n, download) in recipe.downloads.enumerated() { group.addTask { (n, try await Self.fetch(download, into: cache)) } }
             return try await group.reduce(into: [:]) { $0[$1.0] = $1.1 }
         }
+        // Wine Mono goes before anything else changes: its uninstaller needs Wine's own mscoree, which the steps
+        // below take away (in the other order the uninstaller hangs).
+        if recipe.replacesWineMono {
+            // Swapping .NET under a running program can't work, and the wait below would never end.
+            // (An idle session lingers for a few seconds after its last program; give it time to end.)
+            for _ in 0..<40 where bottle.isRunning() { try await Task.sleep(for: .milliseconds(500)) }
+            if bottle.isRunning() { throw RecipeError.bottleInUse }
+            try await removeWineMono(from: bottle)
+            // Microsoft's installer fails (1603) in the Wine session that removed Mono: let that session end first.
+            try? await waitForShutdown(bottle)
+        }
         // Overrides first, then Wine's built-in copies out of the way: Microsoft's installers skip a DLL whose
         // version is newer than theirs, and Wine's msvcr120 claims a newer one than VC++ 2013's. Without the copy
         // in system32, Wine still loads its built-in one from its own folder until the native one arrives.
@@ -155,8 +200,16 @@ extension WineLauncher {
         try await execute(bottle, arguments: ["reg", "import", #"C:\windows\temp\"# + reg.lastPathComponent], label: recipe.id)
         recipe.removeBuiltinCopies(in: bottle)
         var failure: WineExitError?
+        var versionChanged = false
+        func present(_ version: String) async throws {
+            try await execute(bottle, arguments: ["reg", "add", #"HKCU\Software\Wine"#, "/v", "Version", "/d", version, "/f"], label: recipe.id)
+        }
         for (n, download) in recipe.downloads.enumerated() {
             do {
+                if let version = download.windowsVersion {
+                    try await present(version)
+                    versionChanged = true
+                }
                 let local = try bottle.importForRunning(files[n]!)
                 try await execute(bottle, arguments: [bottle.windowsPath(for: local) ?? local.path] + download.arguments, label: recipe.id)
                 if !download.followUp.isEmpty { try await execute(bottle, arguments: download.followUp, label: recipe.id) }
@@ -164,10 +217,40 @@ extension WineLauncher {
                 if !Recipe.installerSucceeded(error.status) { failure = failure ?? error }
             }
         }
+        if versionChanged { try await present(bottle.settings.windowsVersion.rawValue) }
+        if failure == nil, !recipe.registryAfterInstall.isEmpty {
+            let after = temp.appending(path: "harbor-\(recipe.id)-after.reg")
+            try ("Windows Registry Editor Version 5.00\r\n\r\n" + recipe.registryAfterInstall).write(to: after, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: after) }
+            try await execute(bottle, arguments: ["reg", "import", #"C:\windows\temp\"# + after.lastPathComponent], label: recipe.id)
+        }
         if let folder = recipe.temporaryFolder.flatMap({ bottle.unixPath(forWindowsPath: $0) }) {
             try? FileManager.default.removeItem(at: folder)
         }
         if let failure { throw failure }
+    }
+
+    /// Uninstalls Wine Mono's packages (as `uninstaller --list` names them) from the bottle, without any UI.
+    func removeWineMono(from bottle: Bottle) async throws {
+        let listing = FileManager.default.temporaryDirectory.appending(path: "harbor-uninstall-\(UUID().uuidString).txt")
+        FileManager.default.createFile(atPath: listing.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: listing) }
+        try await execute(bottle, arguments: ["uninstaller", "--list"], label: "components", output: try FileHandle(forWritingTo: listing))
+        let text = String(decoding: (try? Data(contentsOf: listing)) ?? Data(), as: UTF8.self)
+        for id in Self.wineMonoPackages(inUninstallerList: text) {
+            // msiexec, quietly: Wine's `uninstaller --remove` asks in a message box when a package is already gone
+            // (removing the runtime takes its support package along), and would wait for a click nobody can give.
+            _ = try? await execute(bottle, arguments: ["msiexec", "/x", id, "/qn"], label: "components")
+        }
+    }
+
+    /// The IDs of Wine Mono's packages in `uninstaller --list` output (`{GUID}|||Wine Mono Runtime`).
+    static func wineMonoPackages(inUninstallerList text: String) -> [String] {
+        text.split(whereSeparator: \.isNewline).compactMap { line in
+            let parts = line.components(separatedBy: "|||")
+            guard parts.count == 2, parts[1].hasPrefix("Wine Mono"), parts[0].hasPrefix("{"), parts[0].hasSuffix("}") else { return nil }
+            return parts[0]
+        }
     }
 
     /// The installer file, from the cache when its hash still matches.
