@@ -118,4 +118,31 @@ import Testing
         chosen.graphics = .dxmt                                                           // an explicit choice stays
         #expect(launcher.effectiveGraphics(for: chosen, executable: exe) == .dxmt)
     }
+
+    // MARK: Launcher nits (#28)
+
+    /// Stopping a bottle must not depend on its graphics layer being usable.
+    @Test func shutdownReachesWineserverWhenDXMTCantBePrepared() throws {
+        let (base, root) = try DXMTTests().runtime()
+        try "#!/bin/sh\necho \"$@\" > \"$0.args\"\n".write(to: base.wineserver, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: base.wineserver.path)
+        var bottle = try BottleStore(directory: root.appending(path: "bottles")).create(name: "B")
+        bottle.settings.graphics = .dxmt
+        // An older bottle without winemetal.dll, and a runtime that can't supply it.
+        try fm.createDirectory(at: bottle.driveC.appending(path: "windows/system32"), withIntermediateDirectories: true)
+        try fm.removeItem(at: base.root.appending(path: "lib/dxmt/x86_64-windows/winemetal.dll"))
+        let launcher = WineLauncher(runtime: base, runtimesDirectory: root.appending(path: "runtimes"))
+        #expect(throws: (any Error).self) { try launcher.runtime(for: bottle) }
+        try launcher.shutdown(bottle)
+        #expect(try String(contentsOf: base.wineserver.appendingPathExtension("args"), encoding: .utf8) == "-k\n")
+    }
+
+    /// Backslashes escape a quote the way CommandLineToArgvW reads them, and are literal everywhere else.
+    @Test func splitsArgumentsWithEscapedQuotes() {
+        #expect(WineLauncher.splitArguments(#"-name \"Max\" -x"#) == ["-name", #""Max""#, "-x"])
+        #expect(WineLauncher.splitArguments(#"-say "a \"b\" c""#) == ["-say", #"a "b" c"#])
+        #expect(WineLauncher.splitArguments(#"C:\dir\file.txt \\server\share"#) == [#"C:\dir\file.txt"#, #"\\server\share"#])
+        #expect(WineLauncher.splitArguments(#""C:\my dir\\" x"#) == [#"C:\my dir\"#, "x"])
+        #expect(WineLauncher.splitArguments(#"a\\\"b c\"#) == [#"a\"b"#, #"c\"#])
+    }
 }

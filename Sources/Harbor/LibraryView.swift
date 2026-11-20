@@ -192,6 +192,7 @@ struct ProgramMenu: View {
             Text("D3DMetal (Games)").tag(GraphicsBackend.d3dmetal)
                 .selectionDisabled(model.launcher?.offers(.d3dmetal, for: item.program) != true)
             Text("DXMT").tag(GraphicsBackend.dxmt)
+                .selectionDisabled(model.launcher?.offers(.dxmt, for: item.program) != true)
             Text("Compatibility").tag(GraphicsBackend.wined3d)
         }
         // Microsoft's own runtimes, for programs that need more than Wine's built-in versions.
