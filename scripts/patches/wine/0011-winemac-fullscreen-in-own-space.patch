@@ -1,0 +1,212 @@
+--- a/dlls/winemac.drv/cocoa_window.m
++++ b/dlls/winemac.drv/cocoa_window.m
+@@ -414,6 +414,13 @@
+ 
+ @property (assign, nonatomic) void* himc;
+ @property (nonatomic) BOOL commandDone;
++
++/* HARBOR HACK: this window is in (or entering) a macOS fullscreen Space because the program made it fullscreen;
++ * and: the user took it out of that Space, so don't put it back until the program changes its size. */
++@property (nonatomic) BOOL ownSpaceForFullscreen;
++@property (nonatomic) BOOL ownSpaceDeclined;
++/* The frame macOS gave the window in its Space (smaller than the screen on Macs with a camera housing). */
++@property (nonatomic) NSRect ownSpaceFrame;
+ 
+ @property (readonly, copy, nonatomic) NSArray* childWineWindows;
+ 
+@@ -1008,6 +1015,7 @@
+     @synthesize shapeChangedSinceLastDraw;
+     @synthesize usePerPixelAlpha;
+     @synthesize himc, commandDone;
++    @synthesize ownSpaceForFullscreen, ownSpaceDeclined, ownSpaceFrame;
+     @synthesize contentViewMaskLayer;
+ 
+     + (WineWindow*) createWindowWithFeatures:(const struct macdrv_window_features*)wf
+@@ -1155,7 +1163,12 @@
+     {
+         NSUInteger style = [self styleMask];
+ 
+-        if (behavior & NSWindowCollectionBehaviorParticipatesInCycle &&
++        if (self.ownSpaceForFullscreen) /* HARBOR HACK: see -useOwnSpaceIfFullscreen */
++        {
++            behavior |= NSWindowCollectionBehaviorFullScreenPrimary;
++            behavior &= ~NSWindowCollectionBehaviorFullScreenAuxiliary;
++        }
++        else if (behavior & NSWindowCollectionBehaviorParticipatesInCycle &&
+             style & NSWindowStyleMaskResizable && !(style & NSWindowStyleMaskUtilityWindow) && !maximized &&
+             !(self.parentWindow || self.latentParentWindow))
+         {
+@@ -1845,6 +1858,8 @@
+                Generate a frame-changed event just in case.  The back end will ignore
+                it if nothing actually changed. */
+             [self windowDidResize:nil skipSizeMove:TRUE];
++
++            [self useOwnSpaceIfFullscreen]; /* HARBOR HACK: it may have been sized before it was shown */
+ 
+             if (![self isExcludedFromWindowsMenu])
+                 [NSApp addWindowsItem:self title:[self title] filename:NO];
+@@ -1913,7 +1928,8 @@
+     - (void) updateFullscreen
+     {
+         NSRect contentRect = [self contentRectForFrameRect:self.wine_fractionalFrame];
+-        BOOL nowFullscreen = !([self styleMask] & NSWindowStyleMaskFullScreen) && screen_covered_by_rect(contentRect, [NSScreen screens]);
++        BOOL nowFullscreen = !([self styleMask] & NSWindowStyleMaskFullScreen) && !self.ownSpaceForFullscreen &&
++                             screen_covered_by_rect(contentRect, [NSScreen screens]);
+ 
+         if (nowFullscreen != fullscreen)
+         {
+@@ -1924,8 +1940,61 @@
+                 [controller updateFullscreenWindows];
+ 
+             [controller adjustWindowLevels];
++        }
++
++        [self useOwnSpaceIfFullscreen]; /* HARBOR HACK */
++    }
++
++    /* HARBOR HACK - START: a fullscreen program gets a macOS fullscreen Space of its own.
++     *
++     * Wine shows a window that covers the screen by raising it above the menu bar and the Dock on whatever Desktop
++     * it is on, and only while its process is active. A Mac user expects fullscreen to be a Space: a Desktop of its
++     * own in Mission Control, to swipe to and away from, with nothing else on it. So when a program makes a
++     * top-level window cover the screen, the window enters macOS fullscreen; when the program makes it smaller
++     * again, it leaves. If the user takes it out of fullscreen (green button, Ctrl-Cmd-F), it stays out until the
++     * program next changes its size, and Wine's raised window is used as before. The same fallback applies if
++     * macOS refuses the transition. "FullscreenInOwnSpace"=n (Mac Driver registry key) turns this off. */
++    - (void) useOwnSpaceIfFullscreen
++    {
++        BOOL native, covers;
++
++        if (!fullscreen_in_own_space || enteringFullScreen || exitingFullScreen)
++            return;
++
++        native = ([self styleMask] & NSWindowStyleMaskFullScreen) != 0;
++        covers = screen_covered_by_rect([self contentRectForFrameRect:self.wine_fractionalFrame], [NSScreen screens]) != nil;
++
++        if (!covers)
++        {
++            if (native && self.ownSpaceForFullscreen)
++            {
++                /* The Space's own size is smaller than the screen on Macs with a camera housing, and the program
++                 * has been told that size: that isn't leaving fullscreen. */
++                if (NSIsEmptyRect(self.ownSpaceFrame) ||
++                    NSEqualSizes(self.wine_fractionalFrame.size, self.ownSpaceFrame.size))
++                    return;
++                /* The program left fullscreen: leave the Space and take the size it asked for. */
++                self.ownSpaceForFullscreen = FALSE;
++                nonFullscreenFrame = self.wine_fractionalFrame;
++                [super toggleFullScreen:nil];
++            }
++            else if (!native)
++                self.ownSpaceDeclined = FALSE;
++            return;
+         }
++
++        if (native || self.ownSpaceForFullscreen || self.ownSpaceDeclined)
++            return;
++        if (![self isVisible] || [self isMiniaturized] || self.parentWindow || self.latentParentWindow)
++            return;
++
++        self.ownSpaceForFullscreen = TRUE;
++        self.ownSpaceFrame = NSZeroRect;
++        [self adjustFullScreenBehavior:[self collectionBehavior]];
++        [self updateFullscreen]; /* no longer Wine's raised kind of fullscreen */
++        [super toggleFullScreen:nil];
+     }
++    /* HARBOR HACK - END */
+ 
+     - (void) setFrameAndWineFrame:(NSRect)frame
+     {
+@@ -1965,6 +2034,17 @@
+         [queue discardEventsMatchingMask:event_mask_for_type(WINDOW_FRAME_CHANGED)
+                                forWindow:self];
+ 
++        /* HARBOR HACK: in its own Space the window has the Space's size. A program that asks for the whole screen
++         * again (as fullscreen programs do) keeps that; tell it the real size once more instead of fighting macOS. */
++        if (self.ownSpaceForFullscreen && !NSIsEmptyRect(contentRect) &&
++            (enteringFullScreen || ([self styleMask] & NSWindowStyleMaskFullScreen)) &&
++            screen_covered_by_rect(contentRect, [NSScreen screens]))
++        {
++            if (!enteringFullScreen && [self isOrderedIn])
++                [self windowDidResize:nil skipSizeMove:TRUE];
++            return;
++        }
++
+         if (!NSIsEmptyRect(contentRect))
+         {
+             NSRect frame, oldFrame;
+@@ -3091,6 +3171,8 @@
+     {
+         enteringFullScreen = FALSE;
+         enteredFullScreenTime = [[NSProcessInfo processInfo] systemUptime];
++        if (self.ownSpaceForFullscreen) /* HARBOR HACK */
++            self.ownSpaceFrame = [self frame];
+         if (pendingOrderOut)
+             [self doOrderOut];
+     }
+@@ -3100,6 +3182,8 @@
+         exitingFullScreen = FALSE;
+         [self setFrameAndWineFrame:nonFullscreenFrame];
+         [self windowDidResize:nil];
++        [self adjustFullScreenBehavior:[self collectionBehavior]]; /* HARBOR HACK */
++        [self updateFullscreen]; /* HARBOR HACK */
+         if (pendingOrderOut)
+             [self doOrderOut];
+     }
+@@ -3108,6 +3192,13 @@
+     {
+         enteringFullScreen = FALSE;
+         enteredFullScreenTime = 0;
++        if (self.ownSpaceForFullscreen) /* HARBOR HACK: fall back to Wine's raised window */
++        {
++            self.ownSpaceForFullscreen = FALSE;
++            self.ownSpaceDeclined = TRUE;
++            [self adjustFullScreenBehavior:[self collectionBehavior]];
++            [self updateFullscreen];
++        }
+         if (pendingOrderOut)
+             [self doOrderOut];
+     }
+@@ -3241,6 +3332,11 @@
+ 
+     - (void) windowWillExitFullScreen:(NSNotification*)notification
+     {
++        if (self.ownSpaceForFullscreen) /* HARBOR HACK: the user is taking it out of its Space */
++        {
++            self.ownSpaceForFullscreen = FALSE;
++            self.ownSpaceDeclined = TRUE;
++        }
+         exitingFullScreen = TRUE;
+         [self postWindowFrameChanged:nonFullscreenFrame fullscreen:FALSE resizing:FALSE skipSizeMove:FALSE];
+     }
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -131,6 +131,7 @@
+ extern bool macdrv_err_on;
+ extern int topmost_float_inactive;
+ extern bool capture_displays_for_fullscreen;
++extern bool fullscreen_in_own_space; /* HARBOR HACK */
+ /* CrossOver Hack 10912: Mac Edit menu */
+ extern int mac_edit_menu;
+ extern bool left_option_is_alt;
+--- a/dlls/winemac.drv/macdrv_main.c
++++ b/dlls/winemac.drv/macdrv_main.c
+@@ -44,6 +44,7 @@
+ 
+ int topmost_float_inactive = TOPMOST_FLOAT_INACTIVE_NONFULLSCREEN;
+ bool capture_displays_for_fullscreen = false;
++bool fullscreen_in_own_space = true; /* HARBOR HACK */
+ BOOL allow_vsync = TRUE;
+ BOOL allow_set_gamma = TRUE;
+ /* CrossOver Hack 10912: Mac Edit menu */
+@@ -326,6 +327,10 @@
+     if (!get_config_key(hkey, appkey, "CaptureDisplaysForFullscreen", buffer, sizeof(buffer)))
+         capture_displays_for_fullscreen = IS_OPTION_TRUE(buffer[0]);
+ 
++    /* HARBOR HACK: "FullscreenInOwnSpace"=n keeps Wine's raised window instead of a macOS fullscreen Space. */
++    if (!get_config_key(hkey, appkey, "FullscreenInOwnSpace", buffer, sizeof(buffer)))
++        fullscreen_in_own_space = IS_OPTION_TRUE(buffer[0]);
++
+     if (!get_config_key(hkey, appkey, "AllowVerticalSync", buffer, sizeof(buffer)))
+         allow_vsync = IS_OPTION_TRUE(buffer[0]);
+ 

@@ -6,6 +6,7 @@
 # phase 4 switches Spaces away and back, then opens/closes Mission Control (three-finger swipes).
 #
 #   WindowsTests/graphics/fullscreen.sh [backend] [passive|guided]   # default d3dmetal
+#   OWN_SPACE=n WindowsTests/graphics/fullscreen.sh dxmt passive     # without a fullscreen Space of its own
 #     passive = the app ignores reactivation; guided = voice-prompted real three-finger swipe to another Space
 set -u
 cd "$(dirname "$0")/../.."
@@ -17,6 +18,11 @@ OUT=build/WindowsTests/graphics/fullscreen
 BOTTLE="fullscreen-test-$$"
 mkdir -p "$OUT"
 "$CLI" create "$BOTTLE" --mac-files >/dev/null || exit 1
+# OWN_SPACE=n runs with Wine's raised-window fullscreen instead of a macOS fullscreen Space (Harbor's patch 0011).
+if [ -n "${OWN_SPACE:-}" ]; then
+  "$CLI" run "$BOTTLE" reg add 'HKCU\Software\Wine\Mac Driver' /v FullscreenInOwnSpace /d "$OWN_SPACE" /f >/dev/null 2>&1
+  "$CLI" stop "$BOTTLE"
+fi
 
 # Screen centre in points of the main display (the one with the menu bar), where fullscreen games appear.
 # (Finder's desktop bounds span all displays.)
