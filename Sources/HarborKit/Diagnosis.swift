@@ -38,10 +38,22 @@ public struct Diagnosis: Equatable, Sendable {
     }
 
     /// Reads a Wine log. The first recognised cause wins, most specific first.
-    public static func analyze(_ log: String) -> Diagnosis? {
+    ///
+    /// `program` is the Windows path of the program that was launched. A log covers everything that ran in the
+    /// session, helper programs included (Steam's `gldriverquery.exe` fails to find SDL2.dll at every start, and
+    /// nothing is wrong): a missing library is only reported when the launched program itself couldn't be loaded.
+    /// Without `program`, any module's failure counts.
+    public static func analyze(_ log: String, program: String? = nil) -> Diagnosis? {
         let lines = log.split(whereSeparator: \.isNewline)
         // err:module:import_dll Library HarborMissing.dll (which is needed by L"…") not found
-        if let line = lines.first(where: { $0.contains("err:module:import_dll Library ") && $0.hasSuffix(" not found") }),
+        // err:module:loader_init Importing dlls for L"C:\\…\\program.exe" failed, status c0000135
+        var failedToLoad = true
+        if let program {
+            let quoted = ("L\"" + program.replacingOccurrences(of: "\\", with: "\\\\") + "\"").lowercased()
+            failedToLoad = lines.contains { $0.contains("err:module:loader_init Importing dlls for ") && $0.lowercased().contains(quoted) }
+        }
+        if failedToLoad,
+           let line = lines.first(where: { $0.contains("err:module:import_dll Library ") && $0.hasSuffix(" not found") }),
            let start = line.range(of: "import_dll Library ")?.upperBound,
            let end = line[start...].range(of: " (which is needed by ")?.lowerBound {
             let dll = String(line[start..<end])     // may contain spaces
@@ -83,9 +95,9 @@ extension Bottle {
 
     /// What went wrong in the last run labelled `label`, and the log that says so. Reads the log lossily (Windows
     /// programs print in their own code pages) and touches nothing else, so call it off the main actor.
-    public func diagnosis(forLatestRunOf label: String) -> (diagnosis: Diagnosis, log: URL)? {
+    public func diagnosis(forLatestRunOf label: String, program: String? = nil) -> (diagnosis: Diagnosis, log: URL)? {
         guard let log = latestLog(label: label), let data = try? Data(contentsOf: log),
-              let diagnosis = Diagnosis.analyze(String(decoding: data, as: UTF8.self)) else { return nil }
+              let diagnosis = Diagnosis.analyze(String(decoding: data, as: UTF8.self), program: program) else { return nil }
         return (diagnosis, log)
     }
 }
