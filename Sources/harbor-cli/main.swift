@@ -61,7 +61,11 @@ case "create" where args.count == 2 || (args.count == 3 && args[2] == "--mac-fil
     let wine = launcher()
     print("Creating \(args[1])…")
     var b = try await store.create(name: args[1], setUp: wine.initialize)
-    if args.count == 3 { b.settings.macFilesAccess = true; try b.save() }
+    if args.count == 3 {
+        b.settings.macFilesAccess = true
+        try b.save()
+        b.applyMacFilesAccess()        // setup removed drive Z: before the setting existed; put it back now
+    }
     print("Ready: \(b.root.path)")
 case "mac-files" where args.count == 3 && ["on", "off"].contains(args[2]):
     // Whether the bottle's programs see the Mac's files as drive Z: (applies at the bottle's next start).

@@ -1,0 +1,90 @@
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -364,7 +364,8 @@
+             else
+                 title = WineLocalizedString(STRING_MENU_ITEM_QUIT);
+             item = [submenu addItemWithTitle:title action:@selector(terminate:) keyEquivalent:@"q"];
+-            [item setKeyEquivalentModifierMask:NSEventModifierFlagCommand | NSEventModifierFlagOption];
++            /* HARBOR HACK: Cmd-Q quits a Windows program like any Mac app (Wine used Option-Cmd-Q). */
++            [item setKeyEquivalentModifierMask:NSEventModifierFlagCommand];
+             item = [[[NSMenuItem alloc] init] autorelease];
+             [item setTitle:WineLocalizedString(STRING_MENU_WINE)];
+             [item setSubmenu:submenu];
+@@ -840,13 +841,57 @@
+                 if ([originalDisplayModes count] || CGReleaseAllDisplays() == CGDisplayNoErr)
+                     displaysCapturedForFullscreen = FALSE;
+             }
++        }
++    }
++
++    /* HARBOR HACK - START: a fullscreen program gets its Desktop back.
++     *
++     * A fullscreen Wine window is raised above everything only while its process is the active app. Swiping to
++     * another Desktop deactivates the process and drops the window back into the normal stack, usually behind the
++     * window of whatever started it; on the way back macOS then activates that other app instead (the game stayed
++     * hidden behind Steam, Harbor or a terminal). If the process lost activation because the Desktop was switched
++     * away from its fullscreen window, it takes activation back when that Desktop returns, as an app with a
++     * fullscreen Space of its own would. Leaving by clicking another app is not undone. */
++    static BOOL fullscreenLeftBySpaceSwitch;
++    static NSTimeInterval lastResignTime;
++
++    - (WineWindow*) visibleFullscreenWindow
++    {
++        for (NSWindow* w in [NSApp windows])
++        {
++            if ([w isKindOfClass:[WineWindow class]] && ((WineWindow*)w).fullscreen && [w isVisible])
++                return (WineWindow*)w;
+         }
++        return nil;
+     }
+ 
++    - (void) reclaimFullscreenDesktop
++    {
++        WineWindow* window = [self visibleFullscreenWindow];
++        if (!window)
++        {
++            fullscreenLeftBySpaceSwitch = FALSE;
++            return;
++        }
++        if (![window isOnActiveSpace])
++        {
++            if ([NSApp isActive] || [NSDate timeIntervalSinceReferenceDate] - lastResignTime < 2.0)
++                fullscreenLeftBySpaceSwitch = TRUE;
++        }
++        else if (fullscreenLeftBySpaceSwitch)
++        {
++            fullscreenLeftBySpaceSwitch = FALSE;
++            if (![NSApp isActive])
++                [self tryToActivateIgnoringOtherApps:YES];
++        }
++    }
++    /* HARBOR HACK - END */
++
+     - (void) activeSpaceDidChange
+     {
+         [self updateFullscreenWindows];
+         [self adjustWindowLevels];
++        [self reclaimFullscreenDesktop]; /* HARBOR HACK */
+     }
+ 
+     - (void) sendDisplaysChanged:(BOOL)activating
+@@ -2471,6 +2516,7 @@
+             [self setMode:mode forDisplay:[displayID unsignedIntValue]];
+         }
+ 
++        fullscreenLeftBySpaceSwitch = FALSE; /* HARBOR HACK */
+         [self updateFullscreenWindows];
+         [self adjustWindowLevels:YES];
+ 
+@@ -2512,6 +2558,11 @@
+     {
+         macdrv_event* event;
+         WineEventQueue* queue;
++
++        /* HARBOR HACK: the Desktop may have been switched away just before (see reclaimFullscreenDesktop). */
++        lastResignTime = [NSDate timeIntervalSinceReferenceDate];
++        if ([self visibleFullscreenWindow] && ![[self visibleFullscreenWindow] isOnActiveSpace])
++            fullscreenLeftBySpaceSwitch = TRUE;
+ 
+         [self invalidateGotFocusEvents];
+ 
