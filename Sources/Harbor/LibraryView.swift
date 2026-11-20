@@ -116,7 +116,9 @@ struct LibraryView: View {
             ForEach(items) { item in
                 ProgramTile(item: item, selected: selection.contains(item.id), running: model.running.contains(item.id))
                     .onTapGesture(count: 2) { model.open(item) }
-                    .onTapGesture { selection = [item.id] }
+                    // Simultaneous, not a second onTapGesture: behind a double-click handler a plain tap is held back
+                    // for the system's double-click interval, and selecting felt laggy.
+                    .simultaneousGesture(TapGesture().onEnded { selection = [item.id] })
                     .contextMenu { ProgramMenu(item: item) }
                     .accessibilityAction { model.open(item) }
                     // The context menu's main actions, without a right-click (VoiceOver's Actions rotor).
