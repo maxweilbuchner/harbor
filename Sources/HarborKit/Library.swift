@@ -8,6 +8,8 @@ public struct LibraryEntry: Sendable, Equatable {
     public var managedByStore = false
     /// Image file its icon is read from, if it has one.
     public var iconFile: URL?
+    /// For store titles: the key of the user's game/software choice (`Bottle.setStoreTitle`).
+    public var storeTitleKey: String?
 }
 
 public enum Library {
@@ -21,13 +23,13 @@ public enum Library {
             let epic = EpicLibrary.games(in: bottle).compactMap { game -> LibraryEntry? in
                 guard let program = EpicLibrary.program(for: game, in: bottle, salt: salt) else { return nil }
                 return LibraryEntry(program: program, bottle: bottle, managedByStore: true,
-                                    iconFile: EpicLibrary.icon(for: game, program: program, in: bottle))
+                                    iconFile: EpicLibrary.icon(for: game, program: program, in: bottle), storeTitleKey: game.titleKey)
             }
             guard let steam = SteamLibrary.steamFolder(in: bottle) else { return own + epic }
             let games = SteamLibrary.games(in: bottle).compactMap { game -> LibraryEntry? in
                 guard let program = SteamLibrary.program(for: game, steam: steam, in: bottle, salt: salt) else { return nil }
                 return LibraryEntry(program: program, bottle: bottle, managedByStore: true,
-                                    iconFile: SteamLibrary.iconSource(for: game, steam: steam))
+                                    iconFile: SteamLibrary.iconSource(for: game, steam: steam), storeTitleKey: game.titleKey)
             }
             return own + epic + games
         }

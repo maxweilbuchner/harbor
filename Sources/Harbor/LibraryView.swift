@@ -12,6 +12,8 @@ struct LibraryItem: Identifiable, Equatable {
     var managedByStore = false
     /// Image file the Mac shortcut's icon is made from.
     var iconFile: URL?
+    /// For store titles: the key of the user's game/software choice.
+    var storeTitleKey: String?
     var id: UUID { program.id }
 
     static func == (a: LibraryItem, b: LibraryItem) -> Bool { a.program == b.program && a.bottle == b.bottle }
@@ -179,7 +181,12 @@ struct ProgramMenu: View {
     var body: some View {
         Button("Open") { model.open(item) }
         Button("Show in Finder") { model.showInFinder(item) }
-        if !item.managedByStore { ownMenu }
+        if !item.managedByStore { ownMenu } else if item.storeTitleKey != nil {
+            // Stores sell software too, and Apple's D3DMetal is for games only. Harbor follows the store's own
+            // records; this corrects them.
+            Divider()
+            Toggle("Treat as Game", isOn: Binding(get: { item.program.isGame }, set: { model.setStoreTitle(item, isGame: $0) }))
+        }
     }
 
     /// Settings for programs Harbor manages itself (Steam games are always games; uninstall them in Steam).

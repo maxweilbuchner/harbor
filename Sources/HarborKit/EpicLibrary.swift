@@ -26,6 +26,13 @@ public enum EpicLibrary {
         public var executable: String
         /// When the launcher wrote the game's manifest (the file's creation), nil if unknown.
         public var installedAt: Date?
+        /// The launcher's categories for it ("games", "applications"…), lowercased.
+        public var categories: [String] = []
+
+        /// The key of the user's game/software choice for it.
+        public var titleKey: String { "epic:\(appName)" }
+        /// The launcher lists it under software and not under games.
+        public var isSoftware: Bool { !categories.isEmpty && !categories.contains("games") && !categories.contains("game") }
     }
 
     /// Installed games, one manifest (`<id>.item`, JSON) per installation. Skips manifests of unfinished installs
@@ -54,8 +61,10 @@ public enum EpicLibrary {
         let launch = (json["LaunchExecutable"] as? String) ?? ""
         let executable = location.isEmpty || launch.isEmpty ? "" :
             (location.hasSuffix(#"\"#) ? location : location + #"\"#) + launch.replacingOccurrences(of: "/", with: #"\"#)
-        return Game(appName: appName, namespace: (json["CatalogNamespace"] as? String) ?? "",
-                    catalogItemID: (json["CatalogItemId"] as? String) ?? "", name: name, executable: executable)
+        var game = Game(appName: appName, namespace: (json["CatalogNamespace"] as? String) ?? "",
+                        catalogItemID: (json["CatalogItemId"] as? String) ?? "", name: name, executable: executable)
+        game.categories = ((json["AppCategories"] as? [String]) ?? []).map { $0.lowercased() }.filter { $0 != "public" }
+        return game
     }
 
     /// A library entry for an Epic game. The ID is derived from the app name and this Mac's `salt`, so it stays the same across scans,
@@ -64,8 +73,16 @@ public enum EpicLibrary {
         guard let launcher = launcherPath(in: bottle) else { return nil }
         // namespace:catalogItemId:appName (":" escaped), the form the launcher's own desktop shortcuts use.
         let id = [game.namespace, game.catalogItemID, game.appName].filter { !$0.isEmpty }.joined(separator: "%3A")
+        let isGame = bottle.storeTitleChoices()[game.titleKey] ?? !game.isSoftware
         var program = Program(name: game.name, windowsPath: launcher,
-                              arguments: "com.epicgames.launcher://apps/\(id)?action=launch&silent=true", isGame: true)
+                              arguments: "com.epicgames.launcher://apps/\(id)?action=launch&silent=true", isGame: isGame)
+        // Software starts by its own program, off the launcher's D3DMetal runtime (see StoreTitles.swift).
+        if !isGame, !game.executable.isEmpty,
+           bottle.unixPath(forWindowsPath: game.executable).map({ FileManager.default.fileExists(atPath: $0.path) }) == true {
+            program.windowsPath = game.executable
+            program.arguments = nil
+            program.workingDirectory = String(game.executable[..<(game.executable.lastIndex(of: "\\") ?? game.executable.endIndex)])
+        }
         program.id = SteamLibrary.stableID(seed: "epic:\(bottle.root.lastPathComponent):\(game.appName)", salt: salt)
         program.addedAt = game.installedAt ?? .distantPast
         return program

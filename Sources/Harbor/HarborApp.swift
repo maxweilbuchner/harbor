@@ -315,7 +315,7 @@ final class AppModel {
         bottles = scan.0
         library = scan.1.map { entry, icon in
             LibraryItem(program: entry.program, bottle: entry.bottle, icon: icon,
-                        managedByStore: entry.managedByStore, iconFile: entry.iconFile)
+                        managedByStore: entry.managedByStore, iconFile: entry.iconFile, storeTitleKey: entry.storeTitleKey)
         }
         syncShortcuts()
     }
@@ -505,6 +505,13 @@ final class AppModel {
     }
 
     func setGame(_ item: LibraryItem, _ isGame: Bool) { update(item) { $0.isGame = isGame } }
+
+    /// The user's choice whether a store's title is a game (kept in the bottle; the library is rescanned).
+    func setStoreTitle(_ item: LibraryItem, isGame: Bool) {
+        guard let key = item.storeTitleKey else { return }
+        do { try item.bottle.setStoreTitle(key, isGame: isGame) } catch { status = "Couldn’t save the setting: \(error.localizedDescription)" }
+        reload()
+    }
 
     func setGraphics(_ item: LibraryItem, _ graphics: GraphicsBackend) {
         update(item) { $0.graphics = graphics == .automatic ? nil : graphics }

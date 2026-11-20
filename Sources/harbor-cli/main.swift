@@ -112,6 +112,16 @@ case "add" where args.count == 2:
         let icon = FileManager.default.fileExists(atPath: b.iconFile(for: p).path) ? "icon" : "no icon"
         print("added \(p.name)\t\(p.isGame ? "game" : "app")\t\(icon)\t\(p.windowsPath)\tbottle \(b.settings.name)")
     }
+case "steam-titles" where args.count == 2:
+    // What Steam's own records say about the titles installed in a bottle: kind and Windows program.
+    let b = bottle(args[1])
+    guard let steam = SteamLibrary.steamFolder(in: b) else { fail("no Steam in \(b.settings.name)") }
+    let games = SteamLibrary.games(in: b)
+    let info = (try? Data(contentsOf: steam.appending(path: "appcache/appinfo.vdf"))).map { SteamAppInfo.apps(in: $0, ids: Set(games.map(\.appID))) } ?? [:]
+    for g in games {
+        let a = info[g.appID]
+        print("\(g.appID)\t\(g.name)\t\(a?.type ?? "?")\t\(a?.executable ?? "?")\t\(a?.arguments ?? "")")
+    }
 case "components" where args.count == 2:
     // Windows components Harbor can install into a bottle (Microsoft's Visual C++ runtimes).
     let b = bottle(args[1])
