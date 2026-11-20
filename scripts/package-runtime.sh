@@ -3,7 +3,8 @@
 # runtime.json (Ed25519, key from `harbor-cli gen-runtime-key`), ready to upload next to each other.
 #
 #   scripts/package-runtime.sh <wine-dir> <d3dmetal-dir> [out-dir]
-#     wine-dir:     signed (scripts/sign-runtime.sh) and notarized (scripts/notarize.sh) runtime
+#     wine-dir:     signed (scripts/sign-runtime.sh) and notarized (scripts/notarize.sh) runtime, with the
+#                   .harbor-source record scripts/build-wine.sh writes (which Harbor commit it was built from)
 #     d3dmetal-dir: folder containing lib/ (Apple's /redist/lib) plus License.rtf and Acknowledgements.rtf
 #   WINE_RUNTIME_VERSION overrides the Wine component version (default cx<CrossOver version>-<RUNTIME_REVISION>).
 set -eu
@@ -14,6 +15,7 @@ WVER="${WINE_RUNTIME_VERSION:-cx$CROSSOVER_SOURCES_VERSION-$RUNTIME_REVISION}"
 DVER="$D3DMETAL_VERSION"
 [ -x "$WINE/bin/wine" ] || { echo "package-runtime: $WINE has no bin/wine" >&2; exit 1; }
 [ -f "$D3D/lib/external/libd3dshared.dylib" ] && [ -f "$D3D/License.rtf" ] || { echo "package-runtime: $D3D needs lib/ and License.rtf" >&2; exit 1; }
+grep -q '^commit=[0-9a-f]\{40\}$' "$WINE/.harbor-source" 2>/dev/null || { echo "package-runtime: $WINE has no .harbor-source (rebuild with scripts/build-wine.sh)" >&2; exit 1; }
 codesign -dv --verbose=2 "$WINE/bin/wine" 2>&1 | grep -q 'Authority=Developer ID Application' || { echo "package-runtime: Wine isn't Developer ID-signed (scripts/sign-runtime.sh)" >&2; exit 1; }
 # Apple's files must still be Apple's when they ship: the check scripts/fetch-runtime.sh makes after downloading,
 # repeated on the folder that is about to be packed. `anchor apple` = signed by Apple itself, checked
@@ -32,6 +34,7 @@ pack() { # $1 = archive name, $2 = source dir
 echo "package-runtime: packing (xz takes a few minutes)"
 pack "wine-$WVER.tar.xz" "$WINE"
 pack "d3dmetal-$DVER.tar.xz" "$D3D"
+cp "$WINE/.harbor-source" "$OUT/.harbor-source"   # for the release notes (scripts/publish-runtime.sh)
 
 python3 -I - "$OUT" "$WVER" "$DVER" <<'PY'
 import hashlib, json, os, sys
@@ -48,4 +51,4 @@ with open(os.path.join(out, "runtime.json"), "w") as f: json.dump(manifest, f, i
 PY
 CLI="$(swift build --build-system native --show-bin-path 2>/dev/null)/harbor-cli"
 "$CLI" sign-manifest "$OUT/runtime.json"
-echo "package-runtime: $OUT (wine $WVER, d3dmetal $DVER)"
+echo "package-runtime: $OUT (wine $WVER, d3dmetal $DVER; Harbor $(tr '\n' ' ' < "$OUT/.harbor-source"))"

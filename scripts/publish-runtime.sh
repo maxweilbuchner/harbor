@@ -13,6 +13,14 @@ DIST=build/dist/runtime
 DL=build/download
 export PATH="/opt/homebrew/bin:$PATH"
 [ -f "$DIST/runtime.json.sig" ] || { echo "publish-runtime: run scripts/package-runtime.sh first" >&2; exit 1; }
+# The Harbor commit whose build scripts and Wine patches made this runtime (written by scripts/build-wine.sh).
+COMMIT=$(sed -n 's/^commit=\([0-9a-f]\{40\}\)$/\1/p' "$DIST/.harbor-source" 2>/dev/null) || true
+[ -n "$COMMIT" ] || { echo "publish-runtime: $DIST/.harbor-source is missing; rebuild and package the runtime again" >&2; exit 1; }
+BUILT_FROM="Harbor commit [$COMMIT](https://github.com/$REPO/commit/$COMMIT)"
+if ! grep -qx 'dirty=no' "$DIST/.harbor-source"; then
+  echo "publish-runtime: WARNING: this runtime was built with uncommitted changes in scripts/; the notes say so" >&2
+  BUILT_FROM="$BUILT_FROM plus changes to scripts/ that were not committed"
+fi
 
 # Source code for every copyleft component in the runtime (LGPL/GPL/MPL), next to the binaries.
 SOURCES="$DL/crossover-sources-$CROSSOVER_SOURCES_VERSION.tar.gz $DL/freetype-$FREETYPE_VERSION.tar.xz
@@ -30,12 +38,14 @@ You don't need to download anything here by hand.
 | Component | Version | License |
 |---|---|---|
 | Wine (CodeWeavers' CrossOver $CROSSOVER_SOURCES_VERSION sources), with FreeType, GnuTLS, Nettle, GMP, libtasn1, MoltenVK, Wine Mono, Wine Gecko | cx$CROSSOVER_SOURCES_VERSION-$RUNTIME_REVISION | LGPL-2.1+ and others, see THIRD_PARTY_NOTICES.md |
+| DXMT (Direct3D 10/11 on Metal; upstream's prebuilt release, unmodified, inside the Wine archive at lib/dxmt) | $DXMT_VERSION | MIT; LICENSE inside |
 | Apple D3DMetal (Game Porting Toolkit, unmodified) | $D3DMETAL_VERSION | Apple's GPTK license: non-commercial use on Apple-branded systems only; License.rtf inside |
 
 **Source code** for the copyleft components is attached to this release: CrossOver's sources (Wine, GMP)
-and the upstream archives for FreeType, Nettle, GnuTLS, libtasn1, Wine Mono and Wine Gecko. Harbor's build
-scripts are in the repository (scripts/fetch-sources.sh, scripts/build-wine.sh). MoltenVK is used unmodified
-from its upstream release (Apache-2.0).
+and the upstream archives for FreeType, Nettle, GnuTLS, libtasn1, Wine Mono and Wine Gecko. Harbor's Wine
+patches and build scripts are in the repository (scripts/patches/wine, scripts/fetch-sources.sh,
+scripts/build-wine.sh); this runtime was built from $BUILT_FROM, which the Wine archive also records in
+.harbor-source. MoltenVK and DXMT are used unmodified from their upstream releases (Apache-2.0, MIT).
 
 The Wine binaries are signed with Harbor's Developer ID and notarized by Apple. runtime.json is signed with
 Harbor's Ed25519 key (scripts/runtime-signing.pub); the app rejects anything else.

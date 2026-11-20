@@ -21,4 +21,6 @@ D3DMetal is Apple's software, not Harbor's, and is not covered by Harbor's own l
 modifies, patches or reverse engineers it (§2D).
 
 Before public release, every LGPL/GPL/MPL binary Harbor hosts needs a matching source offer hosted by Harbor
-(see ARCHITECTURE §12.4). Planned: DXMT, DXVK, GStreamer, SDL2 — add rows when they ship.
+(see ARCHITECTURE §12.4). The Wine runtime records the Harbor commit its patches and build scripts came from
+in `.harbor-source`; the runtime release notes name it too. Planned: DXVK, GStreamer, SDL2 — add rows when
+they ship.

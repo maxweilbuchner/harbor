@@ -154,4 +154,12 @@ for arch in x86_64-windows i386-windows x86_64-unix; do cp -R "$DXS/$arch" "$OUT
 cp "$B/download/dxmt-$DXMT_VERSION-LICENSE" "$OUT/lib/dxmt/LICENSE"
 printf '%s\n' "$DXMT_VERSION" > "$OUT/lib/dxmt/VERSION"
 codesign -f -s - "$OUT/lib/dxmt/x86_64-unix/winemetal.so" 2>/dev/null
-echo "build-wine: installed $OUT"
+# Which Harbor commit's build scripts and Wine patches (scripts/) this runtime was built from: part of its
+# corresponding source, shipped inside it and quoted in the release notes (scripts/publish-runtime.sh).
+# `dirty=yes`: scripts/ had uncommitted changes, so the commit alone doesn't describe this build.
+# (git -C: the working directory is under build/, which GIT_CEILING_DIRECTORIES hides from git.)
+commit=$(git -C "$ROOT" rev-parse HEAD) || { echo "build-wine: can't read Harbor's git commit" >&2; exit 1; }
+changes=$(git -C "$ROOT" status --porcelain -- scripts) || exit 1
+dirty=no; [ -z "$changes" ] || dirty=yes
+printf 'commit=%s\ndirty=%s\n' "$commit" "$dirty" > "$OUT/.harbor-source"
+echo "build-wine: installed $OUT (Harbor $commit, scripts dirty: $dirty)"
