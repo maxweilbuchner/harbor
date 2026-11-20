@@ -1114,7 +1114,7 @@ final class Marker {}
             try fm.createDirectory(at: dir.appending(path: "bin"), withIntermediateDirectories: true)
         }
         let removed = Maintenance.collectGarbage(launcher: launcher, runtimesDirectory: runtimes, templatesDirectory: templates,
-                                                 inUse: [busy.appending(path: "bin/wine").path])
+                                                 bottleRunning: false, inUse: { [busy.appending(path: "bin/wine").path] })
         #expect(Set(removed.map(\.lastPathComponent)) == ["d3dmetal-4.0b3-old", "oldkey"])
         for kept in [current, currentTemplate, busy, freshStaging] { #expect(fm.fileExists(atPath: kept.path)) }
     }

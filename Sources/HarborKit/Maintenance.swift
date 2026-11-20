@@ -3,13 +3,18 @@ import Foundation
 /// Removes derived runtimes and prefix templates that no longer match the installed Wine, plus leftover
 /// `.stale-*`/`.staging-*` folders. Never touches anything a running process is using.
 public enum Maintenance {
-    /// Returns the folders it removed. `inUse` lists executable paths of running processes (injectable for tests).
+    /// Returns the folders it removed: none while Windows runs in any bottle, or when the running processes can't
+    /// be listed. Wine rewrites its processes' titles (`C:\…\steam.exe`), so nothing tells which derived runtime a
+    /// running program was started from. `bottleRunning` and `inUse` (executable paths of running processes, nil
+    /// when unknown) are injectable for tests.
     @discardableResult
     public static func collectGarbage(launcher: WineLauncher, runtimesDirectory: URL = WineLauncher.defaultRuntimesDirectory,
                                       templatesDirectory: URL = PrefixTemplate.defaultDirectory,
-                                      inUse: [String]? = nil) -> [URL] {
+                                      bottleRunning: Bool? = nil,
+                                      inUse: (() -> [String]?)? = nil) -> [URL] {
         let fm = FileManager.default
-        let running = inUse ?? runningExecutables()
+        guard !(bottleRunning ?? BottleStore.default.list().contains { $0.isRunning() }),
+              let running = (inUse ?? { runningExecutables() })() else { return [] }
         var keep = Set<String>()
         if let d3dmetal = launcher.d3dmetal {
             keep.insert(d3dmetal.runtimeName(basedOn: launcher.runtime))
@@ -35,16 +40,18 @@ public enum Maintenance {
         return removed
     }
 
-    /// Executable paths of this user's running processes.
-    static func runningExecutables() -> [String] {
+    /// Executable paths of this user's running processes (Wine's own show up only as its wineservers and
+    /// whatever kept its title), or nil when they can't be listed.
+    static func runningExecutables(ps tool: String = "/bin/ps") -> [String]? {
         let ps = Process()
-        ps.executableURL = URL(filePath: "/bin/ps")
+        ps.executableURL = URL(filePath: tool)
         ps.arguments = ["-x", "-o", "comm="]
         let pipe = Pipe()
         ps.standardOutput = pipe
-        guard (try? ps.run()) != nil else { return ["/"] }        // unknown: treat everything as in use
+        guard (try? ps.run()) != nil else { return nil }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         ps.waitUntilExit()
+        guard ps.terminationStatus == 0 else { return nil }
         return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
     }
 }
