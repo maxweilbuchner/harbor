@@ -58,15 +58,15 @@ public enum EpicLibrary {
                     catalogItemID: (json["CatalogItemId"] as? String) ?? "", name: name, executable: executable)
     }
 
-    /// A library entry for an Epic game. The ID is derived from the app name, so it stays the same across scans,
+    /// A library entry for an Epic game. The ID is derived from the app name and this Mac's `salt`, so it stays the same across scans,
     /// like its date.
-    public static func program(for game: Game, in bottle: Bottle) -> Program? {
+    public static func program(for game: Game, in bottle: Bottle, salt: String) -> Program? {
         guard let launcher = launcherPath(in: bottle) else { return nil }
         // namespace:catalogItemId:appName (":" escaped), the form the launcher's own desktop shortcuts use.
         let id = [game.namespace, game.catalogItemID, game.appName].filter { !$0.isEmpty }.joined(separator: "%3A")
         var program = Program(name: game.name, windowsPath: launcher,
                               arguments: "com.epicgames.launcher://apps/\(id)?action=launch&silent=true", isGame: true)
-        program.id = SteamLibrary.stableID(seed: "epic:\(bottle.root.lastPathComponent):\(game.appName)")
+        program.id = SteamLibrary.stableID(seed: "epic:\(bottle.root.lastPathComponent):\(game.appName)", salt: salt)
         program.addedAt = game.installedAt ?? .distantPast
         return program
     }

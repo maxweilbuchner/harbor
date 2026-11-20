@@ -13,18 +13,19 @@ public struct LibraryEntry: Sendable, Equatable {
 public enum Library {
     /// Every program in `bottles`, newest first: each bottle's own programs, plus the games Steam and the Epic
     /// Games Launcher installed there, read from the stores' own records each time. Reads many files; call it
-    /// off the main actor.
-    public static func scan(_ bottles: [Bottle]) -> [LibraryEntry] {
-        bottles.flatMap { bottle -> [LibraryEntry] in
+    /// off the main actor. `salt` keeps the store games' IDs unguessable (the app passes `LaunchSalt()`).
+    public static func scan(_ bottles: [Bottle], salt: LaunchSalt) -> [LibraryEntry] {
+        let salt = salt.value()
+        return bottles.flatMap { bottle -> [LibraryEntry] in
             let own = bottle.programs().map { LibraryEntry(program: $0, bottle: bottle, iconFile: bottle.iconFile(for: $0)) }
             let epic = EpicLibrary.games(in: bottle).compactMap { game -> LibraryEntry? in
-                guard let program = EpicLibrary.program(for: game, in: bottle) else { return nil }
+                guard let program = EpicLibrary.program(for: game, in: bottle, salt: salt) else { return nil }
                 return LibraryEntry(program: program, bottle: bottle, managedByStore: true,
                                     iconFile: EpicLibrary.icon(for: game, program: program, in: bottle))
             }
             guard let steam = SteamLibrary.steamFolder(in: bottle) else { return own + epic }
             let games = SteamLibrary.games(in: bottle).compactMap { game -> LibraryEntry? in
-                guard let program = SteamLibrary.program(for: game, steam: steam, in: bottle) else { return nil }
+                guard let program = SteamLibrary.program(for: game, steam: steam, in: bottle, salt: salt) else { return nil }
                 return LibraryEntry(program: program, bottle: bottle, managedByStore: true,
                                     iconFile: SteamLibrary.iconSource(for: game, steam: steam))
             }

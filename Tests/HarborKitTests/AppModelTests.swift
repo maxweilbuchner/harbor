@@ -151,9 +151,12 @@ import Testing
         return (b, steamManifest, epicManifest)
     }
 
+    /// This Mac's ID salt, kept out of the real Application Support folder.
+    let salt = LaunchSalt(file: FileManager.default.temporaryDirectory.appending(path: "harbor-salt-\(UUID().uuidString)/launch-salt"))
+
     @Test func aSteamBottleKeepsItsEpicGames() throws {
         let (b, _, _) = try mixedBottle()
-        let entries = Library.scan([b])
+        let entries = Library.scan([b], salt: salt)
         #expect(Set(entries.map(\.program.name)) == ["Steam", "Portal 2", "Alan Wake"])
         #expect(Set(entries.filter(\.managedByStore).map(\.program.name)) == ["Portal 2", "Alan Wake"])
         #expect(entries.allSatisfy { $0.bottle == b })
@@ -165,11 +168,11 @@ import Testing
         let installed = Date(timeIntervalSince1970: 1_700_000_000)
         try fm.setAttributes([.creationDate: installed], ofItemAtPath: steamManifest.path)
         try fm.setAttributes([.creationDate: installed.addingTimeInterval(60)], ofItemAtPath: epicManifest.path)
-        let first = Library.scan([b])
+        let first = Library.scan([b], salt: salt)
         #expect(first.map(\.program.name) == ["Steam", "Alan Wake", "Portal 2"])   // newest first
         #expect(first.first { $0.program.name == "Portal 2" }?.program.addedAt == installed)
         #expect(first.first { $0.program.name == "Alan Wake" }?.program.addedAt == installed.addingTimeInterval(60))
-        #expect(Library.scan([b]) == first)
+        #expect(Library.scan([b], salt: salt) == first)
     }
 }
 
@@ -188,5 +191,43 @@ import Testing
         #expect(Rosetta.errorMessage(fromOsascript: "0:90: execution error: Install failed (try again) (1)") == "Install failed (try again)")
         #expect(Rosetta.errorMessage(fromOsascript: "something else went wrong") == "something else went wrong")
         #expect(Rosetta.errorMessage(fromOsascript: "\n") == nil)
+    }
+}
+
+@Suite struct LaunchSaltTests {
+    let fm = FileManager.default
+
+    func saltFile() -> URL { fm.temporaryDirectory.appending(path: "harbor-salt-\(UUID().uuidString)/Harbor/launch-salt") }
+
+    @Test func theSaltIsRandomPerInstallAndStableAfterwards() throws {
+        let file = saltFile()
+        let salt = LaunchSalt(file: file).value()
+        #expect(salt.count == 64)
+        #expect(try String(contentsOf: file, encoding: .utf8) == salt)
+        #expect(LaunchSalt(file: file).value() == salt)                // read back, not made again
+        #expect(LaunchSalt(file: saltFile()).value() != salt)          // another install has another
+        #expect(try fm.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int == 0o600)
+        // A damaged file is replaced rather than used as a weak salt.
+        try "".write(to: file, atomically: true, encoding: .utf8)
+        #expect(LaunchSalt(file: file).value().count == 64)
+        #expect(LaunchSalt.defaultFile.path.hasSuffix("/Library/Application Support/Harbor/launch-salt"))
+    }
+
+    @Test func storeGameIDsDependOnTheSalt() throws {
+        let (b, _, _) = try LibraryScanTests().mixedBottle()
+        let mine = LaunchSalt(file: saltFile()), theirs = LaunchSalt(file: saltFile())
+        let ids = { (salt: LaunchSalt) in
+            Dictionary(uniqueKeysWithValues: Library.scan([b], salt: salt).filter(\.managedByStore).map { ($0.program.name, $0.program.id) })
+        }
+        let first = ids(mine)
+        #expect(first.count == 2 && Set(first.values).count == 2)
+        #expect(ids(mine) == first)                                     // stable on this Mac: shortcuts keep working
+        let other = ids(theirs)
+        #expect(other["Portal 2"] != first["Portal 2"] && other["Alan Wake"] != first["Alan Wake"])
+        // Knowing the bottle and the app ID isn't enough any more.
+        #expect(SteamLibrary.stableID(appID: 620, bottle: b, salt: "") != first["Portal 2"])
+        #expect(SteamLibrary.stableID(appID: 620, bottle: b, salt: mine.value()) == first["Portal 2"])
+        // Still a well-formed name-based UUID, which `harbor://launch/<id>` parses.
+        #expect(first.values.allSatisfy { Array($0.uuidString)[14] == "5" })
     }
 }
