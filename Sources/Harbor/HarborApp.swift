@@ -459,10 +459,7 @@ final class AppModel {
         status = "Installing Rosetta…"
         Task.detached {
             // The system's administrator prompt; softwareupdate needs root to install Rosetta.
-            let script = NSAppleScript(source: "do shell script \"\(Rosetta.installCommand)\" with administrator privileges")
-            var error: NSDictionary?
-            script?.executeAndReturnError(&error)
-            let failure = (error?[NSAppleScript.errorMessage] as? String)
+            let failure = Rosetta.install()
             await MainActor.run {
                 self.rosettaAvailable = Rosetta.isAvailable
                 self.status = self.rosettaAvailable ? nil : "Rosetta wasn’t installed\(failure.map { ": \($0)" } ?? ".")"
