@@ -42,14 +42,19 @@ public struct Diagnosis: Equatable, Sendable {
         // err:module:import_dll Library HarborMissing.dll (which is needed by L"…") not found
         if let line = lines.first(where: { $0.contains("err:module:import_dll Library ") && $0.hasSuffix(" not found") }),
            let start = line.range(of: "import_dll Library ")?.upperBound,
-           let end = line[start...].firstIndex(of: " ") {
-            let dll = String(line[start..<end])
+           let end = line[start...].range(of: " (which is needed by ")?.lowerBound {
+            let dll = String(line[start..<end])     // may contain spaces
             let base = dll.lowercased().replacingOccurrences(of: ".dll", with: "")
             return Diagnosis(cause: .missingLibrary(dll, recipe: Recipe.all.first { $0.overrides.contains(base) }?.id))
         }
         let lower = log.lowercased()
+        // Only where Wine loads a module or driver, and never by the bare word "vanguard": any other line may just
+        // quote the program's own path (…\Call of Duty Vanguard\game.exe).
+        let loads = lines.filter { line in [":module:", ":loaddll:", ":ntoskrnl:", ":winedevice:"].contains { line.contains($0) } }
+            .map { $0.lowercased() }
         for (needle, name) in [("easyanticheat", "Easy Anti-Cheat"), ("beservice", "BattlEye"), ("battleye", "BattlEye"),
-                               ("vgk.sys", "Riot Vanguard"), ("vanguard", "Riot Vanguard")] where lower.contains(needle) {
+                               ("vgk.sys", "Riot Vanguard"), ("riot vanguard", "Riot Vanguard")]
+        where loads.contains(where: { $0.contains(needle) }) {
             return Diagnosis(cause: .antiCheat(name))
         }
         if lower.contains("fatal unhandled exception: system.") || lines.contains(where: { $0.contains("err:mscoree:") }) {
@@ -64,13 +69,22 @@ public struct Diagnosis: Equatable, Sendable {
 }
 
 extension Bottle {
-    /// The newest log written for a launch labelled `label` (see `newLog(label:)`).
+    /// The newest log written for a launch labelled exactly `label` (see `newLog(label:)`).
     public func latestLog(label: String) -> URL? {
-        // <yyyyMMdd-HHmmss>-<label>[-n].log, newest first
-        let name = Self.logLabel(label)
+        // <yyyyMMdd-HHmmss>[.n]-<label>.log, newest first
+        let name = "-" + Self.logLabel(label)
         return logs().first { file in
-            let rest = file.deletingPathExtension().lastPathComponent.dropFirst(16)
-            return rest == name || (rest.hasPrefix(name + "-") && rest.dropFirst(name.count + 1).allSatisfy(\.isNumber))
+            var rest = file.deletingPathExtension().lastPathComponent.dropFirst(15)
+            if rest.hasPrefix(".") { rest = rest.dropFirst().drop(while: \.isNumber) }
+            return rest == name
         }
+    }
+
+    /// What went wrong in the last run labelled `label`, and the log that says so. Reads the log lossily (Windows
+    /// programs print in their own code pages) and touches nothing else, so call it off the main actor.
+    public func diagnosis(forLatestRunOf label: String) -> (diagnosis: Diagnosis, log: URL)? {
+        guard let log = latestLog(label: label), let data = try? Data(contentsOf: log),
+              let diagnosis = Diagnosis.analyze(String(decoding: data, as: UTF8.self)) else { return nil }
+        return (diagnosis, log)
     }
 }
