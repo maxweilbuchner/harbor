@@ -12,6 +12,7 @@ import HarborKit
 //   harbor-cli add <file.exe|file.msi>                # the app's add-program flow
 //   harbor-cli prepare-template                       # pre-build the prefix new bottles clone
 //   harbor-cli analyze <file>                         # what Harbor reads from a program
+//   harbor-cli run-with <bottle> <layer> <args…>      # like run, on one graphics layer (d3dmetal, dxmt, wined3d); for tests
 //   harbor-cli add-steam [--store <dir>]              # the app's one-click Steam setup
 //   harbor-cli add-epic [--store <dir>]               # the same for the Epic Games Store
 //   harbor-cli components <bottle>                    # Windows components (Visual C++) and whether installed
@@ -66,6 +67,19 @@ case "open" where args.count == 3:
 case "run" where args.count >= 3:
     let b = bottle(args[1])
     let p = try launcher().run(b, arguments: Array(args.dropFirst(2)), output: .standardOutput)
+    p.waitUntilExit()
+    exit(p.terminationStatus)
+case "run-with" where args.count >= 4:
+    // For WindowsTests/graphics: runs on one graphics layer's runtime, whatever the bottle or program says (a
+    // bottle-level D3DMetal setting is ignored otherwise, since D3DMetal is for games only). Fails if the layer
+    // isn't installed, instead of quietly testing plain Wine.
+    let b = bottle(args[1])
+    guard let layer = GraphicsBackend(rawValue: args[2]) else { fail("unknown graphics layer \(args[2])") }
+    let l = try launcher()
+    let runtime = try l.runtime(for: layer)
+    if layer != .wined3d, runtime.root == l.runtime.root { fail("\(args[2]) isn't installed") }
+    if layer == .dxmt { try l.dxmt?.prepare(b) }
+    let p = try l.run(b, arguments: Array(args.dropFirst(3)), output: .standardOutput, runtime: runtime)
     p.waitUntilExit()
     exit(p.terminationStatus)
 case "programs" where args.count == 2:
@@ -162,5 +176,5 @@ case "install-runtime" where args.count == 2 || (args.count == 4 && args[2] == "
     FileHandle.standardError.write(Data("\n".utf8))
     print("installed")
 default:
-    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | analyze <file> | add-steam [--store <dir>] | add-epic [--store <dir>] | components <bottle> | install-component <bottle> <id> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
+    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | run-with <bottle> <layer> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | analyze <file> | add-steam [--store <dir>] | add-epic [--store <dir>] | components <bottle> | install-component <bottle> <id> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>]")
 }

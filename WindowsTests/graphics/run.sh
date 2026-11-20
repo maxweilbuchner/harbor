@@ -15,16 +15,14 @@ OUT="build/WindowsTests/graphics/results"
 BOTTLE="graphics-test-$$"
 mkdir -p "$OUT"
 "$CLI" create "$BOTTLE" >/dev/null || exit 1
-CONF="$HOME/Library/Application Support/Harbor/Bottles/$BOTTLE/bottle.json"
 status=0
 for backend in ${1:-d3dmetal wined3d}; do
   "$CLI" stop "$BOTTLE"
-  sed -i '' -E "s/\"graphics\" : \"[a-z0-9]+\"/\"graphics\" : \"$backend\"/" "$CONF"
-  grep -q "\"graphics\" : \"$backend\"" "$CONF" || { echo "run: couldn't set graphics to $backend" >&2; exit 1; }
   tests="d3d11tri d3d12tri"; [ "$backend" = dxmt ] && tests="d3d11tri"
   for test in $tests; do
     win_out="Z:$(printf '%s' "$PWD/$OUT/$backend-$test" | tr / '\\')"
-    result=$("$CLI" run "$BOTTLE" "$PWD/build/WindowsTests/graphics/$test.exe" "$win_out" 2>/dev/null | grep -E '^(PASS|FAIL)')
+    # run-with picks the layer's runtime itself and fails if the layer isn't installed.
+    result=$("$CLI" run-with "$BOTTLE" "$backend" "$PWD/build/WindowsTests/graphics/$test.exe" "$win_out" 2>/dev/null | grep -E '^(PASS|FAIL)')
     [ -n "$result" ] || result="FAIL $test: no result (crashed?)"
     echo "$backend: $result" | sed 's/ -> .*//'
     echo "$result" | grep -q FAIL && status=1
