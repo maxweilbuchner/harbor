@@ -61,4 +61,61 @@ import Testing
         }
         #expect(!AddProgram.isSharedFolder(cloud.appending(path: "Dropbox/Games/Thing")))
     }
+
+    // MARK: #25
+
+    /// A program folder around the `game64` fixture, and what's needed to place it in a new bottle.
+    func placing() throws -> (AddProgram, Bottle, ProgramAnalysis, folder: URL) {
+        let (base, touch) = try tree()
+        let store = BottleStore(directory: base.appending(path: "bottles"))
+        let flow = AddProgram(store: store, launcher: WineLauncher(runtime: WineRuntime(root: URL(filePath: "/nonexistent"))))
+        let fixture = try #require(Bundle.module.url(forResource: "game64", withExtension: "exe"))
+        try touch("Game/engine.dll")
+        try fm.copyItem(at: fixture, to: base.appending(path: "Game/game.exe"))
+        return (flow, try store.create(name: "Edge"), try ProgramAnalysis.analyze(fixture), base.appending(path: "Game"))
+    }
+
+    /// Links that lead out of the program's folder would let Windows programs reach (and delete) Mac files.
+    @Test func linksOutOfTheProgramFolderStayOutOfTheBottle() throws {
+        let (flow, bottle, analysis, game) = try placing()
+        let outside = game.deletingLastPathComponent().appending(path: "Mac Documents")
+        try fm.createDirectory(at: outside, withIntermediateDirectories: true)
+        try fm.createDirectory(at: game.appending(path: "data"), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: game.appending(path: "Saves"), withDestinationURL: outside)
+        try fm.createSymbolicLink(atPath: game.appending(path: "data/up").path, withDestinationPath: "../../Mac Documents")
+        try fm.createSymbolicLink(atPath: game.appending(path: "data/self").path, withDestinationPath: game.path)
+        try fm.createSymbolicLink(atPath: game.appending(path: "data/engine.dll").path, withDestinationPath: "../engine.dll")
+        _ = try flow.place(game.appending(path: "game.exe"), analysis: analysis, name: "Game", in: bottle)
+        let placed = bottle.driveC.appending(path: "Program Files/Game")
+        #expect(fm.fileExists(atPath: placed.appending(path: "game.exe").path))
+        for link in ["Saves", "data/up", "data/self"] {
+            #expect((try? fm.destinationOfSymbolicLink(atPath: placed.appending(path: link).path)) == nil, "\(link)")
+        }
+        // A link that stays inside the program's folder is the program's business.
+        #expect((try? fm.destinationOfSymbolicLink(atPath: placed.appending(path: "data/engine.dll").path)) == "../engine.dll")
+        #expect(fm.fileExists(atPath: outside.path))
+    }
+
+    /// A dropped alias of a program brings the program, not a link back to the Mac.
+    @Test func aLinkedProgramIsCopiedAsAFile() throws {
+        let (flow, bottle, analysis, game) = try placing()
+        let shared = game.deletingLastPathComponent().appending(path: "Downloads")
+        try fm.createDirectory(at: shared, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: shared.appending(path: "tool.exe"), withDestinationURL: game.appending(path: "game.exe"))
+        _ = try flow.place(shared.appending(path: "tool.exe"), analysis: analysis, name: "Tool", in: bottle)
+        let placed = bottle.driveC.appending(path: "Program Files/Tool/tool.exe")
+        #expect(fm.fileExists(atPath: placed.path))
+        #expect((try? fm.destinationOfSymbolicLink(atPath: placed.path)) == nil)
+    }
+
+    /// A product called ".." has no usable folder name; the program's file name stands in.
+    @Test func aNameWithoutUsableCharactersFallsBackToTheFileName() throws {
+        let (flow, bottle, analysis, game) = try placing()
+        let program = try flow.place(game.appending(path: "game.exe"), analysis: analysis, name: "..", in: bottle)
+        #expect(program.windowsPath == #"C:\Program Files\game\game.exe"#)
+        #expect(fm.fileExists(atPath: bottle.driveC.appending(path: "Program Files/game/game.exe").path))
+        #expect(AddProgram.safeFolderName("..", fallback: "a?b") == "a-b")
+        #expect(AddProgram.safeFolderName(" . ", fallback: "...") == "Program")
+        #expect(AddProgram.safeFolderName("Thing", fallback: "other") == "Thing")
+    }
 }

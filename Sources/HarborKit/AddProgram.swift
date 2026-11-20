@@ -79,7 +79,8 @@ public struct AddProgram: Sendable {
             DispatchQueue.global().async { process.waitUntilExit(); done.resume() }
         }
         // Bootstrapper installers start the real setup and exit at once; wait until every Windows process in
-        // the bottle has finished (wineserver exits then), or the scan below would run mid-install.
+        // the bottle has finished (wineserver exits then), or the scan below would run mid-install. That
+        // includes a program the installer starts at its end; the sheet asks the user to quit it.
         try await launcher.waitForShutdown(bottle)
         progress(.findingPrograms)
         let new = bottle.startMenuPrograms().filter { !before.contains($0.windowsPath.lowercased()) }
@@ -102,28 +103,47 @@ public struct AddProgram: Sendable {
     /// Puts a program that needs no installer into `C:\Program Files\<name>\`. Its folder comes along (programs
     /// usually need the files next to them), except when the program sits directly in a shared folder such as
     /// Downloads or Desktop: then only the program is copied, so unrelated personal files never enter the
-    /// bottle. Nothing is ever symlinked in, so a Windows uninstaller can't reach the Mac folder.
-    private func place(_ file: URL, analysis: ProgramAnalysis, name: String, in bottle: Bottle) throws -> Program {
+    /// bottle. Nothing is ever symlinked in, so a Windows uninstaller can't reach the Mac folder: links are
+    /// followed for the program itself and dropped from its folder when they lead out of it.
+    func place(_ file: URL, analysis: ProgramAnalysis, name: String, in bottle: Bottle) throws -> Program {
         let fm = FileManager.default
         let programFolderName = analysis.architecture == .x86 ? "Program Files (x86)" : "Program Files"
         let programFiles = bottle.driveC.appending(path: programFolderName)
         try fm.createDirectory(at: programFiles, withIntermediateDirectories: true)
-        let destination = programFiles.appending(path: Self.safeFolderName(name))
+        let folderName = Self.safeFolderName(name, fallback: file.deletingPathExtension().lastPathComponent)
+        let destination = programFiles.appending(path: folderName)
         // The whole program comes along: for a game whose .exe sits in Binaries\Win64, that's the game's folder.
         let relative: [String]
         if let root = Self.programRoot(for: file) {
-            try fm.copyItem(at: root, to: destination)     // a clone on APFS: no extra disk until files change
+            // A clone on APFS: no extra disk until files change.
+            try fm.copyItem(at: root.resolvingSymlinksInPath(), to: destination)
+            try Self.removeLinks(leadingOutOf: destination)
             relative = Array(file.standardizedFileURL.pathComponents.dropFirst(root.standardizedFileURL.pathComponents.count))
         } else {
             try fm.createDirectory(at: destination, withIntermediateDirectories: true)
-            try fm.copyItem(at: file, to: destination.appending(path: file.lastPathComponent))
+            try fm.copyItem(at: file.resolvingSymlinksInPath(), to: destination.appending(path: file.lastPathComponent))
             relative = [file.lastPathComponent]
         }
-        let windows = (["C:", programFolderName, Self.safeFolderName(name)] + relative).joined(separator: "\\")
+        let windows = (["C:", programFolderName, folderName] + relative).joined(separator: "\\")
         let program = Program(name: analysis.displayName(fallback: file), windowsPath: windows,
                               isGame: Bottle.looksLikeGame(file))
         bottle.saveIcon(for: program, from: file)
         return program
+    }
+
+    /// Deletes the symbolic links below `folder` whose target lies outside it (`copyItem` copies links as links).
+    static func removeLinks(leadingOutOf folder: URL) throws {
+        let fm = FileManager.default
+        let inside = folder.resolvingSymlinksInPath().path
+        guard let walker = fm.enumerator(at: folder, includingPropertiesForKeys: nil) else { return }
+        var outward: [URL] = []
+        for case let url as URL in walker {
+            guard let target = try? fm.destinationOfSymbolicLink(atPath: url.path) else { continue }
+            let path = URL(filePath: target, relativeTo: url.deletingLastPathComponent()).standardizedFileURL
+                .resolvingSymlinksInPath().path
+            if path != inside && !path.hasPrefix(inside + "/") { outward.append(url) }
+        }
+        for link in outward { try fm.removeItem(at: link) }
     }
 
     /// The folder that holds the whole program `file` belongs to, or nil if it sits in a shared folder or in one
@@ -252,9 +272,15 @@ public struct AddProgram: Sendable {
         return name.isEmpty ? file.deletingPathExtension().lastPathComponent : name
     }
 
-    static func safeFolderName(_ name: String) -> String {
-        let cleaned = name.map { #"<>:"/\|?*"#.contains($0) ? "-" : $0 }
-        return String(cleaned).trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: ".")))
+    /// A name Windows accepts for a folder. Names with nothing usable in them ("..") give `fallback`, cleaned
+    /// the same way.
+    static func safeFolderName(_ name: String, fallback: String = "") -> String {
+        for candidate in [name, fallback] {
+            let cleaned = candidate.map { #"<>:"/\|?*"#.contains($0) ? "-" : $0 }
+            let trimmed = String(cleaned).trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: ".")))
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return "Program"
     }
 }
 
