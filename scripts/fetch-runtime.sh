@@ -1,8 +1,8 @@
 #!/bin/sh
 # Downloads the development runtime into Runtime/ (gitignored):
 #  - Wine: Gcenx's macOS builds of upstream Wine (LGPL-2.1+), https://github.com/Gcenx/macOS_Wine_builds
-#  - D3DMetal: Apple's Game Porting Toolkit /redist/lib, unmodified, redistributed non-commercially under
-#    Apple's license (§2A(iii), §2C). Every Mach-O in it must carry Apple's own signature or the fetch fails.
+#  - D3DMetal: not downloaded here. It is taken from Apple's own Game Porting Toolkit image by
+#    scripts/import-d3dmetal.sh (unmodified, redistributed non-commercially under Apple's license §2A(iii), §2C).
 set -eu
 cd "$(dirname "$0")/.."
 . scripts/versions.env
@@ -14,19 +14,8 @@ TARBALL="Runtime/download/wine-devel-$WINE_VERSION-osx64.tar.xz"
 echo "$WINE_SHA256  $TARBALL" | shasum -a 256 -c -
 tar -xJf "$TARBALL" -C "Runtime/wine-$WINE_VERSION"
 
-D3D_DIR="Runtime/download/d3dmetal-$D3DMETAL_VERSION"
-D3D_TARBALL="$D3D_DIR/nightforge-d3dmetal-$D3DMETAL_VERSION.tar.gz"
-mkdir -p "$D3D_DIR" "Runtime/d3dmetal-$D3DMETAL_VERSION"
-[ -f "$D3D_TARBALL" ] || curl -fL -o "$D3D_TARBALL" \
-  "https://github.com/LordHayne/Nightforge/releases/download/d3dmetal-$D3DMETAL_VERSION/nightforge-d3dmetal-$D3DMETAL_VERSION.tar.gz"
-echo "$D3DMETAL_SHA256  $D3D_TARBALL" | shasum -a 256 -c -
-tar -xzf "$D3D_TARBALL" -C "Runtime/d3dmetal-$D3DMETAL_VERSION"
-LIB="Runtime/d3dmetal-$D3DMETAL_VERSION/nightforge-d3dmetal-$D3DMETAL_VERSION/lib"
-codesign --verify --deep --strict "$LIB/external/D3DMetal.framework"
-for f in "$LIB/external/libd3dshared.dylib" "$LIB"/wine/x86_64-unix/*.so "$LIB/external/D3DMetal.framework"; do
-  codesign --verify --strict "$f"
-  # `anchor apple` = signed by Apple itself, checked cryptographically (authority names alone can be imitated).
-  codesign --verify -R='anchor apple' "$f" 2>/dev/null || { echo "not signed by Apple: $f" >&2; exit 1; }
-done
+# D3DMetal comes from Apple's own disk image, which needs an Apple ID to download: scripts/import-d3dmetal.sh.
+[ -d "Runtime/d3dmetal-$D3DMETAL_VERSION/lib" ] && scripts/verify-d3dmetal.sh "Runtime/d3dmetal-$D3DMETAL_VERSION/lib" ||
+  echo "fetch-runtime: no D3DMetal yet; download Apple's Game Porting Toolkit image and run scripts/import-d3dmetal.sh <dmg>" >&2
 
-echo "Runtime ready: Runtime/wine-$WINE_VERSION, Runtime/d3dmetal-$D3DMETAL_VERSION"
+echo "Runtime ready: Runtime/wine-$WINE_VERSION"

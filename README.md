@@ -35,7 +35,7 @@ Development needs Xcode 27 or later.
 scripts/check.sh            # build, unit tests, newest-SDK check (the full bar)
 scripts/fetch-sources.sh    # CrossOver/Wine sources and toolchain into build/ (pinned, checksummed)
 scripts/build-wine.sh       # Harbor's Wine runtime into build/out/wine (~20 min)
-WindowsTests/graphics/run.sh d3dmetal   # D3D11/D3D12 rendering proof (fetch D3DMetal with scripts/fetch-runtime.sh)
+WindowsTests/graphics/run.sh d3dmetal   # D3D11/D3D12 rendering proof (import D3DMetal from Apple's image with scripts/import-d3dmetal.sh)
 ```
 
 The app runs from `swift run Harbor`; `harbor-cli` drives the same engine from the terminal.
