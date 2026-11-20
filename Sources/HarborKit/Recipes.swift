@@ -12,6 +12,9 @@ public struct Recipe: Sendable, Identifiable, Equatable {
         public let url: URL
         public let sha256: String
         public let arguments: [String]
+        /// A command to run after the download itself, for packages that only unpack (a Windows path and its
+        /// arguments).
+        public var followUp: [String] = []
     }
 
     public let id: String
@@ -21,8 +24,27 @@ public struct Recipe: Sendable, Identifiable, Equatable {
     public let overrides: [String]
     /// A DLL in system32 that only Microsoft's installer puts there (Wine's copy is built-in).
     public let marker: String
+    /// A folder in the bottle the installation unpacks into, removed afterwards (Windows path).
+    public var temporaryFolder: String?
 
-    public static let all: [Recipe] = [vcrun2022, vcrun2013, vcrun2010]
+    public static let all: [Recipe] = [vcrun2022, vcrun2013, vcrun2010, directx2010]
+
+    /// The DirectX End-User Runtimes of June 2010: the D3DX helper libraries and old shader compilers that games
+    /// of the DirectX 9–11 era ship against. Microsoft's package unpacks its cabinets, then its DXSETUP installs
+    /// them. Only the helper libraries are switched to Microsoft's versions; controller and audio libraries
+    /// (XInput, XAudio2, X3DAudio, XACT) stay Wine's, because Microsoft's need Windows' own drivers.
+    public static let directx2010 = Recipe(
+        id: "directx2010", name: "DirectX 9–11 Extras (June 2010)",
+        downloads: [
+            Download(url: URL(string: "https://download.microsoft.com/download/8/4/A/84A35BF1-DAFE-4AE8-82AF-AD2AE20B6B14/directx_Jun2010_redist.exe")!,
+                     sha256: "053f76dcbb28802e23341b6a787e3b0791c0fa5c8d4d011b1044172dbf89c73b",
+                     arguments: ["/Q", #"/T:C:\windows\temp\harbor-directx"#],
+                     followUp: [#"C:\windows\temp\harbor-directx\DXSETUP.exe"#, "/silent"]),
+        ],
+        overrides: (24...43).map { "d3dx9_\($0)" } + ["d3dx10"] + (33...43).map { "d3dx10_\($0)" } + ["d3dx11_42", "d3dx11_43"]
+            + (33...43).map { "d3dcompiler_\($0)" },
+        marker: "d3dx9_43.dll",
+        temporaryFolder: #"C:\windows\temp\harbor-directx"#)
 
     public static let vcrun2022 = Recipe(
         id: "vcrun2022", name: "Visual C++ 2015–2022",
@@ -137,9 +159,13 @@ extension WineLauncher {
             do {
                 let local = try bottle.importForRunning(files[n]!)
                 try await execute(bottle, arguments: [bottle.windowsPath(for: local) ?? local.path] + download.arguments, label: recipe.id)
+                if !download.followUp.isEmpty { try await execute(bottle, arguments: download.followUp, label: recipe.id) }
             } catch let error as WineExitError {
                 if !Recipe.installerSucceeded(error.status) { failure = failure ?? error }
             }
+        }
+        if let folder = recipe.temporaryFolder.flatMap({ bottle.unixPath(forWindowsPath: $0) }) {
+            try? FileManager.default.removeItem(at: folder)
         }
         if let failure { throw failure }
     }
