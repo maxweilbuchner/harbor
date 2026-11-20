@@ -98,7 +98,9 @@ case "install-component" where args.count == 3:
     guard let recipe = Recipe.named(args[2]) else { fail("unknown component \(args[2]); see `components <bottle>`") }
     try await launcher().install(recipe, in: b)
     print("\(recipe.name) installed in \(b.settings.name): \(recipe.isInstalled(in: b) ? "verified" : "NOT FOUND")")
-case "add-steam", "add-epic" where args.count == 1 || (args.count == 3 && args[1] == "--store"):
+// The condition is repeated: a `where` after several patterns applies to the last one only.
+case "add-steam" where args.count == 1 || (args.count == 3 && args[1] == "--store"),
+     "add-epic" where args.count == 1 || (args.count == 3 && args[1] == "--store"):
     // The app's "Add Steam" / "Add Epic Games Store": download the official installer, silent install into its
     // own bottle.
     let which: GameStores.Store = args[0] == "add-epic" ? .epic : .steam
