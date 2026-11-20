@@ -19,7 +19,7 @@ export PATH="/opt/homebrew/bin:$PATH"
 
 case "$MODE" in
   # A real release must never carry test servers left in the environment.
-  --publish) unset HARBOR_RUNTIME_MANIFEST_URL HARBOR_UPDATE_FEED_URL; PREFIX="https://github.com/$REPO/releases/download/v$VERSION/"; OUT=build/release; APPCAST=updates/appcast.xml ;;
+  --publish) unset HARBOR_RUNTIME_MANIFEST_URL HARBOR_UPDATE_FEED_URL HARBOR_UPDATE_TEST; PREFIX="https://github.com/$REPO/releases/download/v$VERSION/"; OUT=build/release; APPCAST=updates/appcast.xml ;;
   --local) PREFIX="$2"; OUT="$3"; APPCAST="$OUT/appcast.xml"; mkdir -p "$OUT"; [ -f "$APPCAST" ] || cp updates/appcast.xml "$APPCAST" ;;
   *) echo "usage: release-app.sh <version> --publish | --local <url-prefix> <dir>" >&2; exit 2 ;;
 esac
@@ -28,6 +28,13 @@ BUILD=$(git rev-list --count HEAD)
 [ "$MODE" = --local ] && BUILD="${HARBOR_BUILD:-$BUILD}"
 
 HARBOR_VERSION="$VERSION" HARBOR_BUILD="$BUILD" scripts/bundle-app.sh
+if [ "$MODE" = --publish ]; then
+  # Belt and braces: what is about to be published must point at the real servers and carry no test flag.
+  plist=build/app/Harbor.app/Contents/Info.plist
+  feed=$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$plist"); manifest=$(/usr/libexec/PlistBuddy -c 'Print :HarborRuntimeManifestURL' "$plist")
+  case "$feed$manifest" in *127.0.0.1*|*localhost*|*http://*) echo "release-app: bundle points at a test server ($feed, $manifest)" >&2; exit 1 ;; esac
+  if /usr/libexec/PlistBuddy -c 'Print :HarborUpdateTest' "$plist" >/dev/null 2>&1; then echo "release-app: bundle carries the update-test flag" >&2; exit 1; fi
+fi
 scripts/notarize.sh --app-only
 ZIP="$OUT/Harbor-$VERSION.zip"
 rm -f "$ZIP"
