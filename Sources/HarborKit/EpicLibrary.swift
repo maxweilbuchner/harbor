@@ -24,6 +24,8 @@ public enum EpicLibrary {
         public var name: String
         /// Windows path of the game's own executable (for its icon).
         public var executable: String
+        /// When the launcher wrote the game's manifest (the file's creation), nil if unknown.
+        public var installedAt: Date?
     }
 
     /// Installed games, one manifest (`<id>.item`, JSON) per installation. Skips manifests of unfinished installs
@@ -33,7 +35,11 @@ public enum EpicLibrary {
         let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
         var seen = Set<String>()
         return files.filter { $0.pathExtension.lowercased() == "item" }
-            .compactMap { (try? Data(contentsOf: $0)).flatMap(parseManifest) }
+            .compactMap { file -> Game? in
+                var game = (try? Data(contentsOf: file)).flatMap(parseManifest)
+                game?.installedAt = (try? file.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+                return game
+            }
             .filter { seen.insert($0.appName).inserted }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
@@ -52,7 +58,8 @@ public enum EpicLibrary {
                     catalogItemID: (json["CatalogItemId"] as? String) ?? "", name: name, executable: executable)
     }
 
-    /// A library entry for an Epic game. The ID is derived from the app name, so it stays the same across scans.
+    /// A library entry for an Epic game. The ID is derived from the app name, so it stays the same across scans,
+    /// like its date.
     public static func program(for game: Game, in bottle: Bottle) -> Program? {
         guard let launcher = launcherPath(in: bottle) else { return nil }
         // namespace:catalogItemId:appName (":" escaped), the form the launcher's own desktop shortcuts use.
@@ -60,6 +67,7 @@ public enum EpicLibrary {
         var program = Program(name: game.name, windowsPath: launcher,
                               arguments: "com.epicgames.launcher://apps/\(id)?action=launch&silent=true", isGame: true)
         program.id = SteamLibrary.stableID(seed: "epic:\(bottle.root.lastPathComponent):\(game.appName)")
+        program.addedAt = game.installedAt ?? .distantPast
         return program
     }
 
