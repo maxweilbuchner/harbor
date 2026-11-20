@@ -121,3 +121,40 @@ import Testing
         #expect(try installersRun(f.calls) == ["x64", "x86"])
     }
 }
+
+@Suite struct RuntimeCollectionTests {
+    let fm = FileManager.default
+
+    /// A launcher plus an old derived runtime and an old template that nothing visibly uses.
+    func fixture() throws -> (launcher: WineLauncher, runtimes: URL, templates: URL, stale: [URL]) {
+        let base = fm.temporaryDirectory.appending(path: "harbor-gc-\(UUID().uuidString)")
+        let runtimes = base.appending(path: "Runtimes"), templates = base.appending(path: "Templates")
+        let launcher = WineLauncher(runtime: WineRuntime(root: base.appending(path: "wine")), runtimesDirectory: runtimes)
+        let stale = [runtimes.appending(path: "d3dmetal-4.0b3-old"), templates.appending(path: "oldkey")]
+        for dir in stale { try fm.createDirectory(at: dir.appending(path: "bin"), withIntermediateDirectories: true) }
+        return (launcher, runtimes, templates, stale)
+    }
+
+    @Test func collectsNothingWhileWindowsIsRunningInABottle() throws {
+        let f = try fixture()
+        // What `ps` shows while Steam runs from the old derived runtime: Wine's processes under their Windows titles.
+        let visible = ["/usr/sbin/cfprefsd", #"C:\Program Files (x86)\Steam\steam.exe"#]
+        #expect(Maintenance.collectGarbage(launcher: f.launcher, runtimesDirectory: f.runtimes, templatesDirectory: f.templates,
+                                           bottleRunning: true, inUse: { visible }).isEmpty)
+        for kept in f.stale { #expect(fm.fileExists(atPath: kept.path)) }
+        // Once nothing runs, the same folders go.
+        let removed = Maintenance.collectGarbage(launcher: f.launcher, runtimesDirectory: f.runtimes, templatesDirectory: f.templates,
+                                                 bottleRunning: false, inUse: { ["/usr/sbin/cfprefsd"] })
+        #expect(Set(removed.map(\.lastPathComponent)) == ["d3dmetal-4.0b3-old", "oldkey"])
+    }
+
+    @Test func collectsNothingWhenRunningProcessesAreUnknown() throws {
+        let f = try fixture()
+        #expect(Maintenance.runningExecutables(ps: "/nonexistent/ps") == nil)
+        #expect(Maintenance.runningExecutables(ps: "/usr/bin/false") == nil)
+        #expect(Maintenance.runningExecutables()?.isEmpty == false)
+        #expect(Maintenance.collectGarbage(launcher: f.launcher, runtimesDirectory: f.runtimes, templatesDirectory: f.templates,
+                                           bottleRunning: false, inUse: { nil }).isEmpty)
+        for kept in f.stale { #expect(fm.fileExists(atPath: kept.path)) }
+    }
+}
