@@ -14,7 +14,7 @@ CLI="$(swift build --build-system native --show-bin-path 2>/dev/null)/harbor-cli
 OUT="build/WindowsTests/graphics/results"
 BOTTLE="graphics-test-$$"
 mkdir -p "$OUT"
-"$CLI" create "$BOTTLE" >/dev/null || exit 1
+"$CLI" create "$BOTTLE" --mac-files >/dev/null || exit 1
 status=0
 for backend in ${1:-d3dmetal wined3d}; do
   "$CLI" stop "$BOTTLE"

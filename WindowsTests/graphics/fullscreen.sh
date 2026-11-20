@@ -16,7 +16,7 @@ CLI="$(swift build --build-system native --show-bin-path 2>/dev/null)/harbor-cli
 OUT=build/WindowsTests/graphics/fullscreen
 BOTTLE="fullscreen-test-$$"
 mkdir -p "$OUT"
-"$CLI" create "$BOTTLE" >/dev/null || exit 1
+"$CLI" create "$BOTTLE" --mac-files >/dev/null || exit 1
 
 # Screen centre in points of the main display (the one with the menu bar), where fullscreen games appear.
 # (Finder's desktop bounds span all displays.)

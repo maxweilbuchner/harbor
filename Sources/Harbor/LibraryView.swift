@@ -195,6 +195,10 @@ struct ProgramMenu: View {
                 .selectionDisabled(model.launcher?.offers(.dxmt, for: item.program) != true)
             Text("Compatibility").tag(GraphicsBackend.wined3d)
         }
+        // Off by default: Windows programs then only see their own drive C:. For programs that open or save files
+        // anywhere on the Mac (an archiver, an editor). Applies to everything installed together with this program.
+        Toggle("Allow Access to My Mac’s Files", isOn: Binding(get: { item.bottle.settings.macFilesAccess },
+                                                                set: { model.setMacFilesAccess(item, $0) }))
         // Microsoft's own runtimes, for programs that need more than Wine's built-in versions.
         Menu("Install Windows Component") {
             ForEach(Recipe.all) { recipe in

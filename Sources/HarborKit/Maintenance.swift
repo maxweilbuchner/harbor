@@ -48,9 +48,9 @@ public enum Maintenance {
         ps.arguments = ["-x", "-o", "comm="]
         let pipe = Pipe()
         ps.standardOutput = pipe
-        guard (try? ps.run()) != nil else { return nil }
+        guard let wait = try? ps.start() else { return nil }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        ps.waitUntilExit()
+        wait()
         guard ps.terminationStatus == 0 else { return nil }
         return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
     }

@@ -114,8 +114,7 @@ public struct AppShortcuts: Sendable {
             sign.executableURL = URL(filePath: "/usr/bin/codesign")
             sign.arguments = ["--force", "--sign", "-", staging.path]
             sign.standardError = FileHandle.nullDevice
-            try sign.run()
-            sign.waitUntilExit()
+            try sign.runAndWait()
             try fm.moveItem(at: staging, to: app)
         } catch {
             try? fm.removeItem(at: staging)
@@ -147,8 +146,7 @@ public struct AppShortcuts: Sendable {
             p.arguments = args
             p.standardOutput = FileHandle.nullDevice
             p.standardError = FileHandle.nullDevice
-            guard (try? p.run()) != nil else { return false }
-            p.waitUntilExit()
+            guard (try? p.runAndWait()) != nil else { return false }
             return p.terminationStatus == 0
         }
         for size in [16, 32, 128, 256, 512] {

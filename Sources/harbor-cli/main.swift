@@ -56,11 +56,19 @@ case "list":
     for (folder, error) in scan.damaged {
         print("DAMAGED\t\(folder.path)\t\(error.localizedDescription)")
     }
-case "create" where args.count == 2:
+case "create" where args.count == 2 || (args.count == 3 && args[2] == "--mac-files"):
+    // --mac-files: keep drive Z: (the whole Mac), which the Windows test programs use for their files.
     let wine = launcher()
     print("Creating \(args[1])…")
-    let b = try await store.create(name: args[1], setUp: wine.initialize)
+    var b = try await store.create(name: args[1], setUp: wine.initialize)
+    if args.count == 3 { b.settings.macFilesAccess = true; try b.save() }
     print("Ready: \(b.root.path)")
+case "mac-files" where args.count == 3 && ["on", "off"].contains(args[2]):
+    // Whether the bottle's programs see the Mac's files as drive Z: (applies at the bottle's next start).
+    var b = bottle(args[1])
+    b.settings.macFilesAccess = args[2] == "on"
+    try b.save()
+    print("\(b.settings.name): Mac files \(args[2])")
 case "open" where args.count == 3:
     let p = try launcher().open(URL(filePath: args[2]), in: bottle(args[1]))
     p.waitUntilExit()
@@ -200,5 +208,5 @@ case "install-runtime" where args.count == 2 || (args.count == 4 && args[2] == "
     FileHandle.standardError.write(Data("\n".utf8))
     print("installed")
 default:
-    fail("usage: list | create <name> | open <bottle> <file> | run <bottle> <args…> | run-with <bottle> <layer> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | analyze <file> | add-steam [--store <dir>] | add-epic [--store <dir>] | components <bottle> | install-component <bottle> <id> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>] | update-runtime <url> [--into <dir>]")
+    fail("usage: list | create <name> [--mac-files] | mac-files <bottle> on|off | open <bottle> <file> | run <bottle> <args…> | run-with <bottle> <layer> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | analyze <file> | add-steam [--store <dir>] | add-epic [--store <dir>] | components <bottle> | install-component <bottle> <id> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>] | update-runtime <url> [--into <dir>]")
 }

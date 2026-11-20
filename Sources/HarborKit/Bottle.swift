@@ -31,13 +31,17 @@ public struct BottleSettings: Codable, Sendable, Equatable {
     public var graphics: GraphicsBackend = .automatic
     /// Extra environment variables for advanced users.
     public var environment: [String: String] = [:]
+    /// Whether Windows programs in this bottle see the Mac's whole file system as drive Z:. Off by default: programs
+    /// and installers then only find the bottle's own drive C:. For programs that open or save files anywhere on
+    /// the Mac (an archiver, an editor).
+    public var macFilesAccess = false
 
     public init(name: String) {
         self.name = name
     }
 
     enum CodingKeys: String, CodingKey {
-        case schemaVersion, name, windowsVersion, graphics, environment
+        case schemaVersion, name, windowsVersion, graphics, environment, macFilesAccess
     }
 
     public init(from decoder: any Decoder) throws {
@@ -49,6 +53,7 @@ public struct BottleSettings: Codable, Sendable, Equatable {
         graphics = (try? c.decodeIfPresent(String.self, forKey: .graphics))
             .flatMap(GraphicsBackend.init(rawValue:)) ?? .automatic
         environment = (try? c.decodeIfPresent([String: String].self, forKey: .environment)) ?? [:]
+        macFilesAccess = (try? c.decodeIfPresent(Bool.self, forKey: .macFilesAccess)) ?? false
     }
 }
 

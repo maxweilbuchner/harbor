@@ -72,6 +72,7 @@ public struct PrefixTemplate: Sendable {
         if bottle.settings.windowsVersion != BottleSettings(name: "").windowsVersion {
             Self.setWindowsVersion(bottle.settings.windowsVersion.rawValue, in: bottle.prefix)
         }
+        bottle.applyMacFilesAccess()         // templates from before this setting still carry drive Z:
         return true
     }
 
@@ -100,10 +101,7 @@ extension WineLauncher {
         process.executableURL = runtime.wineserver
         process.arguments = ["-w"]
         process.environment = environment(for: bottle, runtime: runtime)
-        try process.run()
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global().async { process.waitUntilExit(); done.resume() }
-        }
+        try await process.runUntilExit()
     }
 }
 

@@ -135,7 +135,8 @@ extension WineLauncher {
         var failure: WineExitError?
         for (n, download) in recipe.downloads.enumerated() {
             do {
-                try await execute(bottle, arguments: [files[n]!.path] + download.arguments, label: recipe.id)
+                let local = try bottle.importForRunning(files[n]!)
+                try await execute(bottle, arguments: [bottle.windowsPath(for: local) ?? local.path] + download.arguments, label: recipe.id)
             } catch let error as WineExitError {
                 if !Recipe.installerSucceeded(error.status) { failure = failure ?? error }
             }

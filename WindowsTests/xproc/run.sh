@@ -9,7 +9,7 @@ mkdir -p build/WindowsTests/xproc
 "$CC" -O2 -Wall -o build/WindowsTests/xproc/xprocdraw.exe WindowsTests/xproc/xprocdraw.c -lgdi32 || exit 1
 CLI="$(swift build --build-system native --show-bin-path 2>/dev/null)/harbor-cli"
 BOTTLE="xproc-test-$$"
-"$CLI" create "$BOTTLE" >/dev/null || exit 1
+"$CLI" create "$BOTTLE" --mac-files >/dev/null || exit 1
 out=$("$CLI" run "$BOTTLE" "$PWD/build/WindowsTests/xproc/xprocdraw.exe" 2>/dev/null | grep -E '^(PASS|FAIL)')
 echo "$out"
 "$CLI" stop "$BOTTLE"

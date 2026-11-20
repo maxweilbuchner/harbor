@@ -49,9 +49,10 @@ public enum Rosetta {
         script.arguments = ["-e", source]
         script.standardOutput = FileHandle.nullDevice
         script.standardError = errors
-        do { try script.run() } catch { return error.localizedDescription }
+        let wait: () -> Void
+        do { wait = try script.start() } catch { return error.localizedDescription }
         let output = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        script.waitUntilExit()
+        wait()
         return script.terminationStatus == 0 ? nil : errorMessage(fromOsascript: output)
     }
 

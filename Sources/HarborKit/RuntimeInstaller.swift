@@ -272,8 +272,7 @@ public struct RuntimeInstaller: Sendable {
             let tar = Process()
             tar.executableURL = URL(filePath: "/usr/bin/tar")
             tar.arguments = ["-xf", archive.path, "-C", staging.path]
-            try tar.run()
-            tar.waitUntilExit()
+            try tar.runAndWait()
             guard tar.terminationStatus == 0 else {
                 throw RuntimeInstallError.extractFailed(component: component.id, status: tar.terminationStatus)
             }

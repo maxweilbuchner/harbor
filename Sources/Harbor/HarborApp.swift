@@ -370,6 +370,17 @@ final class AppModel {
         }
     }
 
+    /// Whether the program's bottle shows the Mac's files as drive Z:. Takes effect when the bottle next starts.
+    func setMacFilesAccess(_ item: LibraryItem, _ allowed: Bool) {
+        var bottle = item.bottle
+        bottle.settings.macFilesAccess = allowed
+        do { try bottle.save() } catch { status = "Couldn’t save the setting: \(error.localizedDescription)" }
+        if running.contains(item.id) || bottle.isRunning() {
+            status = "\(item.program.name) \(allowed ? "can open" : "can no longer open") your Mac’s files the next time it starts."
+        }
+        reload()
+    }
+
     /// Installs a Windows component (Visual C++ runtime) into the program's bottle, showing progress.
     func install(_ recipe: Recipe, for item: LibraryItem) async {
         guard let launcher, addState == nil else { return }
