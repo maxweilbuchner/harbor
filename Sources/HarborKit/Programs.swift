@@ -9,7 +9,8 @@ public struct ShellLink: Sendable, Equatable {
     /// The shortcut's own icon (ICON_LOCATION), e.g. for a .bat target that has none.
     public var iconLocation: String?
 
-    /// Parses the target from the LinkInfo block, and arguments/working directory from the string data.
+    /// Parses the target from the LinkInfo block (its Unicode form where there is one), and arguments/working
+    /// directory from the string data.
     /// Returns nil for links without a local target (network paths, shell folders, damaged files).
     public init?(_ data: Data) {
         guard data.u32(0) == 0x4C, let flags = data.u32(0x14) else { return nil }
@@ -24,8 +25,16 @@ public struct ShellLink: Sendable, Equatable {
                   let baseOffset = data.u32(p + 16).map(Int.init),
                   let suffixOffset = data.u32(p + 24).map(Int.init) else { return nil }
             if infoFlags & 0x1 != 0 {                              // VolumeIDAndLocalBasePath
-                let base = Self.ansiString(data, from: p + baseOffset, limit: p + size)
-                let suffix = Self.ansiString(data, from: p + suffixOffset, limit: p + size)
+                // Headers of 0x24 bytes and more also carry both strings as UTF-16; the ANSI ones can't hold
+                // characters outside the Windows code page (`C:\Games\Pokémon`).
+                let wide = (data.u32(p + 4) ?? 0) >= 0x24
+                func string(ansi: Int, unicode: Int) -> String? {
+                    if wide, let offset = data.u32(p + unicode).map(Int.init), offset > 0,
+                       let s = Self.unicodeString(data, from: p + offset, limit: p + size) { return s }
+                    return Self.ansiString(data, from: p + ansi, limit: p + size)
+                }
+                let base = string(ansi: baseOffset, unicode: 28)
+                let suffix = string(ansi: suffixOffset, unicode: 32)
                 if let base, !base.isEmpty {
                     target = suffix.map { $0.isEmpty ? base : (base.hasSuffix("\\") ? base + $0 : base + "\\" + $0) } ?? base
                 }
@@ -68,6 +77,19 @@ public struct ShellLink: Sendable, Equatable {
         guard offset >= 0, offset < min(limit, data.count) else { return nil }
         let bytes = data[data.startIndex + offset ..< data.startIndex + min(limit, data.count)].prefix { $0 != 0 }
         return String(decoding: bytes, as: UTF8.self)
+    }
+
+    /// A NUL-terminated UTF-16 string, or nil if `offset` lies outside the block.
+    static func unicodeString(_ data: Data, from offset: Int, limit: Int) -> String? {
+        let end = min(limit, data.count)
+        guard offset >= 0, offset < end else { return nil }
+        var units: [UInt16] = []
+        var at = offset
+        while at + 2 <= end, let unit = data.u16(at), unit != 0 {
+            units.append(unit)
+            at += 2
+        }
+        return String(decoding: units, as: UTF16.self)
     }
 }
 

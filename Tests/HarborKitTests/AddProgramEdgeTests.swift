@@ -118,4 +118,52 @@ import Testing
         #expect(AddProgram.safeFolderName(" . ", fallback: "...") == "Program")
         #expect(AddProgram.safeFolderName("Thing", fallback: "other") == "Thing")
     }
+
+    // MARK: #24
+
+    /// A Shell Link as Windows writes it for a path outside the ANSI code page: LinkInfo with the 0x24-byte
+    /// header, the path in Windows-1252 (as `ansi`; "?" in the suffix) and again in UTF-16.
+    static func unicodeLink(base: String, suffix: String = "", ansi: [UInt8]) -> Data {
+        func u16(_ v: Int) -> [UInt8] { [UInt8(v & 0xFF), UInt8(v >> 8 & 0xFF)] }
+        func u32(_ v: Int) -> [UInt8] { u16(v & 0xFFFF) + u16(v >> 16) }
+        func wide(_ s: String) -> [UInt8] { s.utf16.flatMap { u16(Int($0)) } + [0, 0] }
+        let header = 0x24
+        let ansiBase = ansi + [0], ansiSuffix = suffix.unicodeScalars.map { $0.isASCII ? UInt8($0.value) : 0x3F } + [0]
+        let wideBase = wide(base), wideSuffix = wide(suffix)
+        let suffixAt = header + ansiBase.count, wideBaseAt = suffixAt + ansiSuffix.count
+        let wideSuffixAt = wideBaseAt + wideBase.count
+        let info = u32(wideSuffixAt + wideSuffix.count) + u32(header) + u32(1) + u32(0) + u32(header) + u32(0)
+            + u32(suffixAt) + u32(wideBaseAt) + u32(wideSuffixAt) + ansiBase + ansiSuffix + wideBase + wideSuffix
+        return Data(u32(0x4C) + [UInt8](repeating: 0, count: 16) + u32(0x2 | 0x80)
+                    + [UInt8](repeating: 0, count: 0x4C - 0x18) + info)
+    }
+
+    static let pokemon = #"C:\Games\Pok\#u{E9}mon\game.exe"#
+    static let pokemonANSI = Array(#"C:\Games\Pok"#.utf8) + [0xE9] + Array(#"mon\game.exe"#.utf8)
+
+    @Test func shellLinksPreferTheUnicodePath() {
+        #expect(ShellLink(Self.unicodeLink(base: Self.pokemon, ansi: Self.pokemonANSI))?.target == Self.pokemon)
+        // The suffix has a Unicode form too.
+        let split = Self.unicodeLink(base: #"C:\Games\"#, suffix: "Pok\u{E9}mon.exe", ansi: Array(#"C:\Games\"#.utf8))
+        #expect(ShellLink(split)?.target == "C:\\Games\\Pok\u{E9}mon.exe")
+        let real = Self.unicodeLink(base: Self.pokemon, ansi: Self.pokemonANSI)
+        for n in 0..<real.count { _ = ShellLink(real.prefix(n)) }   // truncations never crash
+        // Offsets that point outside the block fall back to the ANSI path.
+        var broken = Self.unicodeLink(base: #"C:\x.exe"#, ansi: Array(#"C:\x.exe"#.utf8))
+        broken.replaceSubrange(0x4C + 28 ..< 0x4C + 32, with: [0xFF, 0xFF, 0xFF, 0x7F])
+        #expect(ShellLink(broken)?.target == #"C:\x.exe"#)
+    }
+
+    @Test func findsStartMenuProgramsInstalledToNonASCIIFolders() throws {
+        let store = BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-edge-\(UUID().uuidString)"))
+        let bottle = try store.create(name: "Unicode")
+        let app = bottle.driveC.appending(path: "Games/Pok\u{E9}mon")
+        try fm.createDirectory(at: app, withIntermediateDirectories: true)
+        let fixture = try #require(Bundle.module.url(forResource: "game64", withExtension: "exe"))
+        try fm.copyItem(at: fixture, to: app.appending(path: "game.exe"))
+        let menu = bottle.driveC.appending(path: "ProgramData/Microsoft/Windows/Start Menu/Programs")
+        try fm.createDirectory(at: menu, withIntermediateDirectories: true)
+        try Self.unicodeLink(base: Self.pokemon, ansi: Self.pokemonANSI).write(to: menu.appending(path: "Pok\u{E9}mon.lnk"))
+        #expect(bottle.startMenuPrograms().map(\.windowsPath) == [Self.pokemon])
+    }
 }
