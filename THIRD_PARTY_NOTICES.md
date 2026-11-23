@@ -17,6 +17,10 @@ It bundles or downloads:
 | Wine Gecko 2.47.4 | MPL-2.0 | https://dl.winehq.org/wine/wine-gecko/2.47.4/ |
 | D3DMetal (Apple Game Porting Toolkit `/redist/lib`) | Apple Software License Agreement for Game Porting Toolkit — non-commercial redistribution only, Apple-branded systems only (§2A(iii), §2C). Shipped unmodified with Apple's `License.rtf` and `Acknowledgements.rtf`. | https://developer.apple.com/games/game-porting-toolkit/ |
 
+Harbor.app carries this file and Harbor's `LICENSE` in its Resources folder. From runtime revision 8 the Wine
+runtime carries the licence texts of Wine, GMP, Nettle, GnuTLS, libtasn1, FreeType and MoltenVK in
+`share/licenses/`, beside a copy of this file; DXMT's is at `lib/dxmt/LICENSE`.
+
 D3DMetal is Apple's software, not Harbor's, and is not covered by Harbor's own license. Harbor never
 modifies, patches or reverse engineers it (§2D).
 

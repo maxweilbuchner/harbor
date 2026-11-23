@@ -154,6 +154,20 @@ for arch in x86_64-windows i386-windows x86_64-unix; do cp -R "$DXS/$arch" "$OUT
 cp "$B/download/dxmt-$DXMT_VERSION-LICENSE" "$OUT/lib/dxmt/LICENSE"
 printf '%s\n' "$DXMT_VERSION" > "$OUT/lib/dxmt/VERSION"
 codesign -f -s - "$OUT/lib/dxmt/x86_64-unix/winemetal.so" 2>/dev/null
+# Licence texts travel with the binaries (the LGPL asks for a copy of it beside the library): each component's
+# own files in share/licenses/<component>/, beside Harbor's list of what is what. A missing file stops the build.
+lic() { # $1 = component, $2 = its source folder, the rest = licence files in it
+  d="$OUT/share/licenses/$1"; s="$2"; shift 2; mkdir -p "$d"
+  for f in "$@"; do cp "$s/$f" "$d/"; done
+}
+lic wine "$SRC/wine" COPYING.LIB LICENSE
+lic gmp "$GT/gmp" COPYING.LESSERv3 COPYINGv3 COPYINGv2
+lic nettle "$B/src/nettle-$NETTLE_VERSION" COPYING.LESSERv3 COPYINGv3 COPYINGv2
+lic gnutls "$B/src/gnutls-$GNUTLS_VERSION" COPYING.LESSERv2 COPYING
+lic libtasn1 "$B/src/libtasn1-$LIBTASN1_VERSION" COPYING.LESSERv2 COPYING
+lic freetype "$B/src/freetype-$FREETYPE_VERSION" LICENSE.TXT docs/FTL.TXT docs/GPLv2.TXT
+lic moltenvk "$B/src/moltenvk-$MOLTENVK_VERSION/MoltenVK" LICENSE
+cp "$ROOT/THIRD_PARTY_NOTICES.md" "$OUT/share/licenses/"
 # Which Harbor commit's build scripts and Wine patches (scripts/) this runtime was built from: part of its
 # corresponding source, shipped inside it and quoted in the release notes (scripts/publish-runtime.sh).
 # `dirty=yes`: scripts/ had uncommitted changes, so the commit alone doesn't describe this build.

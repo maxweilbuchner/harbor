@@ -38,7 +38,7 @@ cp "$BIN" "$APP/Contents/MacOS/Harbor"
 mkdir -p "$APP/Contents/Frameworks"
 ditto "$(dirname "$BIN")/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Harbor"
-cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
+cp THIRD_PARTY_NOTICES.md LICENSE "$APP/Contents/Resources/"   # Harbor's own licence (GPL-3.0) and the notices
 # App icon: Design/Harbor.icon (the Icon Composer source) compiled into Assets.car; CFBundleIconName below names it.
 # actool also writes a 256px Harbor.icns for older systems. Harbor needs macOS 26, so that one isn't bundled.
 ICON_OUT=$(mktemp -d)
