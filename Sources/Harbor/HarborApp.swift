@@ -528,7 +528,7 @@ final class AppModel {
     func open(_ item: LibraryItem) {
         guard let launcher else { return }
         if runtimeIsTooOld {
-            status = "Harbor is updating its Windows support, which this version needs. \(item.program.name) can start when that’s done."
+            status = "Updating Windows support first. Start \(item.program.name) again when that’s done."
             checkForRuntimeUpdate()
             return
         }
@@ -679,17 +679,26 @@ struct StatusLine: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openSettings) private var openSettings
     var alignment: HorizontalAlignment = .leading
+    @State private var showingAll = false
 
     var body: some View {
         if model.status != nil || model.runtimeUpdate == .ready {
             VStack(alignment: alignment, spacing: 4) {
                 if let status = model.status {
                     // Statuses name programs and quote errors, and the sidebar is narrow: a long one is cut after
-                    // a few lines instead of squeezing the list, with the whole text on hover.
-                    Text(status).foregroundStyle(.secondary)
-                        .multilineTextAlignment(alignment == .center ? .center : .leading)
-                        .lineLimit(4)
-                        .help(status)
+                    // a few lines instead of squeezing the list. A click shows all of it (so does hovering).
+                    Button { showingAll = true } label: {
+                        Text(status).foregroundStyle(.secondary)
+                            .multilineTextAlignment(alignment == .center ? .center : .leading)
+                            .lineLimit(4)
+                    }
+                    .buttonStyle(.plain)
+                    .help(status)
+                    .popover(isPresented: $showingAll, arrowEdge: .trailing) {
+                        Text(status).textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(width: 300, alignment: .leading).padding()
+                    }
                 }
                 if model.runtimeUpdate == .ready {
                     // Short enough for one line in the narrowest sidebar.
