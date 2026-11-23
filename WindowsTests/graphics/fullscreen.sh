@@ -1,12 +1,13 @@
 #!/bin/sh
 # Checks what actually reaches the screen across fullscreen transitions (WindowsTests/graphics/d3d11fs.c).
-# Samples only an 8x8 block at the screen centre at each phase and compares its colour; nothing else is
-# recorded. Needs Screen Recording and Accessibility permission for the terminal and a GUI session; don't
-# touch the Mac while it runs (~70 s). Phase 3 briefly activates Finder and switches back (Cmd-Tab);
-# phase 4 switches Spaces away and back, then opens/closes Mission Control (three-finger swipes).
+# Samples only an 8x8 block at the screen centre (in phase 1 a second one lower down) and compares its colour;
+# nothing else is recorded. Needs Screen Recording and Accessibility permission for the terminal and a GUI
+# session; don't touch the Mac while it runs (~70 s). Phase 3 briefly activates Finder and switches back
+# (Cmd-Tab); phase 4 switches Spaces away and back, then opens/closes Mission Control (three-finger swipes).
 #
 #   WindowsTests/graphics/fullscreen.sh [backend] [passive|guided]   # default d3dmetal
 #   OWN_SPACE=n WindowsTests/graphics/fullscreen.sh dxmt passive     # without a fullscreen Space of its own
+#   EMULATE_MODESET=n WindowsTests/graphics/fullscreen.sh dxmt passive   # the program's mode change is real
 #     passive = the app ignores reactivation; guided = voice-prompted real three-finger swipe to another Space
 set -u
 cd "$(dirname "$0")/../.."
@@ -23,6 +24,11 @@ if [ -n "${OWN_SPACE:-}" ]; then
   "$CLI" run "$BOTTLE" reg add 'HKCU\Software\Wine\Mac Driver' /v FullscreenInOwnSpace /d "$OWN_SPACE" /f >/dev/null 2>&1
   "$CLI" stop "$BOTTLE"
 fi
+# EMULATE_MODESET=y|n sets Wine's display-mode emulation (a program's mode change never reaches the real display).
+if [ -n "${EMULATE_MODESET:-}" ]; then
+  "$CLI" run "$BOTTLE" reg add 'HKCU\Software\Wine\X11 Driver' /v EmulateModeset /d "$EMULATE_MODESET" /f >/dev/null 2>&1
+  "$CLI" stop "$BOTTLE"
+fi
 
 # Screen centre in points of the main display (the one with the menu bar), where fullscreen games appear.
 # (Finder's desktop bounds span all displays.)
@@ -30,9 +36,11 @@ read -r SW SH <<EOF
 $(osascript -l JavaScript -e 'ObjC.import("AppKit"); var f = $.NSScreen.screens.objectAtIndex(0).frame; f.size.width + " " + f.size.height')
 EOF
 CX=$((SW / 2 - 4)); CY=$((SH / 2 - 4))
+# A second block low on the screen: a low-resolution fullscreen program must fill the screen, not sit in its middle.
+LY=$((SH * 85 / 100))
 
-sample() { # $1 = label, $2 = expected r,g,b (0/255)
-  screencapture -x -R "$CX,$CY,8,8" -t bmp "$OUT/$1.bmp" 2>/dev/null
+sample() { # $1 = label, $2 = expected r,g,b (0/255), $3 = y of the block (default: the centre)
+  screencapture -x -R "$CX,${3:-$CY},8,8" -t bmp "$OUT/$1.bmp" 2>/dev/null
   python3 -I - "$OUT/$1.bmp" "$1" "$2" <<'PY'
 import struct, sys
 path, label, want = sys.argv[1], sys.argv[2], tuple(int(v) for v in sys.argv[3].split(","))
@@ -45,7 +53,7 @@ ok = all(abs(a - e) <= 40 for a, e in zip((r, g, b), want))
 if label.endswith("-away"):  # while switched away, the game's colour must NOT be on screen
     ok = not ok
     want = ("not",) + want
-print(f"{'PASS' if ok else 'FAIL'} {label}: screen centre rgb=({r},{g},{b}) expected={want}")
+print(f"{'PASS' if ok else 'FAIL'} {label}: screen rgb=({r},{g},{b}) expected={want}")
 sys.exit(0 if ok else 1)
 PY
 }
@@ -59,7 +67,8 @@ status=0
 front() { PID=$(pgrep -n -f 'd3d11fs.exe' || true)
   [ -n "$PID" ] && osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $PID) to true" >/dev/null 2>&1; }
 # A program started from a terminal isn't activated by macOS; bring it to the front first (Harbor must too).
-wait_for "PHASE 1" && front && sleep 2.5 && { sample "$BACKEND-1-fullscreen" 0,255,0 || status=1; }
+wait_for "PHASE 1" && front && sleep 2.5 && { sample "$BACKEND-1-fullscreen" 0,255,0 || status=1
+  sample "$BACKEND-1-fullscreen-low" 0,255,0 "$LY" || status=1; }
 wait_for "PHASE 2" && sleep 2.5 && { sample "$BACKEND-2-reentered" 255,255,0 || status=1; }
 if wait_for "PHASE 3"; then
   sleep 1.5
