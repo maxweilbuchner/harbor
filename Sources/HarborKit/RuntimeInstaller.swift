@@ -169,8 +169,9 @@ public struct RuntimeInstaller: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// A component version the way Settings shows it: "cx26.3.0-5" is "26.3.0 (5)" (CrossOver's source version and
-    /// Harbor's revision of it), "4.0b3-2" is "4.0b3 (2)"; anything else stays as it is.
+    /// A component version the way Settings shows it: "26.3.0-7" is "26.3.0 (7)" (the Wine sources' version and
+    /// Harbor's revision of it), "4.0b3-2" is "4.0b3 (2)"; anything else stays as it is. Runtimes up to revision 6
+    /// carry a "cx" in front ("cx26.3.0-6"), which isn't shown.
     public static func displayVersion(_ version: String) -> String {
         let base = version.hasPrefix("cx") ? String(version.dropFirst(2)) : version
         guard let dash = base.lastIndex(of: "-") else { return base }

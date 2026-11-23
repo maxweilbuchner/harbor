@@ -143,7 +143,8 @@ import Testing
     }
 
     @Test func showsComponentVersionsInPlainForm() {
-        #expect(RuntimeInstaller.displayVersion("cx26.3.0-5") == "26.3.0 (5)")
+        #expect(RuntimeInstaller.displayVersion("26.3.0-7") == "26.3.0 (7)")
+        #expect(RuntimeInstaller.displayVersion("cx26.3.0-5") == "26.3.0 (5)")   // runtimes up to revision 6
         #expect(RuntimeInstaller.displayVersion("4.0b3-2") == "4.0b3 (2)")
         // No revision, or a suffix that isn't one: unchanged.
         #expect(RuntimeInstaller.displayVersion("v0.80") == "v0.80")

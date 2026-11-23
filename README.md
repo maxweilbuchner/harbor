@@ -3,8 +3,8 @@
 A native macOS app for running Windows programs, games and everyday apps alike, made to be simple enough
 for almost anyone: drop in an `.exe` or installer and run it.
 
-Harbor is free, non-commercial software built on [Wine](https://www.winehq.org) (CodeWeavers' open-source
-CrossOver sources), Apple's [D3DMetal](https://developer.apple.com/games/game-porting-toolkit/) for
+Harbor is free, non-commercial software built on [Wine](https://www.winehq.org) (compiled from the LGPL source code
+CodeWeavers publishes for CrossOver), Apple's [D3DMetal](https://developer.apple.com/games/game-porting-toolkit/) for
 DirectX 11/12 games and [DXMT](https://github.com/3Shain/dxmt) for other Direct3D 10/11 programs.
 
 Website: [maxweilbuchner.github.io/harbor](https://maxweilbuchner.github.io/harbor/) (source in `site/`).

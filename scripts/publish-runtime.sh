@@ -37,7 +37,7 @@ You don't need to download anything here by hand.
 
 | Component | Version | License |
 |---|---|---|
-| Wine (CodeWeavers' CrossOver $CROSSOVER_SOURCES_VERSION sources), with FreeType, GnuTLS, Nettle, GMP, libtasn1, MoltenVK, Wine Mono, Wine Gecko | cx$CROSSOVER_SOURCES_VERSION-$RUNTIME_REVISION | LGPL-2.1+ and others, see THIRD_PARTY_NOTICES.md |
+| Wine (CodeWeavers' CrossOver $CROSSOVER_SOURCES_VERSION sources), with FreeType, GnuTLS, Nettle, GMP, libtasn1, MoltenVK, Wine Mono, Wine Gecko | $CROSSOVER_SOURCES_VERSION-$RUNTIME_REVISION | LGPL-2.1+ and others, see THIRD_PARTY_NOTICES.md |
 | DXMT (Direct3D 10/11 on Metal; upstream's prebuilt release, unmodified, inside the Wine archive at lib/dxmt) | $DXMT_VERSION | MIT; LICENSE inside |
 | Apple D3DMetal (Game Porting Toolkit, unmodified) | $D3DMETAL_VERSION | Apple's GPTK license: non-commercial use on Apple-branded systems only; License.rtf inside |
 

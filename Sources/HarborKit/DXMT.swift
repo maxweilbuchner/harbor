@@ -1,6 +1,6 @@
 import Foundation
 
-/// DXMT (CodeWeavers' open-source Direct3D 10/11 → Metal layer), shipped inside Harbor's Wine runtime under
+/// DXMT (the open-source Direct3D 10/11 → Metal layer, github.com/3Shain/dxmt), shipped inside Harbor's Wine runtime under
 /// `lib/dxmt/` (scripts/build-wine.sh): d3d11, d3d10core, dxgi and winemetal for both architectures, plus
 /// `winemetal.so` for Wine's Unix side.
 ///

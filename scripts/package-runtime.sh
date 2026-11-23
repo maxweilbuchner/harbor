@@ -6,12 +6,12 @@
 #     wine-dir:     signed (scripts/sign-runtime.sh) and notarized (scripts/notarize.sh) runtime, with the
 #                   .harbor-source record scripts/build-wine.sh writes (which Harbor commit it was built from)
 #     d3dmetal-dir: folder containing lib/ (Apple's /redist/lib) plus License.rtf and Acknowledgements.rtf
-#   WINE_RUNTIME_VERSION overrides the Wine component version (default cx<CrossOver version>-<RUNTIME_REVISION>).
+#   WINE_RUNTIME_VERSION overrides the Wine component version (default <Wine sources version>-<RUNTIME_REVISION>).
 set -eu
 cd "$(dirname "$0")/.."
 . scripts/versions.env
 WINE="$1"; D3D="$2"; OUT="${3:-build/dist/runtime}"
-WVER="${WINE_RUNTIME_VERSION:-cx$CROSSOVER_SOURCES_VERSION-$RUNTIME_REVISION}"
+WVER="${WINE_RUNTIME_VERSION:-$CROSSOVER_SOURCES_VERSION-$RUNTIME_REVISION}"
 DVER="$D3DMETAL_VERSION"
 [ -x "$WINE/bin/wine" ] || { echo "package-runtime: $WINE has no bin/wine" >&2; exit 1; }
 [ -f "$D3D/lib/external/libd3dshared.dylib" ] && [ -f "$D3D/License.rtf" ] || { echo "package-runtime: $D3D needs lib/ and License.rtf" >&2; exit 1; }
