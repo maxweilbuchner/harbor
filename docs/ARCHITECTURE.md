@@ -301,7 +301,7 @@ An independent review re-checked the plan against the code and runtime. Items ma
    refuses lists older than its own, and `minimumAppBuild` holds back components that need a newer Harbor.
    `harbor-cli update-runtime` does the same from the command line.
    Settings (#34, 2026-11-23): Harbor > Settings… shows the app's and the runtime's versions, the state of a
-   runtime update (`RuntimeUpdateState`: checking, downloading, ready, needs a newer Harbor, failed) and offers a
+   runtime update (`RuntimeUpdateState`: checking, downloading, ready, needs a newer Harbor, failed before, failed) and offers a
    check; a waiting update is a link in the main window. No version picker and no off switch: updates need no
-   decisions. `HARBOR_PREVIEW_RUNTIME_UPDATE=<state>` shows a state without a check (for screenshots).
+   decisions. `HARBOR_PREVIEW_RUNTIME_UPDATE=<state>` shows a state without a check (for screenshots; development builds only).
 8. **M7:** Runtime downloader + source offers, legal review, first public beta.

@@ -26,7 +26,9 @@ struct SettingsView: View {
             Section {
                 LabeledContent {
                     Button(runtimeButton) { model.checkForRuntimeUpdate(userAsked: true) }
-                        .disabled(model.runtimeVersions == nil || !model.canDownloadRuntime || model.runtimeUpdate.isBusy)
+                        .disabled(model.runtimeVersions == nil || !model.canDownloadRuntime || model.runtimeUpdate.isBusy
+                                  // Installing waits for Windows programs to quit; the line below says so.
+                                  || (model.runtimeUpdate == .ready && !model.running.isEmpty))
                 } label: {
                     Text(runtimeTitle)
                     Text(runtimeDetail)
@@ -82,12 +84,16 @@ struct SettingsView: View {
             return "An update is ready. Quit your Windows programs to install it."
         case .needsNewerApp:
             return "A newer version needs a newer Harbor. Update Harbor first."
+        case .failedBefore:
+            return "The newest version didn’t start on this Mac, so this one was kept. Harbor tries the next one published."
         case .failed(let message):
             return "Couldn’t update. \(message)"
         case .idle:
             guard let versions = model.runtimeVersions else { return "Harbor’s main window offers the download." }
             if let checked = model.runtimeLastChecked {
-                return "Up to date. Checked \(checked.formatted(.relative(presentation: .named)))."
+                // A clock time, not "5 minutes ago": nothing redraws this while the window stays open.
+                let time = checked.formatted(date: Calendar.current.isDateInToday(checked) ? .omitted : .abbreviated, time: .shortened)
+                return "Up to date. Checked \(Calendar.current.isDateInToday(checked) ? "at " : "")\(time)."
             }
             if let installed = versions.installed {
                 return "Installed \(installed.formatted(date: .abbreviated, time: .shortened))."

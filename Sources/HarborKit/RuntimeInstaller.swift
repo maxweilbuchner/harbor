@@ -56,6 +56,8 @@ public enum RuntimeUpdateState: Equatable, Sendable {
     case ready
     /// The published runtime needs a newer Harbor.
     case needsNewerApp
+    /// The published runtime didn't start on this Mac before and was rolled back; only a newer list is tried.
+    case failedBefore
     case failed(String)
 
     /// A check or download is under way (so another can't be started).
@@ -64,6 +66,15 @@ public enum RuntimeUpdateState: Equatable, Sendable {
         case .checking, .downloading: true
         default: false
         }
+    }
+
+    /// The state after the published list couldn't be read. A list from a newer format means a newer Harbor is
+    /// needed. Otherwise someone who asked is told why; a check in the background stays quiet and leaves what was
+    /// known before (an earlier failure or "needs a newer Harbor" must not turn into "up to date").
+    public static func afterFailedCheck(_ error: any Error, previous: RuntimeUpdateState, userAsked: Bool) -> RuntimeUpdateState {
+        if case RuntimeInstallError.unsupportedSchema = error { return .needsNewerApp }
+        if userAsked { return .failed(RuntimeInstallError.message(for: error)) }
+        return previous.isBusy ? .idle : previous
     }
 }
 
@@ -96,6 +107,24 @@ public enum RuntimeInstallError: Error, CustomStringConvertible, Equatable {
 /// Trust: the manifest must carry a valid Ed25519 signature from the key Harbor ships with; each archive must
 /// match the manifest's SHA-256. Archives are `.tar.xz` of a component folder's contents. Files written this way
 /// carry no quarantine flag; the Wine binaries are Developer ID-signed and notarized anyway.
+extension RuntimeInstallError {
+    /// One readable sentence for anything an update can fail with. Harbor's own errors describe themselves; a
+    /// network error's `String(describing:)` is a dump of its domain, code and user info.
+    public static func message(for error: any Error) -> String {
+        switch error {
+        case let error as RuntimeInstallError: error.description
+        case let error as URLError:
+            // The system's sentence where it has one ("The network connection was lost."), not its fallback
+            // that names the error domain and code.
+            error.localizedDescription.contains("NSURLErrorDomain")
+                ? "The update server couldn’t be reached."
+                : "The update server couldn’t be reached: \(error.localizedDescription)"
+        case is DecodingError: "The update list couldn’t be read."
+        default: error.localizedDescription
+        }
+    }
+}
+
 public struct RuntimeInstaller: Sendable {
     public let manifestURL: URL
     public let publicKey: Curve25519.Signing.PublicKey
@@ -150,8 +179,8 @@ public struct RuntimeInstaller: Sendable {
         return "\(name) (\(revision))"
     }
 
-    /// When the installed runtime was put in place: the sequence record is written at that moment (older
-    /// installations without one fall back to the Wine component's folder).
+    /// When the installed runtime was put in place: installing and switching to an update both stamp the sequence
+    /// record with that moment (installations without one fall back to the Wine component's folder).
     public var installedDate: Date? { Self.installedDate(in: installedDirectory) }
 
     public static func installedDate(in directory: URL = WineRuntime.installedDirectory) -> Date? {
@@ -306,6 +335,11 @@ public struct RuntimeInstaller: Sendable {
             if fm.fileExists(atPath: staged.path) {
                 try? fm.removeItem(at: installedDirectory.appending(path: Self.sequenceFile))
                 try? fm.moveItem(at: staged, to: installedDirectory.appending(path: Self.sequenceFile))
+            }
+            // The switch is the moment of installation (`installedDate`), not the download: the staged files
+            // keep their dates when they are moved.
+            for name in [Self.sequenceFile, "wine"] {
+                try? fm.setAttributes([.modificationDate: Date()], ofItemAtPath: installedDirectory.appending(path: name).path)
             }
         }
     }

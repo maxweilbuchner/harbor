@@ -133,6 +133,15 @@ import Testing
     }
 
     /// An app can need a newer runtime than is installed; installations from before sequences count as older.
+    @Test func comparesTheInstalledRuntimeWithTheAppsMinimum() async throws {
+        let (_, installed) = try await installedV1()                     // sequence 100
+        let inst = try installer(URL(filePath: "/nonexistent/runtime.json"), installed: installed)
+        #expect(inst.meetsMinimum(nil) && inst.meetsMinimum(100) && inst.meetsMinimum(50))
+        #expect(!inst.meetsMinimum(101))
+        try fm.removeItem(at: installed.appending(path: ".harbor-sequence"))
+        #expect(!inst.meetsMinimum(1) && inst.meetsMinimum(nil))
+    }
+
     @Test func showsComponentVersionsInPlainForm() {
         #expect(RuntimeInstaller.displayVersion("cx26.3.0-5") == "26.3.0 (5)")
         #expect(RuntimeInstaller.displayVersion("4.0b3-2") == "4.0b3 (2)")
@@ -160,16 +169,57 @@ import Testing
     @Test func aCheckOrDownloadCountsAsBusy() {
         #expect(RuntimeUpdateState.checking.isBusy)
         #expect(RuntimeUpdateState.downloading(0.4).isBusy)
-        for state in [RuntimeUpdateState.idle, .ready, .needsNewerApp, .failed("x")] { #expect(!state.isBusy) }
+        for state in [RuntimeUpdateState.idle, .ready, .needsNewerApp, .failedBefore, .failed("x")] { #expect(!state.isBusy) }
     }
 
-    @Test func comparesTheInstalledRuntimeWithTheAppsMinimum() async throws {
-        let (_, installed) = try await installedV1()                     // sequence 100
-        let inst = try installer(URL(filePath: "/nonexistent/runtime.json"), installed: installed)
-        #expect(inst.meetsMinimum(nil) && inst.meetsMinimum(100) && inst.meetsMinimum(50))
-        #expect(!inst.meetsMinimum(101))
+    @Test func theInstallDateIsWhenAnUpdateWasSwitchedToNotWhenItWasDownloaded() async throws {
+        let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
+        let inst = try installer(try serve([("wine", "2", "wine v2"), ("d3dmetal", "1", "d3d v1")], sequence: 200, in: root), installed: installed)
+        try await inst.stage(try await inst.fetchManifest(), appBuild: nil)
+        // Downloaded three days ago, switched to now.
+        let downloaded = Date().addingTimeInterval(-3 * 86400)
+        for name in [".ready-sequence", ".ready-wine"] {
+            try fm.setAttributes([.modificationDate: downloaded], ofItemAtPath: installed.appending(path: name).path)
+        }
+        let before = Date().addingTimeInterval(-2)
+        try inst.activateStaged()
+        #expect(try #require(inst.installedDate) >= before)
+        // Also for a list without a sequence, where only the Wine folder can tell.
         try fm.removeItem(at: installed.appending(path: ".harbor-sequence"))
-        #expect(!inst.meetsMinimum(1) && inst.meetsMinimum(nil))
+        #expect(try #require(inst.installedDate) >= before)
+    }
+
+    @Test func updateErrorsReadAsSentences() {
+        #expect(RuntimeInstallError.message(for: RuntimeInstallError.checksumMismatch(component: "wine"))
+                == "The wine download is damaged (checksum mismatch).")
+        let offline = RuntimeInstallError.message(for: URLError(.notConnectedToInternet))
+        #expect(offline.hasPrefix("The update server couldn’t be reached"))
+        #expect(!offline.contains("Domain") && !offline.contains("UserInfo"))
+        // An error as URLSession delivers it, with its own sentence and a user info dump behind it.
+        let lost = URLError(.networkConnectionLost, userInfo: [NSLocalizedDescriptionKey: "The network connection was lost.",
+                                                               NSURLErrorFailingURLStringErrorKey: "https://example.com/x"])
+        #expect(RuntimeInstallError.message(for: lost) == "The update server couldn’t be reached: The network connection was lost.")
+        #expect(RuntimeInstallError.message(for: DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "x")))
+                == "The update list couldn’t be read.")
+        #expect(!RuntimeInstallError.message(for: CocoaError(.fileNoSuchFile)).contains("Error Domain"))
+    }
+
+    @Test func aFailedCheckKeepsWhatWasKnownUnlessTheUserAsked() {
+        let offline = URLError(.notConnectedToInternet)
+        // In the background: quiet, and an earlier finding isn't replaced by "up to date".
+        #expect(RuntimeUpdateState.afterFailedCheck(offline, previous: .needsNewerApp, userAsked: false) == .needsNewerApp)
+        #expect(RuntimeUpdateState.afterFailedCheck(offline, previous: .failed("x"), userAsked: false) == .failed("x"))
+        #expect(RuntimeUpdateState.afterFailedCheck(offline, previous: .idle, userAsked: false) == .idle)
+        #expect(RuntimeUpdateState.afterFailedCheck(offline, previous: .checking, userAsked: false) == .idle)
+        // Asked: told why.
+        #expect(RuntimeUpdateState.afterFailedCheck(offline, previous: .idle, userAsked: true)
+                == .failed(RuntimeInstallError.message(for: offline)))
+        #expect(RuntimeUpdateState.afterFailedCheck(RuntimeInstallError.badSignature, previous: .idle, userAsked: true)
+                == .failed("The runtime list isn't signed by Harbor."))
+        // A list in a newer format means a newer Harbor, asked or not.
+        #expect(RuntimeUpdateState.afterFailedCheck(RuntimeInstallError.unsupportedSchema(9), previous: .idle, userAsked: false)
+                == .needsNewerApp)
     }
 
     @Test func anOlderSignedListCantDowngrade() async throws {
