@@ -300,6 +300,15 @@ An independent review re-checked the plan against the code and runtime. Items ma
    (`wine --version`) or the previous one is put back. Lists carry a `sequence` (packaging time): an installation
    refuses lists older than its own, and `minimumAppBuild` holds back components that need a newer Harbor.
    `harbor-cli update-runtime` does the same from the command line.
+   Display modes (#33, #39, 2026-11-23): Wine patch 0013 adds `HARBOR_EMULATE_MODESET`; with it a program's
+   display mode change stays inside Wine (win32u's mode emulation) and its fullscreen window is scaled to the
+   screen, keeping its shape. A real change makes winemac capture the displays, which shuts out Mission Control
+   and left the first frame black in a fullscreen Space of the program's own (seen on DXMT). The launcher sets
+   the variable for everything except the D3DMetal runtime (`WineLauncher.environment`): emulation offers Wine's
+   own mode list up to the desktop's current size (120 modes up to 1512x982 on a MacBook at default scaling,
+   against the display's 396 up to 3024x1964), which games shouldn't lose. The list belongs to the bottle's
+   running Windows session, so the first program started in it decides. `WindowsTests/graphics/modeset.sh`:
+   a fullscreen-style change ends with its program, a permanent one lasts until reset or the session's end.
    Settings (#34, 2026-11-23): Harbor > Settings… shows the app's and the runtime's versions, the state of a
    runtime update (`RuntimeUpdateState`: checking, downloading, ready, needs a newer Harbor, failed before, failed) and offers a
    check; a waiting update is a link in the main window. No version picker and no off switch: updates need no

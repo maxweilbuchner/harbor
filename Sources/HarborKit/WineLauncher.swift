@@ -162,6 +162,10 @@ public struct WineLauncher: Sendable {
         env["WINEDEBUG"] = env["WINEDEBUG"] ?? "fixme-all"
         // Keep Wine from writing Linux-style menu entries and file associations into the user's home.
         env["WINEDLLOVERRIDES"] = ["winemenubuilder.exe=d", env["WINEDLLOVERRIDES"]].compactMap { $0 }.joined(separator: ";")
+        // Programs that aren't games keep a display mode change inside Wine (scripts/patches/wine/0013): a real one
+        // captures the displays, which shuts out Mission Control. Games, on the D3DMetal runtime, keep the
+        // display's real modes; emulation offers nothing above the desktop's current size.
+        env["HARBOR_EMULATE_MODESET"] = D3DMetalRedist.isRuntime(runtime ?? self.runtime) ? nil : "1"
         // User variables may add to, but not replace, what Harbor depends on.
         for (key, value) in bottle.settings.environment {
             switch key {

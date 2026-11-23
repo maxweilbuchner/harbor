@@ -42,6 +42,23 @@ import Testing
         #expect(env["DYLD_FALLBACK_LIBRARY_PATH"] == "/nonexistent/lib:/usr/local/lib:/usr/lib")
     }
 
+    @Test func displayModeChangesStayInsideWineExceptForGames() throws {
+        let store = BottleStore(directory: try tempDir())
+        var b = try store.create(name: "Modes")
+        let wine = WineLauncher(runtime: WineRuntime(root: URL(filePath: "/nonexistent")))
+        // Plain Wine and DXMT (programs that aren't games): emulated. A stray setting from Harbor's own
+        // environment doesn't leak through.
+        #expect(wine.environment(for: b, base: [:])["HARBOR_EMULATE_MODESET"] == "1")
+        let dxmt = WineRuntime(root: URL(filePath: "/runtimes/dxmt-v0.80-abc"))
+        #expect(wine.environment(for: b, runtime: dxmt, base: ["HARBOR_EMULATE_MODESET": "0"])["HARBOR_EMULATE_MODESET"] == "1")
+        // The D3DMetal runtime (games): the display's real modes.
+        let d3dmetal = WineRuntime(root: URL(filePath: "/runtimes/d3dmetal-4.0-abc"))
+        #expect(wine.environment(for: b, runtime: d3dmetal, base: ["HARBOR_EMULATE_MODESET": "1"])["HARBOR_EMULATE_MODESET"] == nil)
+        // A bottle's own variable still decides.
+        b.settings.environment = ["HARBOR_EMULATE_MODESET": "0"]
+        #expect(wine.environment(for: b, base: [:])["HARBOR_EMULATE_MODESET"] == "0")
+    }
+
     @Test func toleratesUnknownAndMissingSettings() throws {
         let dir = try tempDir().appending(path: "future")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

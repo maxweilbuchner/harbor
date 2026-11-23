@@ -97,7 +97,15 @@ public struct D3DMetalRedist: Sendable, Equatable {
         let key = Self.fingerprint(of: [base.wine, unix.appending(path: "ntdll.so"), unix.appending(path: "win32u.so"),
                                         unix.appending(path: "winemac.so"),
                                         framework.appending(path: "Versions/A/D3DMetal"), sharedLibrary])
-        return "d3dmetal-\(version ?? "unknown")-\(key)"
+        return "\(Self.runtimePrefix)\(version ?? "unknown")-\(key)"
+    }
+
+    /// How the folders of D3DMetal runtimes start (`runtimeName`).
+    static let runtimePrefix = "d3dmetal-"
+
+    /// Whether `runtime` is one of the derived D3DMetal runtimes, i.e. what games run on.
+    public static func isRuntime(_ runtime: WineRuntime) -> Bool {
+        runtime.root.lastPathComponent.hasPrefix(runtimePrefix)
     }
 
     static let markerName = ".harbor-complete"

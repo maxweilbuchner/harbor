@@ -1,0 +1,27 @@
+--- a/dlls/win32u/sysparams.c
++++ b/dlls/win32u/sysparams.c
+@@ -5940,6 +5940,24 @@
+         grab_fullscreen = IS_OPTION_TRUE( buffer[0] );
+     if (!get_config_key( hkey, appkey, "Decorated", buffer, sizeof(buffer) ))
+         decorated_mode = IS_OPTION_TRUE( buffer[0] );
++    /* HARBOR HACK - START: HARBOR_EMULATE_MODESET=1 keeps a program's display mode change inside Wine.
++     *
++     * A real mode change makes winemac capture all displays (cocoa_app.m, -setMode:forDisplay:), which shuts out
++     * Mission Control and the other Spaces, takes a second or more, and doesn't go with a fullscreen Space of the
++     * window's own (the first frame there stayed black). Seen with DXMT, whose IDXGISwapChain::SetFullscreenState
++     * picks the mode closest to the back buffer (960x600 for the 640x400 test window). With mode emulation the
++     * program sees the mode it asked for and its fullscreen window is scaled to the real screen, keeping its
++     * shape (a 4:3 mode gets bars at the sides).
++     * The price: the modes offered are Wine's own list up to the desktop's current size (1512x982 on a MacBook
++     * at its default scaling) instead of the display's (up to 3024x1964). So Harbor sets the variable for programs
++     * that aren't games and leaves games their real modes. The mode list belongs to the bottle's running Windows
++     * session: the first program started in it decides. "EmulateModeset" (X11 Driver registry key, which win32u
++     * reads on every platform) overrides the variable either way. */
++    {
++        const char *env = getenv( "HARBOR_EMULATE_MODESET" );
++        if (env) emulate_modeset = IS_OPTION_TRUE( env[0] );
++    }
++    /* HARBOR HACK - END */
+     if (!get_config_key( hkey, appkey, "EmulateModeset", buffer, sizeof(buffer) ))
+         emulate_modeset = IS_OPTION_TRUE( buffer[0] );
+ 

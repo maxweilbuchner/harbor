@@ -9,4 +9,5 @@ mkdir -p "$OUT"
 "$CC" -O2 -Wall -o "$OUT/d3d11tri.exe" WindowsTests/graphics/d3d11tri.c -ld3d11 -ldxgi -luser32
 "$CC" -O2 -Wall -o "$OUT/d3d12tri.exe" WindowsTests/graphics/d3d12tri.c -ld3d12 -ldxgi -luser32
 "$CC" -O2 -Wall -o "$OUT/d3d11fs.exe" WindowsTests/graphics/d3d11fs.c -ld3d11 -ldxgi -luser32
+"$CC" -O2 -Wall -o "$OUT/modeset.exe" WindowsTests/graphics/modeset.c -luser32
 echo "graphics tests: $OUT"
