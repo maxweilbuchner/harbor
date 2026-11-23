@@ -1,6 +1,7 @@
 /* Fixture: an installer in several files, without a window. Beside it: target.txt (the folder to install into),
- * data-01.bin (the program) and Redist\marker. Installs data-01.bin as "<target>\Fixture App.exe"; exits 1 if
- * any of its files is missing, which is what happens when only setup.exe reaches the bottle. */
+ * data-01.bin (the program) and Redist\marker. Installs data-01.bin as "<target>\Fixture App.exe" and notes the
+ * folder it ran from in "<target>\installed-from.txt"; exits 1 if any of its files is missing, which is what
+ * happens when only setup.exe reaches the bottle. */
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
@@ -27,5 +28,8 @@ int WINAPI WinMain(HINSTANCE h, HINSTANCE p, LPSTR c, int n) {
     }
     snprintf(path, sizeof path, "%s\\data-01.bin", dir);
     snprintf(out, sizeof out, "%s\\Fixture App.exe", target);
-    return CopyFileA(path, out, FALSE) ? 0 : 1;
+    if (!CopyFileA(path, out, FALSE)) return 1;
+    snprintf(out, sizeof out, "%s\\installed-from.txt", target);            /* where the installer ran from */
+    if ((f = fopen(out, "w"))) { fputs(dir, f); fclose(f); }
+    return 0;
 }

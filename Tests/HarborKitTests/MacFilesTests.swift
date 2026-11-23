@@ -104,4 +104,38 @@ import Testing
         let working = try b.importForRunning(media.appending(path: "setup.exe"), withFolder: true)
         #expect(try fm.contentsOfDirectory(atPath: working.deletingLastPathComponent().path) == ["setup.exe"])
     }
+
+    /// An installer's folder on another disk isn't copied: it is drive D: for the install and gone afterwards.
+    @Test func aFolderOnAnotherDiskBecomesDriveDForTheInstall() throws {
+        let b = try bottle()
+        let media = b.root.deletingLastPathComponent().appending(path: "Thing Disc")
+        try fm.createDirectory(at: media, withIntermediateDirectories: true)
+        for name in ["setup.exe", "setup.msi", "data-01.bin"] { try Data(name.utf8).write(to: media.appending(path: name)) }
+        let drive = b.prefix.appending(path: "dosdevices/d:")
+
+        let installer = try #require(try b.bringFolder(media, of: media.appending(path: "setup.exe"), asDrive: true))
+        #expect(try fm.destinationOfSymbolicLink(atPath: drive.path) == media.path)
+        #expect(installer == drive.appending(path: "setup.exe"))
+        #expect(fm.fileExists(atPath: drive.appending(path: "data-01.bin").path))
+        #expect(!fm.fileExists(atPath: b.importsDirectory.path))                        // nothing was copied
+        #expect(b.windowsPath(for: installer) == #"D:\setup.exe"#)
+        #expect(WineLauncher.arguments(toOpen: drive.appending(path: "setup.msi"),
+                                       windowsPath: b.windowsPath(for: drive.appending(path: "setup.msi")))
+                == ["msiexec", "/i", #"D:\setup.msi"#])
+        // The drive is taken while that install runs.
+        #expect(try b.bringFolder(media, of: media.appending(path: "setup.exe"), asDrive: true) == nil)
+
+        b.clearImports()
+        #expect((try? fm.destinationOfSymbolicLink(atPath: drive.path)) == nil)
+        #expect(fm.fileExists(atPath: media.appending(path: "data-01.bin").path))       // the link went, not the folder
+        // A folder someone made at D: is not Harbor's to remove.
+        try fm.createDirectory(at: drive, withIntermediateDirectories: true)
+        b.clearImports()
+        #expect(fm.fileExists(atPath: drive.path))
+        #expect(try b.bringFolder(media, of: media.appending(path: "setup.exe"), asDrive: true) == nil)
+
+        // Only the top of a disc counts as an installer's folder among disk roots.
+        #expect(!Bottle.isInstallDisc(media))
+        #expect(!Bottle.isInstallDisc(URL(filePath: "/Volumes")))
+    }
 }

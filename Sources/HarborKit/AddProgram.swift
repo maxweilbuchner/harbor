@@ -295,11 +295,14 @@ public struct AddProgram: Sendable {
 }
 
 extension Bottle {
-    /// Windows path (`C:\…`) for a file inside this bottle's drive C, or nil if it's elsewhere.
+    /// Windows path (`C:\…`) for a file inside this bottle's drive C, or `D:\…` for one on the drive an installer
+    /// runs from (`mediaDrive`); nil if it's elsewhere.
     public func windowsPath(for file: URL) -> String? {
-        let root = driveC.standardizedFileURL.path
         let path = file.standardizedFileURL.path
-        guard path.hasPrefix(root + "/") else { return nil }
-        return "C:" + path.dropFirst(root.count).replacingOccurrences(of: "/", with: "\\")
+        for (letter, root) in [("C:", driveC.standardizedFileURL.path), ("D:", mediaDrive.standardizedFileURL.path)]
+        where path.hasPrefix(root + "/") {
+            return letter + path.dropFirst(root.count).replacingOccurrences(of: "/", with: "\\")
+        }
+        return nil
     }
 }

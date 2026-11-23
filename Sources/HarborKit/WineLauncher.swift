@@ -103,6 +103,8 @@ public struct WineLauncher: Sendable {
         guard let exe = bottle.unixPath(forWindowsPath: program.windowsPath) else {
             throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: program.windowsPath])
         }
+        // What an install left behind if Harbor quit in its middle: the installer's copy, its drive D:.
+        if !bottle.isRunning() { bottle.clearImports() }
         let graphics = effectiveGraphics(for: program, executable: exe)
         if graphics == .dxmt { try dxmt?.prepare(bottle) }
         var arguments = ["start", "/wait"]

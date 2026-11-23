@@ -182,6 +182,7 @@ An independent review re-checked the plan against the code and runtime. Items ma
 - `WindowsTests/net/run.sh` — HTTPS through WinHTTP from a Windows program (passes on example.com).
 - `WindowsTests/installer/run.sh` — the add-program flow with an installer in several files (setup.exe, a data
   file under another name, a subfolder): it finds its files in the bottle and Harbor finds what it installed.
+  `--disk-image`: from a mounted read-only disk image, which is drive D: for the install and not copied.
 - `scripts/check.sh` — the full bar (build, tests, newest-SDK guard); CI runs the same script.
   SwiftPM's default build system records the deployment target as the SDK version, so the script uses the
   native build system until the app moves to an Xcode project (M4).
