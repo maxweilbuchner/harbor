@@ -16,7 +16,8 @@ DirectX 11/12 games and [DXMT](https://github.com/3Shain/dxmt) for other Direct3
 
 Get **Harbor-x.y.z.zip** from the [latest release](https://github.com/maxweilbuchner/harbor/releases/latest),
 unzip it and move Harbor to Applications. On first start Harbor downloads its Windows support (about 400 MB).
-Both the app and the Windows support update themselves afterwards.
+Both the app and the Windows support update themselves afterwards. Harbor > Settings… shows the
+installed versions and whether an update is downloading or waiting.
 
 ## What works today
 

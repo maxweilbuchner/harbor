@@ -33,6 +33,10 @@ struct HarborApp: App {
                     .disabled(!Updates.shared.isAvailable)
             }
         }
+        Settings {
+            SettingsView()
+                .environment(model)
+        }
     }
 }
 
@@ -71,6 +75,12 @@ final class Updates: NSObject, SPUUpdaterDelegate {
 
     func checkForUpdates() {
         controller?.checkForUpdates(nil)
+    }
+
+    /// Sparkle's own setting (kept in the app's defaults), shown in Settings.
+    var automaticallyChecks: Bool {
+        get { controller?.updater.automaticallyChecksForUpdates ?? false }
+        set { controller?.updater.automaticallyChecksForUpdates = newValue }
     }
 
     /// Set only in bundles built for update tests; scripts/release-app.sh refuses to publish one.
@@ -159,13 +169,40 @@ final class AppModel {
 
     private var runtimeUpdateTask: Task<Void, Never>?
     private var lastRuntimeCheck = Date.distantPast
+    /// Where an update to Windows support stands (Settings shows it; a waiting one also shows in the main window).
+    private(set) var runtimeUpdate = RuntimeUpdateState.idle
+    /// When the published list was last read successfully.
+    private(set) var runtimeLastChecked: Date?
 
-    /// Looks for newer Windows support (at most every six hours), downloads it in the background next to the
-    /// installed one, and switches to it once nothing is running. Quiet: one status line, no dialogs.
-    func checkForRuntimeUpdate() {
+    /// The installed Windows support, for Settings. `wine` is nil for a runtime that wasn't downloaded by Harbor
+    /// (a development build's own).
+    struct RuntimeVersions: Equatable {
+        var wine: String?
+        var installed: Date?
+        var d3dmetal: String?
+        var dxmt: String?
+    }
+
+    var runtimeVersions: RuntimeVersions? {
+        guard let launcher else { return nil }
+        let downloaded = launcher.runtime.root.standardizedFileURL.path
+            .hasPrefix(WineRuntime.installedDirectory.standardizedFileURL.path + "/")
+        return RuntimeVersions(
+            wine: downloaded ? RuntimeInstaller.installedVersion(of: "wine").map(RuntimeInstaller.displayVersion) : nil,
+            installed: downloaded ? RuntimeInstaller.installedDate() : nil,
+            d3dmetal: (downloaded ? RuntimeInstaller.installedVersion(of: "d3dmetal").map(RuntimeInstaller.displayVersion) : nil)
+                ?? launcher.d3dmetal?.version,
+            dxmt: launcher.dxmt?.version)
+    }
+
+    /// Looks for newer Windows support (at most every six hours, or at once when the user asks in Settings),
+    /// downloads it in the background next to the installed one, and switches to it once nothing is running.
+    /// Quiet: one status line, no dialogs.
+    func checkForRuntimeUpdate(userAsked: Bool = false) {
         guard launcher != nil, let installer = runtimeInstaller, runtimeUpdateTask == nil else { return }
         // An app that needs newer Windows support than is installed doesn't wait for the usual interval.
-        guard installer.hasStagedUpdate || runtimeIsTooOld || Date().timeIntervalSince(lastRuntimeCheck) > 6 * 3600 else { return }
+        guard userAsked || installer.hasStagedUpdate || runtimeIsTooOld
+                || Date().timeIntervalSince(lastRuntimeCheck) > 6 * 3600 else { return }
         lastRuntimeCheck = Date()
         let build = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String).flatMap(Int.init)
         runtimeUpdateTask = Task {
@@ -174,22 +211,44 @@ final class AppModel {
             let store = store
             await Task.detached { if !store.list().contains(where: { $0.isRunning() }) { installer.removeOldVersions() } }.value
             if !installer.hasStagedUpdate {
-                guard let manifest = try? await installer.fetchManifest() else { return }
+                runtimeUpdate = .checking
+                guard let manifest = try? await installer.fetchManifest() else {
+                    // Offline or the server is down: said only to someone who asked.
+                    runtimeUpdate = userAsked ? .failed("The update server couldn’t be reached.") : .idle
+                    return
+                }
+                runtimeLastChecked = Date()
                 switch installer.decision(for: manifest, appBuild: build) {
-                case .upToDate, .refusedOlder, .failedBefore:
+                case .upToDate, .refusedOlder:
+                    runtimeUpdate = .idle
+                    return
+                case .failedBefore:
+                    runtimeUpdate = .failed("The newest version didn’t start on this Mac, so the installed one was kept. Harbor tries again when a newer one is published.")
                     return
                 case .needsNewerApp:
+                    runtimeUpdate = .needsNewerApp
                     status = "Newer Windows support is available for a newer Harbor. Choose Harbor > Check for Updates…"
                     return
                 case .available:
+                    runtimeUpdate = .downloading(0)
                     status = "Downloading an update to Windows support…"
-                    do { try await installer.stage(manifest, appBuild: build) } catch {
+                    do {
+                        try await installer.stage(manifest, appBuild: build) { fraction in
+                            Task { @MainActor in
+                                // A late report must not undo "ready".
+                                if case .downloading = self.runtimeUpdate { self.runtimeUpdate = .downloading(fraction) }
+                            }
+                        }
+                    } catch {
+                        runtimeUpdate = .failed("\(error)")
                         status = "Windows support couldn’t be updated: \(error)"
                         return
                     }
-                    status = "An update to Windows support is ready. It’s installed once no Windows program is running."
+                    // The main window says so with a link to Settings instead of a sentence.
+                    status = nil
                 }
             }
+            runtimeUpdate = .ready
             await activateRuntimeUpdateIfIdle(installer)
         }
     }
@@ -208,8 +267,10 @@ final class AppModel {
             launcher = Self.makeLauncher()
             prepareTemplate()
             updateBottlesInBackground()
+            runtimeUpdate = .idle
             status = "Windows support was updated."
         } catch {
+            runtimeUpdate = .failed("\(error)")
             status = "Windows support couldn’t be updated: \(error)"
         }
     }
@@ -244,6 +305,18 @@ final class AppModel {
         // write the outcome and quit.
         if let output = ProcessInfo.processInfo.environment["HARBOR_SMOKE_TEST"] {
             Task { await runSmokeTest(writingTo: URL(filePath: output)) }
+        } else if let preview = ProcessInfo.processInfo.environment["HARBOR_PREVIEW_RUNTIME_UPDATE"] {
+            // Development: shows the given update state (checking|downloading|ready|newer-app|failed) without
+            // checking for one, so every state of Settings and the main window can be looked at.
+            lastRuntimeCheck = Date()
+            switch preview {
+            case "checking": runtimeUpdate = .checking
+            case "downloading": runtimeUpdate = .downloading(0.4)
+            case "ready": runtimeUpdate = .ready
+            case "newer-app": runtimeUpdate = .needsNewerApp
+            case "failed": runtimeUpdate = .failed(RuntimeInstallError.checksumMismatch(component: "wine").description)
+            default: runtimeLastChecked = Date()
+            }
         } else {
             checkForRuntimeUpdate()
         }
@@ -579,6 +652,7 @@ final class AppModel {
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Group {
@@ -598,9 +672,17 @@ struct ContentView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if let status = model.status {
-                Text(status).font(.callout).foregroundStyle(.secondary).padding(8)
+            HStack(spacing: 12) {
+                if let status = model.status {
+                    Text(status).font(.callout).foregroundStyle(.secondary)
+                }
+                // A downloaded update waits for Windows programs to quit: say so for as long as it does.
+                if model.runtimeUpdate == .ready {
+                    Button("Windows support update ready") { openSettings() }
+                        .buttonStyle(.link).font(.callout)
+                }
             }
+            .padding(model.status != nil || model.runtimeUpdate == .ready ? 8 : 0)
         }
         .onOpenURL { model.handle($0) }
         .confirmationDialog(model.pendingDuplicate.map { "\($0.name) Is Already Installed" } ?? "",

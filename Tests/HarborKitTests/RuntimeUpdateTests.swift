@@ -104,6 +104,36 @@ import Testing
     }
 
     /// An app can need a newer runtime than is installed; installations from before sequences count as older.
+    @Test func showsComponentVersionsInPlainForm() {
+        #expect(RuntimeInstaller.displayVersion("cx26.3.0-5") == "26.3.0 (5)")
+        #expect(RuntimeInstaller.displayVersion("4.0b3-2") == "4.0b3 (2)")
+        // No revision, or a suffix that isn't one: unchanged.
+        #expect(RuntimeInstaller.displayVersion("v0.80") == "v0.80")
+        #expect(RuntimeInstaller.displayVersion("11.21-rc") == "11.21-rc")
+        #expect(RuntimeInstaller.displayVersion("-5") == "-5")
+        #expect(RuntimeInstaller.displayVersion("") == "")
+    }
+
+    @Test func knowsWhenTheInstalledRuntimeWasPutInPlace() async throws {
+        let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
+        let first = try installer(installed.appending(path: "unused.json"), installed: installed)
+        let then = Date(timeIntervalSince1970: 1_700_000_000)
+        try fm.setAttributes([.modificationDate: then], ofItemAtPath: installed.appending(path: ".harbor-sequence").path)
+        #expect(first.installedDate == then)
+        // An installation from before sequences were recorded: the Wine folder's date.
+        try fm.removeItem(at: installed.appending(path: ".harbor-sequence"))
+        try fm.setAttributes([.modificationDate: then.addingTimeInterval(60)], ofItemAtPath: installed.appending(path: "wine").path)
+        #expect(first.installedDate == then.addingTimeInterval(60))
+        #expect(try installer(installed.appending(path: "unused.json"), installed: root.appending(path: "nowhere")).installedDate == nil)
+    }
+
+    @Test func aCheckOrDownloadCountsAsBusy() {
+        #expect(RuntimeUpdateState.checking.isBusy)
+        #expect(RuntimeUpdateState.downloading(0.4).isBusy)
+        for state in [RuntimeUpdateState.idle, .ready, .needsNewerApp, .failed("x")] { #expect(!state.isBusy) }
+    }
+
     @Test func comparesTheInstalledRuntimeWithTheAppsMinimum() async throws {
         let (_, installed) = try await installedV1()                     // sequence 100
         let inst = try installer(URL(filePath: "/nonexistent/runtime.json"), installed: installed)

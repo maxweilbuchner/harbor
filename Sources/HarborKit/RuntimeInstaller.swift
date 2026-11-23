@@ -47,6 +47,26 @@ public enum RuntimeUpdateDecision: Equatable, Sendable {
     case failedBefore
 }
 
+/// Where an update to installed Windows support stands, for Settings and the main window.
+public enum RuntimeUpdateState: Equatable, Sendable {
+    case idle
+    case checking
+    case downloading(Double)
+    /// Downloaded; installed once no Windows program is running.
+    case ready
+    /// The published runtime needs a newer Harbor.
+    case needsNewerApp
+    case failed(String)
+
+    /// A check or download is under way (so another can't be started).
+    public var isBusy: Bool {
+        switch self {
+        case .checking, .downloading: true
+        default: false
+        }
+    }
+}
+
 public enum RuntimeInstallError: Error, CustomStringConvertible, Equatable {
     case badSignature
     case unsupportedSchema(Int)
@@ -110,8 +130,36 @@ public struct RuntimeInstaller: Sendable {
     }
 
     public func installedVersion(of id: String) -> String? {
-        (try? String(contentsOf: installedDirectory.appending(path: "\(id)/\(Self.versionFile)"), encoding: .utf8))?
+        Self.installedVersion(of: id, in: installedDirectory)
+    }
+
+    /// The version of a downloaded component in `directory`; needs no download location, so it also answers in
+    /// builds that have none.
+    public static func installedVersion(of id: String, in directory: URL = WineRuntime.installedDirectory) -> String? {
+        (try? String(contentsOf: directory.appending(path: "\(id)/\(versionFile)"), encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// A component version the way Settings shows it: "cx26.3.0-5" is "26.3.0 (5)" (CrossOver's source version and
+    /// Harbor's revision of it), "4.0b3-2" is "4.0b3 (2)"; anything else stays as it is.
+    public static func displayVersion(_ version: String) -> String {
+        let base = version.hasPrefix("cx") ? String(version.dropFirst(2)) : version
+        guard let dash = base.lastIndex(of: "-") else { return base }
+        let (name, revision) = (base[..<dash], base[base.index(after: dash)...])
+        guard !name.isEmpty, !revision.isEmpty, revision.allSatisfy(\.isNumber) else { return base }
+        return "\(name) (\(revision))"
+    }
+
+    /// When the installed runtime was put in place: the sequence record is written at that moment (older
+    /// installations without one fall back to the Wine component's folder).
+    public var installedDate: Date? { Self.installedDate(in: installedDirectory) }
+
+    public static func installedDate(in directory: URL = WineRuntime.installedDirectory) -> Date? {
+        for name in [sequenceFile, "wine"] {
+            let url = directory.appending(path: name)
+            if let date = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate { return date }
+        }
+        return nil
     }
 
     /// Components whose installed version differs from the manifest's.
