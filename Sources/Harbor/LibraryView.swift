@@ -44,8 +44,14 @@ struct LibraryView: View {
         // Sidebar + grid, like Music and Photos: one place to filter, room for more sections later.
         // (Chosen over a single grid with Games/Apps headers, which repeat the filter and cost vertical space.)
         NavigationSplitView {
-            List(LibraryFilter.allCases, selection: Binding(get: { filter }, set: { filter = $0 ?? .all })) { f in
-                Label(f.rawValue, systemImage: f.symbol).tag(f)
+            VStack(spacing: 0) {
+                List(LibraryFilter.allCases, selection: Binding(get: { filter }, set: { filter = $0 ?? .all })) { f in
+                    Label(f.rawValue, systemImage: f.symbol).tag(f)
+                }
+                // Under the list rather than centred under the whole window, where it sat off-centre below the grid.
+                StatusLine()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16).padding(.bottom, 12)
             }
             .navigationSplitViewColumnWidth(min: 170, ideal: 190)
         } detail: {

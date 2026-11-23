@@ -317,6 +317,8 @@ final class AppModel {
             case "failed": runtimeUpdate = .failed(RuntimeInstallError.checksumMismatch(component: "wine").description)
             default: runtimeLastChecked = Date()
             }
+            // With it, HARBOR_PREVIEW_STATUS=<text> shows a status line.
+            status = ProcessInfo.processInfo.environment["HARBOR_PREVIEW_STATUS"]
         } else {
             checkForRuntimeUpdate()
         }
@@ -650,9 +652,33 @@ final class AppModel {
 
 }
 
-struct ContentView: View {
+/// What Harbor last did or is doing, and a downloaded update that waits for Windows programs to quit (a link to
+/// Settings for as long as it waits). Nothing at all when there's nothing to say.
+struct StatusLine: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openSettings) private var openSettings
+    var alignment: HorizontalAlignment = .leading
+
+    var body: some View {
+        if model.status != nil || model.runtimeUpdate == .ready {
+            VStack(alignment: alignment, spacing: 4) {
+                if let status = model.status {
+                    Text(status).foregroundStyle(.secondary)
+                        .multilineTextAlignment(alignment == .center ? .center : .leading)
+                }
+                if model.runtimeUpdate == .ready {
+                    // Short enough for one line in the narrowest sidebar.
+                    Button("Update ready") { openSettings() }
+                        .buttonStyle(.link)
+                }
+            }
+            .font(.callout)
+        }
+    }
+}
+
+struct ContentView: View {
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         Group {
@@ -672,17 +698,11 @@ struct ContentView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            HStack(spacing: 12) {
-                if let status = model.status {
-                    Text(status).font(.callout).foregroundStyle(.secondary)
-                }
-                // A downloaded update waits for Windows programs to quit: say so for as long as it does.
-                if model.runtimeUpdate == .ready {
-                    Button("Windows support update ready") { openSettings() }
-                        .buttonStyle(.link).font(.callout)
-                }
+            // The library shows the status in its sidebar: centred under the whole window it sat off-centre
+            // under the grid. The screens without a sidebar keep it here.
+            if !model.rosettaAvailable || model.launcher == nil {
+                StatusLine(alignment: .center).padding(8)
             }
-            .padding(model.status != nil || model.runtimeUpdate == .ready ? 8 : 0)
         }
         .onOpenURL { model.handle($0) }
         .confirmationDialog(model.pendingDuplicate.map { "\($0.name) Is Already Installed" } ?? "",
