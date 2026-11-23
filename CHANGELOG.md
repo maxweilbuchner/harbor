@@ -2,12 +2,9 @@
 
 What changed in each Harbor release, newest first. The website's changelog page is built from this file.
 
-## Unreleased
-
-- Harbor comes as an installer: open it and Harbor is in Applications; macOS then offers to move the installer to the Trash.
-
 ## 0.1.5 (2026-11-23)
 
+- Harbor comes as an installer: open it and Harbor is in Applications; macOS then offers to move the installer to the Trash.
 - Harbor has an app icon: a lighthouse.
 - The Windows user in new bottles is named `harbor`. Bottles you already have keep their user and its folders.
 - The licences of Harbor and of the components it downloads come with them.
