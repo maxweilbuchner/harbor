@@ -78,7 +78,7 @@ under `~/Library/Application Support/Harbor/Runtimes/<base-hash>-<layer>-<versio
   - OpenGL/GDI-only (most general apps) → plain Wine
   Launchers that load D3D dynamically won't show imports → per-program override + known-title table.
 - **Base Wine plan:** move from stock Wine 11.21 to our own build of CodeWeavers' LGPL CrossOver 26.3
-  Wine sources (what D3DMetal's glue targets; explicitly permitted by CrossOver's license §2). Built in CI,
+  Wine sources (what D3DMetal's glue targets; the LGPL itself permits building and redistributing them). Built in CI,
   reproducible, versioned.
 
 ## 6. Programs and bottles (UX model)
