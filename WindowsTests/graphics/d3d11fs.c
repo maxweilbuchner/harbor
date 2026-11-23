@@ -1,7 +1,8 @@
 /* Fullscreen transitions with D3D11/DXGI, the way games handle them. Each phase presents a solid colour
  * continuously; WindowsTests/graphics/fullscreen.sh samples the real screen centre to see what actually reached it.
  *   PHASE 1 green   fullscreen
- *   PHASE 2 yellow  after SetFullscreenState(FALSE) then TRUE again (leave + re-enter fullscreen)
+ *   PHASE 2 yellow  after SetFullscreenState(FALSE) then TRUE again (leave + re-enter fullscreen); at its end the
+ *                   pointer's position as Windows sees it is printed
  *   PHASE 3 cyan    after the host switches to another app and back (focus loss); we re-enter fullscreen on
  *                   WM_ACTIVATEAPP like well-behaved games do (argument "passive": we don't, like some
  *                   older engines; then the window should at least show its content windowed)
@@ -112,6 +113,14 @@ int main(int argc, char **argv)
     set_fullscreen(TRUE);
     phase(2, "re-entered-fullscreen");
     present_for(yellow, 4000);
+    /* Where Windows sees the pointer, and in what screen size: fullscreen.sh put it at a known place on the Mac's
+     * screen meanwhile and compares (in a mode that exists only inside Wine, the position has to be scaled). */
+    {
+        POINT pt = {-1, -1};
+        GetCursorPos(&pt);
+        printf("CURSOR %ld %ld of %dx%d\n", pt.x, pt.y, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+        fflush(stdout);
+    }
 
     phase(3, "await-focus-switch");
     present_for(cyan, 9000);
