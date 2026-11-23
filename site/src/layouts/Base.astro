@@ -1,0 +1,73 @@
+---
+import { REPO, latestDownload, withBase } from "../lib/release";
+
+interface Props {
+  title: string;
+  description: string;
+}
+const { title, description } = Astro.props;
+const download = latestDownload();
+const canonical = new URL(Astro.url.pathname, Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href={withBase("favicon.svg")} />
+    <link rel="preload" href={withBase("fonts/big-shoulders-display-latin-800-normal.woff2")} as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href={withBase("styles/site.css")} />
+    <!-- Also in base.css; repeated here so the page never scrolls sideways before the stylesheet arrives. -->
+    <style is:global>html, body { overflow-x: clip; }</style>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="nav">
+      <div class="container nav__in">
+        <nav class="nav__links" aria-label="Sections">
+          <a href={withBase("/#works")}>What runs</a>
+          <a href={withBase("changelog/")}>Changelog</a>
+        </nav>
+        <a class="wordmark" href={withBase("/")} aria-label="Harbor, home"><img src={withBase("favicon.svg")} width="36" height="36" alt="" />Harbor</a>
+        <nav class="nav__links nav__links--end" aria-label="Get Harbor">
+          <a class="nav__more" href={REPO}>GitHub</a>
+          <a href={download.url}>Download</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <slot />
+    </main>
+
+    <footer class="foot">
+      <div class="container">
+        <p class="foot__line">Harbor is free and stays free.</p>
+        <div class="foot__cols">
+          <p>
+            Harbor’s own code is GPL v3. Apple licenses D3DMetal for non-commercial use only, so Harbor stays
+            non-commercial.
+          </p>
+          <ul class="foot__links">
+            <li><a href={REPO}>Source on GitHub</a></li>
+            <li><a href={`${REPO}/issues`}>Report a problem</a></li>
+            <li><a href={withBase("changelog/")}>Changelog</a></li>
+            <li><a href={`${REPO}/blob/main/THIRD_PARTY_NOTICES.md`}>Third-party notices</a></li>
+          </ul>
+        </div>
+        <p class="foot__legal">
+          Not affiliated with Apple, CodeWeavers or the Wine project. Windows is a trademark of Microsoft.
+        </p>
+      </div>
+    </footer>
+
+    <script is:inline>
+      window.hallmarkSlots = (m) => { for (const [k, v] of Object.entries(m)) { const s = document.querySelector(`[data-slot="${k}"]`); if (!s) continue; const im = new Image(); im.src = typeof v === 'string' ? v : v.src; im.alt = (typeof v === 'object' && v.alt) || s.dataset.alt || ''; s.querySelectorAll(':scope > img').forEach((o) => o.remove()); s.prepend(im); } };
+      document.querySelectorAll('[data-slot] img').forEach((i) => { if (i.complete && !i.naturalWidth) i.remove(); else i.addEventListener('error', () => i.remove(), { once: true }); });
+    </script>
+  </body>
+</html>

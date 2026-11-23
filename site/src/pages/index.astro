@@ -1,0 +1,194 @@
+---
+import Base from "../layouts/Base.astro";
+import { formatDate, latestDownload, releases, withBase } from "../lib/release";
+
+const download = latestDownload();
+// The three newest releases, each with the first sentence of its first note.
+const all = releases();
+// The oldest release’s day, without the year, for the index head.
+const sinceDay = formatDate(all[all.length - 1].date).replace(/ \d{4}$/, "");
+const recent = all.slice(0, 3).map((r) => ({ ...r, first: r.items[0]?.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? r.items[0] }));
+---
+
+<Base
+  title="Harbor: run Windows programs and games on your Mac"
+  description="Harbor is a free Mac app that runs Windows programs and games. Drop in an .exe or an installer and run it."
+>
+  <section class="hero">
+    <div class="container">
+      <h1>Drop in an .exe. Run it.</h1>
+      <div class="hero__row">
+        <div class="hero__text">
+          <p class="lead">Harbor is a free Mac app that runs Windows programs and games.</p>
+          <div class="actions">
+            <a class="btn btn--primary" href={download.url}>Download Harbor</a>
+            <a class="btn" href="#works">See what runs</a>
+          </div>
+          <dl class="facts">
+            <div><dt>Version</dt><dd>{download.version}</dd></div>
+            <div><dt>Download</dt><dd>{download.megabytes}&nbsp;MB</dd></div>
+            <div><dt>Windows support</dt><dd>about 400&nbsp;MB, once</dd></div>
+            <div><dt>Price</dt><dd>Free</dd></div>
+          </dl>
+        </div>
+        <figure class="screen">
+          <div
+            class="screen__shot screen__shot--library"
+            data-slot="hero"
+            data-kind="product"
+            data-alt="Harbor’s library window with a few Windows programs in it, two of them running"
+          >
+            <img
+              src={withBase("shots/library-live.png")}
+              width="1800"
+              height="944"
+              alt="Harbor’s library: a sidebar with All Programs, Games and Apps, and five Windows programs, WinRAR and Steam marked as running"
+              fetchpriority="high"
+            />
+          </div>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section show">
+    <div class="container">
+      <div class="head-split">
+        <h2>A Windows program, in a Mac window.</h2>
+        <p class="lead">It gets a title bar, a Dock icon and Cmd-Q like everything else.</p>
+      </div>
+      <figure class="screen">
+        <div
+          class="screen__shot screen__shot--program"
+          data-slot="program"
+          data-kind="product"
+          data-alt="A Windows program running on the Mac through Harbor, in its own window"
+        >
+          <img
+            src={withBase("shots/winrar-running.png")}
+            width="2252"
+            height="1252"
+            alt="WinRAR for Windows running in a Mac window, listing the files in C:\Program Files\WinRAR"
+            loading="lazy"
+          />
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="head-split">
+        <h2>From a download to the Dock.</h2>
+        <p class="lead">Harbor reads what you drop, sets up Windows for it and runs it.</p>
+      </div>
+      <div class="swap">
+        <figure>
+          <b>.exe</b>
+          <figcaption>What goes in: a program, its installer or its whole folder.</figcaption>
+        </figure>
+        <figure>
+          <b>.app</b>
+          <figcaption>What comes out: a Mac shortcut with the program’s own icon, in Spotlight and the Dock.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--wide" id="works">
+    <div class="container stack">
+      <div class="stack__head">
+        <h2>Steam, Epic and DirectX 12.</h2>
+        <p class="lead">An early release. Some programs don’t run yet.</p>
+      </div>
+      <dl class="rows">
+        <div>
+          <dt>Installers</dt>
+          <dd>What they install appears in your library.</dd>
+        </div>
+        <div>
+          <dt>Steam and Epic</dt>
+          <dd>One click each. Their games show up beside your programs.</dd>
+        </div>
+        <div>
+          <dt>DirectX 11 and 12</dt>
+          <dd>Games render through Apple’s D3DMetal, windowed or fullscreen.</dd>
+        </div>
+        <div>
+          <dt>Everyday apps</dt>
+          <dd>Direct3D 10 and 11 programs run on Metal through DXMT.</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container pair pair--narrow">
+      <div>
+        <h2>Updates arrive signed.</h2>
+        <p class="lead">Settings shows what is installed and whether an update is waiting.</p>
+        <ul class="pair__facts">
+          <li>Releases are signed and notarized, and every download is checked before it is used.</li>
+          <li>Windows support updates in the background, once no Windows program is running.</li>
+        </ul>
+      </div>
+      <figure class="screen">
+        <div
+          class="screen__shot screen__shot--settings"
+          data-slot="settings"
+          data-kind="product"
+          data-alt="Harbor’s Settings window with the installed versions of Harbor, its Windows support and the graphics layers"
+        >
+          <img
+            src={withBase("shots/settings-dark.png")}
+            width="960"
+            height="900"
+            alt="Harbor Settings: version 0.1.4, Windows support up to date, D3DMetal and DXMT versions"
+            loading="lazy"
+          />
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="container band__in">
+      <h2>For Macs with Apple silicon.</h2>
+      <p class="lead">
+        It needs macOS&nbsp;26 or later. Harbor offers to install Rosetta, and Intel Macs aren’t supported yet.
+      </p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <h2>{all.length} releases since {sinceDay}.</h2>
+      <ul class="index">
+        {
+          recent.map((r) => (
+            <li>
+              <b>{r.version}</b>
+              <time datetime={r.date}>{formatDate(r.date)}</time>
+              <p>{r.first}</p>
+            </li>
+          ))
+        }
+      </ul>
+      <div class="actions">
+        <a class="btn" href={withBase("changelog/")}>Read every note</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="close">
+    <div class="container close__in">
+      <div>
+        <h2>Put Harbor in Applications.</h2>
+        <p class="lead">Unzip it and drag it over. It fetches its Windows support on first start.</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn--primary" href={download.url}>Download Harbor</a>
+      </div>
+    </div>
+  </section>
+</Base>

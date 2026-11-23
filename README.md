@@ -7,6 +7,8 @@ Harbor is free, non-commercial software built on [Wine](https://www.winehq.org) 
 CrossOver sources), Apple's [D3DMetal](https://developer.apple.com/games/game-porting-toolkit/) for
 DirectX 11/12 games and [DXMT](https://github.com/3Shain/dxmt) for other Direct3D 10/11 programs.
 
+Website: [maxweilbuchner.github.io/harbor](https://maxweilbuchner.github.io/harbor/) (source in `site/`).
+
 > **Status: early release (0.1).** Adding programs and installers, Steam and the Epic Games Store, DirectX 11/12
 > games on D3DMetal and automatic updates work; expect rough edges and programs that don't run yet. See
 > [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the plan and verified results, and the

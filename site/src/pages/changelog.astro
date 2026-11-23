@@ -1,0 +1,51 @@
+---
+import Base from "../layouts/Base.astro";
+import { REPO, formatDate, latestDownload, releases } from "../lib/release";
+
+const all = releases();
+const download = latestDownload();
+// The feed and the changelog are written by the same release; if they ever disagree, the board shows the feed's
+// version (what the button downloads) and the date only when the changelog knows that version.
+const latest = all.find((r) => r.version === download.version);
+---
+
+<Base
+  title="Harbor changelog: every release for macOS"
+  description="What changed in each release of Harbor, the free Mac app for Windows programs and games, newest first."
+>
+  <section class="banner">
+    <div class="container banner__in">
+      <div>
+        <h1>Every release.</h1>
+        <p class="lead">Newest first. The builds are on <a href={`${REPO}/releases`}>GitHub</a>.</p>
+      </div>
+      <figure class="latest">
+        <b>{download.version}</b>
+        <figcaption>
+          {latest ? <>The newest release, from <time datetime={latest.date}>{formatDate(latest.date)}</time>.</> : "The newest release."}
+        </figcaption>
+        <div class="actions">
+          <a class="btn btn--primary" href={download.url}>Download Harbor</a>
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <div class="container">
+    {
+      all.map((r) => (
+        <section class="release" id={`v${r.version}`}>
+          <div class="release__head">
+            <h2>{r.version}</h2>
+            <time datetime={r.date}>{formatDate(r.date)}</time>
+          </div>
+          <ul>
+            {r.items.map((item) => (
+              <li><span>{item}</span></li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
+  </div>
+</Base>

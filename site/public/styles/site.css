@@ -1,0 +1,164 @@
+/* Hallmark · shape: Feature Stack · genre: editorial · theme: Carnival (deal 2/3, seed small-harbor-free-native-6435·53b9e6cf·2026-11-23·r0) · job: try · draw: bb6a1c
+ * hero: Counter · nav: masthead · footer: statement · imagery: screenshots 3 (screencapture of the running app and of a Windows program it runs) · signature: the real library window on a cherry board, under one line of poster capitals · carnival: diner-sign
+ * axes: light/display-heavy/chromatic-yellow · posture: full-palette · contrast: pass · fold: pass · v2.0.0
+ * finish-review: subagent · 8 findings · 8 resolved · gap: no game shown rendering */
+/* Hallmark · dismissed 77 · the changelog page is one list of releases under a banner, a reference page with nothing else to hold */
+/* Hallmark · waive 44c · the changelog page opens on a Banner, the newest release beside the head · a reference page whose list of releases should start on the first screen */
+/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V4 · weakest: S, three captures of one small app; the before and after is set in type (.EXE, .APP) instead of padding the page with repeated screens */
+/* Hallmark · dismissed 23 · the stamp declares posture full-palette; the second accent fills exactly one band, the requirements, as the theme’s Range sets a statement */
+/* Hallmark · dismissed 58 · the window holds the five-row release index; its lines are the changelog’s own sentences, read from CHANGELOG.md */
+@import url("./tokens.css");
+@import url("./base.css");
+
+@font-face { font-family: "Big Shoulders Display"; font-weight: 800; font-style: normal; font-display: swap; src: url("../fonts/big-shoulders-display-latin-800-normal.woff2") format("woff2"); }
+@font-face { font-family: "Golos Text"; font-weight: 400; font-style: normal; font-display: swap; src: url("../fonts/golos-text-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Golos Text"; font-weight: 500; font-style: normal; font-display: swap; src: url("../fonts/golos-text-latin-500-normal.woff2") format("woff2"); }
+
+/* The theme's voice: every head in capitals. */
+h1, h2, h3 { text-transform: uppercase; line-height: 1; }
+a { text-decoration-color: var(--color-accent-2); text-decoration-thickness: var(--rule-bar); }
+
+.skip { position: absolute; left: var(--space-md); top: calc(-1 * var(--space-3xl)); z-index: var(--z-toast); padding: var(--space-xs) var(--space-md); background: var(--color-ink); color: var(--color-paper); }
+.skip:focus-visible { top: var(--space-md); }
+
+/* Nav: a masthead, the wordmark centred over the rule. */
+.nav { border-bottom: var(--rule-bar) solid var(--color-rule); }
+.nav__in { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; min-height: 72px; }
+.nav__links { display: flex; gap: var(--space-lg); font-size: var(--text-sm); font-weight: 500; }
+.nav__links--end { justify-content: flex-end; }
+.nav__links a { display: inline-flex; align-items: center; min-height: 44px; white-space: nowrap; text-decoration: none; }
+.nav__links a:hover { text-decoration: underline; text-decoration-color: var(--color-accent-2); text-decoration-thickness: var(--rule-bar); }
+.wordmark { display: inline-flex; align-items: center; gap: var(--space-xs); font: 800 var(--text-2xl)/1 var(--font-display); letter-spacing: var(--tracking-display); text-transform: uppercase; text-decoration: none; }
+
+/* Controls: the pair, both on the hard shadow. */
+.btn { display: inline-flex; align-items: center; min-height: 52px; padding: 0 var(--space-lg); border: var(--rule-bar) solid var(--color-ink); border-radius: var(--radius-pill); box-shadow: var(--shadow-card); background: var(--color-paper); color: var(--color-ink); font: 800 var(--text-lg)/1 var(--font-display); letter-spacing: var(--tracking-display); text-transform: uppercase; text-decoration: none; white-space: nowrap; cursor: pointer; transition: background-color var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out); }
+.btn:hover { background: var(--color-paper-3); }
+.btn--primary { background: var(--color-accent); color: var(--color-accent-ink); }
+.btn--primary:hover { background: var(--color-ink); color: var(--color-paper); }
+.btn:active { box-shadow: 1px 1px 0 var(--color-ink); }
+.btn:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
+.btn[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-md); }
+
+/* A capture, pinned to a board: ink border, hard shadow, the window untouched. */
+.screen { margin: 0; padding: var(--space-lg); border: var(--rule-bar) solid var(--color-ink); border-radius: var(--radius-card); box-shadow: var(--shadow-card); background: var(--color-accent); }
+.screen__shot { background: none; }
+.screen__shot > img { filter: none; }
+.screen__shot--library { aspect-ratio: 225 / 118; }
+.screen__shot--program { aspect-ratio: 563 / 313; max-width: 1126px; margin-inline: auto; }
+.screen__shot--settings { aspect-ratio: 16 / 15; max-width: 480px; margin-inline: auto; }
+
+/* Hero: Counter. One line of capitals, then the download beside the screen. */
+.hero { padding-block: var(--space-xl) var(--space-2xl); }
+.hero h1 { max-width: none; font-size: clamp(3.25rem, 10vw, 9.2rem); }
+.hero__row { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: var(--space-2xl); align-items: center; margin-top: var(--space-xl); }
+.hero__text .actions { margin-top: var(--space-lg); }
+.facts { display: grid; margin: var(--space-xl) 0 0; }
+.facts > div { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-md); padding-block: var(--space-sm); border-top: var(--rule-bar) solid var(--color-rule); }
+.facts dt { font-weight: 500; }
+.facts dd { margin: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Sections part by margin; the two bands by a change of paper. */
+.section { margin-top: var(--section-gap); }
+.section--wide { margin-top: var(--section-gap-l); }
+.head-split { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 6fr); gap: var(--gap-columns); align-items: end; }
+.head-split .lead { justify-self: end; }
+
+/* Before and after, set in type: two fields, one for each side of the drop. */
+.swap { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-columns); margin-top: var(--space-2xl); }
+.swap figure { display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-xl); min-height: 380px; margin: 0; padding: var(--space-xl); border: var(--rule-bar) solid var(--color-ink); border-radius: var(--radius-card); box-shadow: var(--shadow-card); background: var(--color-paper-2); }
+.swap figure + figure { background: var(--color-accent); color: var(--color-accent-ink); }
+.swap b { font: 800 clamp(5.5rem, 15vw, 13.5rem)/0.9 var(--font-display); letter-spacing: -0.005em; text-transform: uppercase; white-space: nowrap; }
+.swap figcaption { max-width: 34ch; font-size: var(--text-lead); line-height: 1.45; }
+
+/* What runs: the head holds still on the left while the rows pass. */
+.stack { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: var(--gap-columns); align-items: start; }
+.stack__head { position: sticky; top: var(--space-2xl); }
+.stack__head .lead { margin-top: var(--space-lg); }
+.rows { margin: 0; }
+.rows > div { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 5fr); gap: var(--gap-columns); align-items: baseline; padding-block: var(--space-lg); border-top: var(--rule-bar) solid var(--color-rule); }
+.rows > div:last-child { border-bottom: var(--rule-bar) solid var(--color-rule); }
+.rows dt { font: 800 var(--text-2xl)/1 var(--font-display); letter-spacing: var(--tracking-display); text-transform: uppercase; }
+.rows dd { margin: 0; font-size: var(--text-lead); line-height: 1.45; text-wrap: pretty; }
+.lead { text-wrap: pretty; }
+
+/* Updates: text beside the Settings window. */
+.pair { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--space-2xl); align-items: center; }
+.pair--narrow { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.pair .lead { margin-top: var(--space-lg); }
+.pair__facts { display: grid; gap: var(--space-md); margin: var(--space-xl) 0 0; padding: 0; list-style: none; }
+.pair__facts li { padding-top: var(--space-md); border-top: var(--rule-bar) solid var(--color-rule); }
+
+/* The one band of the second accent: what Harbor needs. */
+.band { margin-top: var(--section-gap); padding-block: var(--section-gap-s); background: var(--color-accent-2); color: var(--color-paper); --color-focus: var(--color-paper); }
+.band__in { display: grid; grid-template-columns: minmax(0, 8fr) minmax(0, 4fr); gap: var(--gap-columns); align-items: end; }
+.band h2 { max-width: none; font-size: clamp(3rem, 8vw, 7.5rem); }
+
+/* Releases: an index, the newest row set larger. */
+.index { margin: var(--space-2xl) 0 0; padding: 0; list-style: none; }
+.index li { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 7fr); gap: var(--gap-columns); align-items: baseline; padding-block: var(--space-lg); border-top: var(--rule-bar) solid var(--color-rule); }
+.index b { font: 800 var(--text-2xl)/1 var(--font-display); letter-spacing: var(--tracking-display); font-variant-numeric: tabular-nums; }
+.index li:first-child b { font-size: var(--text-display-s); }
+.index p { font-size: var(--text-lead); line-height: 1.45; }
+.index time { font-variant-numeric: tabular-nums; }
+.index p { max-width: 52ch; }
+.index + .actions { margin-top: var(--space-xl); }
+
+/* A Windows program in its Mac window, as large as the capture allows. */
+.show .screen { margin-top: var(--space-2xl); }
+.show figcaption { margin-top: var(--space-md); font-size: var(--text-sm); }
+
+/* The close: the download again, as one line and its action. */
+.close { margin-top: var(--section-gap-l); padding-block: var(--section-gap-s); background: var(--color-paper-2); }
+.close__in { display: grid; grid-template-columns: minmax(0, 8fr) minmax(0, 4fr); gap: var(--gap-columns); align-items: end; }
+.close h2 { max-width: none; font-size: clamp(3rem, 8vw, 7.5rem); }
+.close .actions { justify-content: flex-end; }
+.close .lead { margin-top: var(--space-lg); }
+
+/* Footer: a statement, the links beneath. */
+.foot { padding-block: var(--section-gap-s) var(--space-2xl); border-top: var(--rule-bar) solid var(--color-rule); }
+.foot__line { max-width: 16ch; font: 800 var(--text-display)/1 var(--font-display); letter-spacing: var(--tracking-display); text-transform: uppercase; text-wrap: balance; }
+.foot__cols { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 6fr); gap: var(--gap-columns); margin-top: var(--space-2xl); padding-top: var(--space-lg); border-top: var(--rule-bar) solid var(--color-rule); }
+.foot__cols p { max-width: 48ch; }
+.foot__links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-xs) var(--gap-columns); margin: 0; padding: 0; list-style: none; }
+.foot__links a { display: inline-flex; align-items: center; min-height: 44px; white-space: nowrap; }
+@media (max-width: 40rem) { .foot__links { grid-template-columns: minmax(0, 1fr); } }
+.foot__legal { margin-top: var(--space-2xl); max-width: none; font-size: var(--text-sm); color: var(--color-muted); }
+
+/* The changelog page: a banner with the newest release as a board, then every release under its number. */
+.banner { padding-block: var(--space-2xl) var(--space-3xl); }
+.banner__in { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-2xl); align-items: center; }
+.banner h1 { font-size: clamp(3.25rem, 9vw, 8rem); max-width: 9ch; }
+.banner .lead { margin-top: var(--space-lg); }
+.latest { margin: 0; padding: var(--space-xl); border: var(--rule-bar) solid var(--color-ink); border-radius: var(--radius-card); box-shadow: var(--shadow-card); background: var(--color-paper-2); }
+.latest b { display: block; font: 800 clamp(5rem, 11vw, 10rem)/0.9 var(--font-display); letter-spacing: -0.005em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.latest figcaption { margin-top: var(--space-md); }
+.latest .actions { margin-top: var(--space-lg); }
+.release { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: var(--gap-columns); align-items: start; margin-top: var(--section-gap-s); padding-top: var(--space-xl); border-top: var(--rule-bar) solid var(--color-rule); }
+.release:last-child { margin-bottom: var(--section-gap); }
+.release:first-child { margin-top: 0; }
+.release__head { position: sticky; top: var(--space-xl); }
+.release h2 { font-size: var(--text-display); font-variant-numeric: tabular-nums; }
+.release time { display: block; margin-top: var(--space-sm); font-variant-numeric: tabular-nums; }
+.release ul { display: grid; margin: 0; padding: 0; list-style: none; }
+.release li { padding-block: var(--space-lg); font-size: var(--text-lead); line-height: 1.45; text-wrap: pretty; }
+.release li:first-child { padding-top: 0; }
+.release li + li { border-top: var(--rule-hair) solid var(--color-muted); }
+.release li > span { display: block; max-width: 52ch; }
+
+@media (max-width: 60rem) {
+  .nav__links .nav__more, .nav__links:first-child { display: none; }
+  .nav__in { grid-template-columns: auto minmax(0, 1fr); }
+  .hero__row { grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
+  .screen { padding: var(--space-sm); }
+  .head-split, .swap, .stack, .pair, .pair--narrow, .band__in, .close__in, .banner__in, .foot__cols, .release { grid-template-columns: minmax(0, 1fr); }
+  .close .actions { justify-content: flex-start; }
+  .release__head { position: static; }
+  .head-split .lead { justify-self: start; }
+  .stack__head { position: static; }
+  .swap figure { min-height: 0; padding: var(--space-lg); }
+  .rows > div { grid-template-columns: minmax(0, 1fr); gap: var(--space-xs); }
+  .index li { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+  .index p { grid-column: 1 / -1; }
+  .pair { gap: var(--space-xl); }
+}

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Harbor's app icon, flattened for the web. The source is Design/Harbor.icon. -->
+  <defs>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f4caa"/>
+      <stop offset="1" stop-color="#091e57"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#sea)"/>
+  <path d="M 566 326 L 900 236 L 900 440 L 566 350 Z" fill="#F8EFDA" opacity="0.5"/>
+  <path d="M 458 326 L 124 236 L 124 440 L 458 350 Z" fill="#F8EFDA" opacity="0.5"/>
+  <path d="M 512 214 L 580 292 L 444 292 Z" fill="#E8403A"/>
+  <rect x="458" y="292" width="108" height="92" fill="#F8EFDA"/>
+  <rect x="482" y="308" width="60" height="60" rx="6" fill="#FFD466"/>
+  <rect x="424" y="384" width="176" height="26" rx="6" fill="#F8EFDA"/>
+  <path d="M 450 410 L 574 410 L 628 806 L 396 806 Z" fill="#F8EFDA"/>
+  <path d="M 432.3 540 L 591.7 540 L 606.7 650 L 417.3 650 Z" fill="#E8403A"/>
+  <rect x="344" y="806" width="336" height="40" rx="8" fill="#F8EFDA"/>
+</svg>
