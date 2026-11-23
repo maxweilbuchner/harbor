@@ -1,0 +1,50 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.12157,0.29804,0.66667,1.00000",
+      "srgb:0.03529,0.11765,0.34118,1.00000"
+    ]
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "lighthouse.svg",
+          "name": "lighthouse"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    },
+    {
+      "layers": [
+        {
+          "image-name": "beams.svg",
+          "name": "beams",
+          "opacity": 0.55
+        }
+      ],
+      "shadow": {
+        "kind": "none",
+        "opacity": 0.5
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}

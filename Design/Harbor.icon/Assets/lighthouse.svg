@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Roof, lantern room and gallery -->
+  <path d="M 512 214 L 580 292 L 444 292 Z" fill="#E8403A"/>
+  <rect x="458" y="292" width="108" height="92" fill="#F8EFDA"/>
+  <rect x="482" y="308" width="60" height="60" rx="6" fill="#FFD466"/>
+  <rect x="424" y="384" width="176" height="26" rx="6" fill="#F8EFDA"/>
+  <!-- Tower, with its one red band -->
+  <path d="M 450 410 L 574 410 L 628 806 L 396 806 Z" fill="#F8EFDA"/>
+  <path d="M 432.3 540 L 591.7 540 L 606.7 650 L 417.3 650 Z" fill="#E8403A"/>
+  <!-- Quay -->
+  <rect x="344" y="806" width="336" height="40" rx="8" fill="#F8EFDA"/>
+</svg>

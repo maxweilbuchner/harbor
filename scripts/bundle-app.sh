@@ -39,6 +39,13 @@ mkdir -p "$APP/Contents/Frameworks"
 ditto "$(dirname "$BIN")/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Harbor"
 cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
+# App icon: Design/Harbor.icon (the Icon Composer source) compiled into Assets.car; CFBundleIconName below names it.
+# actool also writes a 256px Harbor.icns for older systems. Harbor needs macOS 26, so that one isn't bundled.
+ICON_OUT=$(mktemp -d)
+xcrun actool Design/Harbor.icon --compile "$ICON_OUT" --app-icon Harbor --platform macosx --target-device mac \
+  --minimum-deployment-target 26.0 --output-partial-info-plist "$ICON_OUT/partial.plist" >/dev/null
+[ -f "$ICON_OUT/Assets.car" ] || { echo "bundle-app: the app icon didn't compile" >&2; exit 1; }
+cp "$ICON_OUT/Assets.car" "$APP/Contents/Resources/"; rm -rf "$ICON_OUT"
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -48,6 +55,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleName</key><string>Harbor</string>
   <key>CFBundleDisplayName</key><string>Harbor</string>
   <key>CFBundleExecutable</key><string>Harbor</string>
+  <key>CFBundleIconName</key><string>Harbor</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$BUILD</string>

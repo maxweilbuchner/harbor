@@ -2,6 +2,10 @@
 
 What changed in each Harbor release, newest first. The website's changelog page is built from this file.
 
+## Unreleased
+
+- Harbor has an app icon: a lighthouse.
+
 ## 0.1.4 (2026-11-23)
 
 - A program's whole folder can be dropped in or chosen, such as the contents of a disc or an unpacked download. Harbor picks the installer or program inside it.
