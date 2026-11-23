@@ -80,12 +80,14 @@ extension Bottle {
         return folder.appending(path: source.lastPathComponent)
     }
 
-    /// The folder `file` sits in, if it may be given to the installer whole: not a shared folder and not a synced
-    /// or working folder (dot-files). The top of an install disc counts although it is a disk's root.
+    /// The folder `file` sits in, if it may be given to the installer whole: not in a shared place and not a
+    /// synced or working folder (dot-files). The top of an install disc counts although it is a disk's root.
+    /// What the folder holds doesn't matter as it does for a program copied in for good: install media ships
+    /// manuals, pictures and videos beside the installer, and it is in the bottle only for the install.
     private func installerFolder(of file: URL) -> URL? {
         let folder = file.deletingLastPathComponent()
         if Self.isInstallDisc(folder) { return folder }
-        guard !AddProgram.isSharedFolder(folder) else { return nil }
+        guard !AddProgram.isSharedPlace(folder) else { return nil }
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         guard !names.contains(where: { $0.hasPrefix(".") && $0 != ".DS_Store" && !$0.hasPrefix("._") }) else { return nil }
         return folder

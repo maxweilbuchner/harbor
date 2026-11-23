@@ -100,6 +100,11 @@ import Testing
         let shared = try b.importForRunning(downloads.appending(path: "setup_game.exe"), withFolder: true)
         #expect(try fm.contentsOfDirectory(atPath: shared.deletingLastPathComponent().path).sorted()
                 == ["setup_game-1.bin", "setup_game.exe"])
+        // A manual or pictures beside the installer are part of the install media (#46).
+        try Data().write(to: media.appending(path: "Manual.pdf"))
+        let withManual = try b.importForRunning(media.appending(path: "setup.exe"), withFolder: true)
+        #expect(try fm.contentsOfDirectory(atPath: withManual.deletingLastPathComponent().path).sorted()
+                == ["Manual.pdf", "Redist", "data-01.bin", "data-02.bin", "in", "setup.exe"])
         try Data().write(to: media.appending(path: ".git"))
         let working = try b.importForRunning(media.appending(path: "setup.exe"), withFolder: true)
         #expect(try fm.contentsOfDirectory(atPath: working.deletingLastPathComponent().path) == ["setup.exe"])

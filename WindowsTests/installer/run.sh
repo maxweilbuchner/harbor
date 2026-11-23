@@ -19,6 +19,7 @@ mkdir -p "$MEDIA/Redist"
 cp Tests/HarborKitTests/Fixtures/app64.exe "$MEDIA/data-01.bin"
 printf '%s\n' "$TARGET" > "$MEDIA/target.txt"
 : > "$MEDIA/Redist/marker"
+: > "$MEDIA/Manual.pdf"      # install media ships documents too; the folder still comes along
 FROM="$MEDIA"; EXPECT='C:\windows\temp\harbor-import\'
 if [ -n "$IMAGE" ]; then
   hdiutil create -quiet -srcfolder "$MEDIA" -volname "HarborFixture$$" -format UDZO "$WORK/disc-$$.dmg" || exit 1
