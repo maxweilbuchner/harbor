@@ -79,7 +79,7 @@ struct LibraryView: View {
                 .help("Add a Windows program or installer")
             }
         }
-        .fileImporter(isPresented: $choosingFile, allowedContentTypes: [.exe, UTType(filenameExtension: "msi") ?? .data], allowsMultipleSelection: false) { result in
+        .fileImporter(isPresented: $choosingFile, allowedContentTypes: [.exe, UTType(filenameExtension: "msi") ?? .data, .folder], allowsMultipleSelection: false) { result in
             if case .success(let urls) = result, let url = urls.first { Task { await model.add(url) } }
         }
         .dropDestination(for: URL.self) { urls, _ in
@@ -244,7 +244,7 @@ struct EmptyLibraryView: View {
         ContentUnavailableView {
             Label("Add Your First Windows Program", systemImage: "square.and.arrow.down")
         } description: {
-            Text("Drag a program or its installer (.exe or .msi) into this window. Harbor sets everything up.")
+            Text("Drag a program, its installer (.exe or .msi) or its folder into this window. Harbor sets everything up.")
         } actions: {
             HStack {
                 Button("Choose File…", action: choose).buttonStyle(.borderedProminent)

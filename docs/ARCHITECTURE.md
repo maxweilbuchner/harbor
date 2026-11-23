@@ -83,10 +83,12 @@ under `~/Library/Application Support/Harbor/Runtimes/<base-hash>-<layer>-<versio
 
 ## 6. Programs and bottles (UX model)
 
-- **Add program:** drag an `.exe`/`.msi`/folder onto the window or Dock icon → Harbor analyses it →
+- **Add program:** drag an `.exe`/`.msi`/folder onto the window (the Dock icon: not yet) → Harbor analyses it →
   creates a bottle named after the product (from PE version info) with the right Windows version and
-  graphics layer → runs the installer → detects new Start Menu entries → adds them to the Library.
-- **Portable exe** (not an installer): copied/linked into the bottle and added directly.
+  graphics layer → runs the installer → detects new Start Menu entries, or new programs anywhere on C: if
+  there are none → adds them to the Library. Of a folder, the installer or program at its top is taken: what
+  `autorun.inf` opens, an installer named setup, the only program, the only installer (`AddProgram.entry`).
+- **Portable exe** (not an installer): copied into the bottle with its folder and added directly. Never linked.
 - **Library item** = a Program (bottle + Windows path + args + icon). Launch from Harbor, from a generated
   `~/Applications/Harbor/<Program>.app` shim (real Mac app: icon, Dock, Spotlight, Launchpad), or via
   `harbor://launch/<id>`.
@@ -114,8 +116,14 @@ known-program table. Downloads cached in `Caches/Harbor`.
 ## 9. Filesystem and privacy
 
 - Wine maps `Z:` to `/` by default, giving every Windows program the whole Mac filesystem. Harbor removes
-  `Z:` and instead maps the user's Documents, Downloads and Desktop (and the folder of a dropped file), so
-  installers still find their files. Advanced setting to restore `Z:`.
+  `Z:`; a per-bottle setting restores it. Nothing of the Mac is mapped instead: the Windows user folders are
+  the bottle's own.
+- A file to run is brought into the bottle (`Bottle.importForRunning`, a clone). An installer gets its whole
+  folder when that is the installer's own (not Downloads or Desktop, not a synced or working folder), so
+  multi-file installers find their data; from a shared folder only the parts named after it come along.
+- An installer's folder on another disk (a mounted disk image, an external drive) is not copied: it is linked
+  as drive `D:` for the install and unlinked afterwards. The one exception to "nothing is linked in": on a
+  writable drive the installer could write to its own folder while it runs.
 - `winemenubuilder` disabled (Harbor does its own Mac integration). (Done.)
 
 ## 10. Diagnose
@@ -183,6 +191,7 @@ An independent review re-checked the plan against the code and runtime. Items ma
 - `WindowsTests/installer/run.sh` — the add-program flow with an installer in several files (setup.exe, a data
   file under another name, a subfolder): it finds its files in the bottle and Harbor finds what it installed.
   `--disk-image`: from a mounted read-only disk image, which is drive D: for the install and not copied.
+  `--folder`: the folder is added instead of its setup.exe.
 - `scripts/check.sh` — the full bar (build, tests, newest-SDK guard); CI runs the same script.
   SwiftPM's default build system records the deployment target as the SDK version, so the script uses the
   native build system until the app moves to an Xcode project (M4).

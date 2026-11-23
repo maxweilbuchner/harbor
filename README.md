@@ -22,8 +22,9 @@ installed versions and whether an update is downloading or waiting.
 ## What works today
 
 - **Add a program by dropping it in:** installers run with their own windows and what they install appears in the
-  library; programs that need no installer are copied in. Each gets its own Windows environment ("bottle"),
-  ready in under a second.
+  library; programs that need no installer are copied in. A program's whole folder can be dropped too (the
+  contents of a disc, an unpacked download), and installers find the files that came with them, also on a
+  mounted disk image. Each gets its own Windows environment ("bottle"), ready in under a second.
 - **Steam and the Epic Games Store** in one click; the games they install appear in the library.
 - **DirectX 11 and 12 through D3DMetal 4**, offscreen and in windows, including fullscreen, Space switches
   and Mission Control.

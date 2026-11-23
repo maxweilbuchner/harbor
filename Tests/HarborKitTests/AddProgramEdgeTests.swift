@@ -195,4 +195,77 @@ import Testing
         #expect(Set(programs.map(\.windowsPath))
                 == [#"C:\Games\Thing\thing.exe"#, #"C:\Program Files\Vendor\Product\bin\product.exe"#])
     }
+
+    // MARK: #45
+
+    /// A dropped folder stands for the installer or program at its top.
+    @Test func aDroppedFolderIsResolvedToItsInstallerOrProgram() throws {
+        let (base, touch) = try tree()
+        let app = try #require(Bundle.module.url(forResource: "app64", withExtension: "exe"))
+        func put(_ path: String) throws {
+            try touch(path)
+            try fm.removeItem(at: base.appending(path: path))
+            try fm.copyItem(at: app, to: base.appending(path: path))
+        }
+        func entry(_ folder: String) throws -> String {
+            let found = try AddProgram.entry(in: base.appending(path: folder)).path
+            return String(found.dropFirst(base.resolvingSymlinksInPath().path.count + folder.count + 2))
+        }
+        // A disc: the installer by its name, although a launcher sits beside it; subfolders don't count.
+        for f in ["Disc/setup.exe", "Disc/launcher.exe", "Disc/Redist/vc_redist_setup.exe"] { try put(f) }
+        try touch("Disc/data-01.bin")
+        #expect(try entry("Disc") == "setup.exe")
+        // What autorun.inf opens comes first, whatever its case and arguments.
+        try "[autorun]\r\nicon=x.ico\r\nOPEN = Bin\\Start.EXE /auto\r\n".write(
+            to: base.appending(path: "Disc/AUTORUN.INF"), atomically: true, encoding: .utf8)
+        try put("Disc/bin/start.exe")
+        #expect(try entry("Disc") == "bin/start.exe")
+        // …unless it names nothing inside the folder.
+        try "[autorun]\nopen=..\\Other\\x.exe\n".write(to: base.appending(path: "Disc/AUTORUN.INF"), atomically: true, encoding: .utf8)
+        #expect(try entry("Disc") == "setup.exe")
+
+        // A ready-to-run program: the one program, with a redistributable's installer and an uninstaller beside it.
+        for f in ["Thing/thing.exe", "Thing/vc_redist_install.exe", "Thing/unins000.exe", "Thing/Uninstall.exe"] { try put(f) }
+        #expect(try entry("Thing") == "thing.exe")
+        // The only installer, whatever its name.
+        try put("Download/thing_installer_2.exe")
+        #expect(try entry("Download") == "thing_installer_2.exe")
+        // Several programs: the one named like the folder.
+        for f in ["Old Game/oldgame.exe", "Old Game/editor.exe"] { try put(f) }
+        #expect(try entry("Old Game") == "oldgame.exe")
+        // Nothing to go by.
+        for f in ["Tools/a.exe", "Tools/b.exe"] { try put(f) }
+        try touch("Empty/readme.txt")
+        #expect(throws: AddProgram.Failure.unclearFolder) { try AddProgram.entry(in: base.appending(path: "Tools")) }
+        #expect(throws: AddProgram.Failure.unclearFolder) { try AddProgram.entry(in: base.appending(path: "Empty")) }
+        // Downloads is nobody's program folder, even with one program in it.
+        try put("Downloads/thing.exe")
+        #expect(throws: AddProgram.Failure.sharedFolder) { try AddProgram.entry(in: base.appending(path: "Downloads")) }
+
+        // The bottle is named after the product, or after the folder when the program carries no name.
+        #expect(AddProgram.suggestedName(for: base.appending(path: "Thing")) == "Fixture App")
+        #expect(AddProgram.suggestedName(for: base.appending(path: "Tools")) == nil)
+    }
+
+    /// A dropped program folder comes into the bottle whole, also where Harbor wouldn't have dared on its own.
+    @Test func aDroppedProgramFolderIsCopiedWhole() async throws {
+        let (base, touch) = try tree()
+        let store = BottleStore(directory: base.appending(path: "bottles"))
+        let flow = AddProgram(store: store, launcher: WineLauncher(runtime: WineRuntime(root: URL(filePath: "/nonexistent"))))
+        let app = try #require(Bundle.module.url(forResource: "app64", withExtension: "exe"))
+        let game = base.appending(path: "Old Game")
+        for f in ["Old Game/Manual.pdf", "Old Game/data/levels.pak", "Old Game/tools/editor.exe"] { try touch(f) }
+        try fm.copyItem(at: app, to: game.appending(path: "game.exe"))
+        #expect(AddProgram.programRoot(for: game.appending(path: "game.exe")) == nil)      // the program alone, if dropped itself
+
+        let bottle = try store.create(name: "Whole")
+        let folder = game.standardizedFileURL.resolvingSymlinksInPath()
+        let program = try flow.place(try AddProgram.entry(in: folder), analysis: try ProgramAnalysis.analyze(app),
+                                     name: "Old Game", in: bottle, root: folder)
+        #expect(program.windowsPath == #"C:\Program Files\Old Game\game.exe"#)
+        let placed = bottle.driveC.appending(path: "Program Files/Old Game")
+        for f in ["game.exe", "Manual.pdf", "data/levels.pak", "tools/editor.exe"] {
+            #expect(fm.fileExists(atPath: placed.appending(path: f).path), "\(f)")
+        }
+    }
 }

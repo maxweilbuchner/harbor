@@ -9,7 +9,7 @@ import HarborKit
 //   harbor-cli stop <bottle>
 //   harbor-cli programs <bottle>                    # scan the Start Menu into the bottle's library
 //   harbor-cli launch <bottle> <program name>
-//   harbor-cli add <file.exe|file.msi>                # the app's add-program flow
+//   harbor-cli add <file.exe|file.msi|folder>         # the app's add-program flow
 //   harbor-cli prepare-template                       # pre-build the prefix new bottles clone
 //   harbor-cli analyze <file>                         # what Harbor reads from a program
 //   harbor-cli run-with <bottle> <layer> <args…>      # like run, on one graphics layer (d3dmetal, dxmt, wined3d); for tests

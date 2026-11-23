@@ -19,10 +19,16 @@ public struct AddProgram: Sendable {
     public enum Failure: Error, CustomStringConvertible, Equatable {
         case notAWindowsProgram
         case installerFoundNothing(name: String)
+        /// A dropped folder with several programs or none at its top.
+        case unclearFolder
+        /// A dropped folder that isn't a program's: Downloads, Desktop, a disk.
+        case sharedFolder
 
         public var description: String {
             switch self {
             case .notAWindowsProgram: "This doesn’t look like a Windows program or installer."
+            case .unclearFolder: "Harbor couldn’t tell which program in this folder to add. Drop the program itself."
+            case .sharedFolder: "This folder holds more than one program’s files. Drop the program itself."
             case .installerFoundNothing(let n): "The \(n) installer finished, but Harbor couldn’t find what it installed."
             }
         }
@@ -40,11 +46,14 @@ public struct AddProgram: Sendable {
     }
 
     /// Returns the bottle and the programs added to it.
+    /// `file` may be a folder: then the installer or program at its top is added (`entry(in:)`).
     public func add(_ file: URL, progress: @Sendable (Step) -> Void = { _ in }) async throws -> (Bottle, [Program]) {
         progress(.analyzing)
+        let folder = Self.isFolder(file) ? file.standardizedFileURL.resolvingSymlinksInPath() : nil
+        let file = try folder.map { try Self.entry(in: $0) } ?? file
         guard ["exe", "msi"].contains(file.pathExtension.lowercased()),
               let analysis = try? ProgramAnalysis.analyze(file) else { throw Failure.notAWindowsProgram }
-        let name = Self.bottleName(for: analysis, file: file)
+        let name = Self.bottleName(for: analysis, file: folder ?? file)
 
         progress(.preparingWindows(name: name))
         let (launcher, template) = (self.launcher, self.template)
@@ -54,7 +63,8 @@ public struct AddProgram: Sendable {
             if analysis.installer != nil {
                 programs = try await install(file, name: name, into: bottle, progress: progress)
             } else {
-                programs = [try place(file, analysis: analysis, name: name, in: bottle)]
+                // A dropped folder is the program's by the user's word: all of it comes along.
+                programs = [try place(file, analysis: analysis, name: name, in: bottle, root: folder)]
             }
         } catch Failure.installerFoundNothing(let n) {
             // Something may well be installed; keep the bottle rather than delete it (Advanced can reach it).
@@ -112,7 +122,8 @@ public struct AddProgram: Sendable {
     /// Downloads or Desktop: then only the program is copied, so unrelated personal files never enter the
     /// bottle. Nothing is ever symlinked in, so a Windows uninstaller can't reach the Mac folder: links are
     /// followed for the program itself and dropped from its folder when they lead out of it.
-    func place(_ file: URL, analysis: ProgramAnalysis, name: String, in bottle: Bottle) throws -> Program {
+    /// `root`: the program's folder if the user named it (dropped the folder), instead of working it out.
+    func place(_ file: URL, analysis: ProgramAnalysis, name: String, in bottle: Bottle, root: URL? = nil) throws -> Program {
         let fm = FileManager.default
         let programFolderName = analysis.architecture == .x86 ? "Program Files (x86)" : "Program Files"
         let programFiles = bottle.driveC.appending(path: programFolderName)
@@ -121,7 +132,7 @@ public struct AddProgram: Sendable {
         let destination = programFiles.appending(path: folderName)
         // The whole program comes along: for a game whose .exe sits in Binaries\Win64, that's the game's folder.
         let relative: [String]
-        if let root = Self.programRoot(for: file) {
+        if let root = root ?? Self.programRoot(for: file) {
             // A clone on APFS: no extra disk until files change.
             try fm.copyItem(at: root.resolvingSymlinksInPath(), to: destination)
             try Self.removeLinks(leadingOutOf: destination)
@@ -206,6 +217,12 @@ public struct AddProgram: Sendable {
     /// Applications, disk roots, and any folder containing personal documents (a program's own folder doesn't
     /// hold PDFs and photos).
     static func isSharedFolder(_ folder: URL) -> Bool {
+        // Games ship pictures, videos and manuals too; a folder with DLLs next to the program is the program's.
+        isSharedPlace(folder) || (containsPersonalDocuments(folder) && !containsLibraries(folder))
+    }
+
+    /// The part of `isSharedFolder` that goes by where the folder is, not by what it holds.
+    static func isSharedPlace(_ folder: URL) -> Bool {
         let fm = FileManager.default
         let path = folder.standardizedFileURL.resolvingSymlinksInPath().path
         let home = fm.homeDirectoryForCurrentUser.standardizedFileURL.resolvingSymlinksInPath().path
@@ -222,9 +239,7 @@ public struct AddProgram: Sendable {
         // A provider's root and the drive inside it (`GoogleDrive-<account>/My Drive`).
         if path.hasPrefix(cloudStorage + "/") && path.dropFirst(cloudStorage.count + 1).split(separator: "/").count <= 2 { return true }
         let parts = path.split(separator: "/")
-        if parts.count == 2 && parts[0] == "Volumes" { return true }             // a disk's root, e.g. /Volumes/USB
-        // Games ship pictures, videos and manuals too; a folder with DLLs next to the program is the program's.
-        return containsPersonalDocuments(folder) && !containsLibraries(folder)
+        return parts.count == 2 && parts[0] == "Volumes"                         // a disk's root, e.g. /Volumes/USB
     }
 
     /// More files than this below a folder without DLLs: too many to check that they're all the program's.
@@ -262,15 +277,77 @@ public struct AddProgram: Sendable {
         return found
     }
 
-    /// The name a dropped file's bottle will get, or nil if it isn't a Windows program. Lets the app notice
-    /// that something is already installed before adding it again.
-    public static func suggestedName(for file: URL) -> String? {
-        guard ["exe", "msi"].contains(file.pathExtension.lowercased()),
-              let analysis = try? ProgramAnalysis.analyze(file) else { return nil }
-        return bottleName(for: analysis, file: file)
+    static func isFolder(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     }
 
-    /// "Thing Setup 2.1" → "Thing": product name without installer words and version numbers.
+    /// What a dropped folder stands for: the installer or the program at its top. In this order: what the
+    /// disc's `autorun.inf` opens; an installer named setup or install; the only program (redistributables'
+    /// installers may sit beside it); the only installer; among several programs the one named like the folder.
+    /// Uninstallers and other helpers never count.
+    static func entry(in folder: URL) throws -> URL {
+        let fm = FileManager.default
+        let folder = folder.standardizedFileURL.resolvingSymlinksInPath()
+        // An install disc is a disk's root too; anything else there, or Downloads, isn't one program's folder.
+        guard Bottle.isInstallDisc(folder) || !isSharedPlace(folder) else { throw Failure.sharedFolder }
+        // Paths built on `folder`, so they stay below it as written (the system's listing may spell it differently).
+        let files = ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).filter { !$0.hasPrefix(".") }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }.map { folder.appending(path: $0) }
+        if let autorun = files.first(where: { $0.lastPathComponent.lowercased() == "autorun.inf" }),
+           let opened = autorunTarget(autorun, in: folder) { return opened }
+
+        var installers: [URL] = [], programs: [URL] = []
+        for file in files.prefix(2000) where ["exe", "msi"].contains(file.pathExtension.lowercased())
+            && !Bottle.isAuxiliary(name: file.lastPathComponent, target: file.lastPathComponent) {
+            guard let analysis = try? ProgramAnalysis.analyze(file) else { continue }
+            if analysis.installer != nil { installers.append(file) } else if analysis.isGUI { programs.append(file) }
+        }
+        let stem = { (file: URL) in file.deletingPathExtension().lastPathComponent.lowercased() }
+        let named = installers.filter { ["setup", "install", "installer"].contains(stem($0)) }
+        if named.count == 1 { return named[0] }
+        if programs.count == 1 { return programs[0] }
+        if programs.isEmpty, installers.count == 1 { return installers[0] }
+        let letters = { (name: String) in name.lowercased().filter { $0.isLetter || $0.isNumber } }
+        let own = programs.filter { letters($0.deletingPathExtension().lastPathComponent) == letters(folder.lastPathComponent) }
+        if own.count == 1 { return own[0] }
+        throw Failure.unclearFolder
+    }
+
+    /// The program `open=` names in a disc's `autorun.inf`, if it is a Windows program inside `folder`.
+    static func autorunTarget(_ autorun: URL, in folder: URL) -> URL? {
+        guard let data = try? Data(contentsOf: autorun), data.count < 1_000_000 else { return nil }
+        let text = data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF])
+            ? String(data: data, encoding: .utf16) : String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
+        for line in (text ?? "").split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2, parts[0].lowercased() == "open" else { continue }
+            // `open=Setup\setup.exe /auto`: the path ends with the program's extension, arguments follow.
+            let value = parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            guard let end = [".exe", ".msi"].compactMap({ value.range(of: $0, options: .caseInsensitive)?.upperBound }).min() else { return nil }
+            var url = folder
+            for name in value[..<end].split(whereSeparator: { $0 == "\\" || $0 == "/" }) where name != "." {
+                // Discs are written without regard to case; the Mac's disks may tell it apart.
+                let names = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
+                guard name != "..", let match = names.first(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) else { return nil }
+                url.append(path: match)
+            }
+            return isFolder(url) ? nil : url
+        }
+        return nil
+    }
+
+    /// The name a dropped file's (or folder's) bottle will get, or nil if it isn't a Windows program. Lets the
+    /// app notice that something is already installed before adding it again.
+    public static func suggestedName(for file: URL) -> String? {
+        let folder = isFolder(file) ? file : nil
+        guard let file = folder.map({ try? entry(in: $0) }) ?? file,
+              ["exe", "msi"].contains(file.pathExtension.lowercased()),
+              let analysis = try? ProgramAnalysis.analyze(file) else { return nil }
+        return bottleName(for: analysis, file: folder ?? file)
+    }
+
+    /// "Thing Setup 2.1" → "Thing": product name without installer words and version numbers. `file` gives the
+    /// name when the program carries none: the program's file, or the folder that was dropped.
     static func bottleName(for analysis: ProgramAnalysis, file: URL) -> String {
         var name = analysis.displayName(fallback: file)
         for word in ["setup", "installer", "install", "installation", "x64", "x86", "64-bit", "32-bit"] {

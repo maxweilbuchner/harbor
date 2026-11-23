@@ -1,14 +1,16 @@
 #!/bin/sh
 # The add-program flow with an installer in several files (setup.exe + data file + subfolder), on the current
 # runtime: the installer must find its files inside the bottle, and Harbor must find what it installed.
-#   WindowsTests/installer/run.sh [--disk-image] [target]     # default target "C:\Program Files\Harbor Fixture"
+#   WindowsTests/installer/run.sh [--disk-image] [--folder] [target]     # default target "C:\Program Files\Harbor Fixture"
 # --disk-image: the installer sits on a mounted read-only disk image, which must become drive D: for the
 # install (nothing copied) and be gone afterwards. Without it the folder is cloned into the bottle.
+# --folder: the installer's folder is what gets added, not setup.exe itself.
 set -u
 cd "$(dirname "$0")/../.."
 . scripts/versions.env
 CC="build/toolchain/llvm-mingw-$LLVM_MINGW_VERSION-ucrt-macos-universal/bin/x86_64-w64-mingw32-clang"
 IMAGE=""; [ "${1:-}" = "--disk-image" ] && { IMAGE=yes; shift; }
+ENTRY="/setup.exe"; [ "${1:-}" = "--folder" ] && { ENTRY=""; shift; }
 TARGET="${1:-C:\\Program Files\\Harbor Fixture}"
 WORK="$PWD/build/WindowsTests/installer"
 MEDIA="$WORK/Fixture Disc $$"
@@ -25,7 +27,7 @@ if [ -n "$IMAGE" ]; then
 fi
 CLI="$(swift build --build-system native --show-bin-path 2>/dev/null)/harbor-cli"
 BEFORE=$("$CLI" list | awk -F'\t' '{ print $NF }')
-OUT=$("$CLI" add "$FROM/setup.exe" 2>&1)
+OUT=$("$CLI" add "$FROM$ENTRY" 2>&1)
 ADDED=$(printf '%s\n' "$OUT" | grep '^added ')
 status=1
 if printf '%s\n' "$ADDED" | grep -qF "$TARGET\\Fixture App.exe"; then status=0; fi
