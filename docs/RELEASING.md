@@ -24,9 +24,12 @@ Installed copies pick it up within six hours of use and switch when no Windows p
 
 ## App only
 
+0. In `CHANGELOG.md`, turn `## Unreleased` into `## <version> (<date>)`. The website builds its changelog and its
+   list of releases from that file.
 1. Commit everything. `scripts/release-app.sh <version> --publish` builds, signs, notarizes, zips, signs the zip
    for Sparkle, creates the GitHub release and adds the item to `updates/appcast.xml`.
-2. Commit and push `updates/appcast.xml`: apps read the feed from the main branch.
+2. Commit and push `updates/appcast.xml`: apps read the feed from the main branch. The push also republishes the
+   website (`site/`, deployed by `.github/workflows/site.yml`), whose download button reads the feed.
 
 To rehearse an update first: build the new version with `scripts/release-app.sh <version> --local <url> <dir>`
 and an older one with `HARBOR_UPDATE_FEED_URL=<url>/appcast.xml HARBOR_UPDATE_TEST=1 scripts/bundle-app.sh`,
