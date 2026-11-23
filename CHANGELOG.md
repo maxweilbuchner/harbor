@@ -2,6 +2,10 @@
 
 What changed in each Harbor release, newest first. The website's changelog page is built from this file.
 
+## Unreleased
+
+- Harbor comes as an installer: open it and Harbor is in Applications; macOS then offers to move the installer to the Trash.
+
 ## 0.1.5 (2026-11-23)
 
 - Harbor has an app icon: a lighthouse.

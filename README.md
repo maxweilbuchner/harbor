@@ -16,8 +16,8 @@ Website: [maxweilbuchner.github.io/harbor](https://maxweilbuchner.github.io/harb
 
 ## Download
 
-Get **Harbor-x.y.z.zip** from the [latest release](https://github.com/maxweilbuchner/harbor/releases/latest),
-unzip it and move Harbor to Applications. On first start Harbor downloads its Windows support (about 400 MB).
+Get **Harbor-x.y.z.pkg** from the [latest release](https://github.com/maxweilbuchner/harbor/releases/latest)
+and open it: it installs Harbor in Applications and then offers to move itself to the Trash. On first start Harbor downloads its Windows support (about 400 MB).
 Both the app and the Windows support update themselves afterwards. Harbor > Settings… shows the
 installed versions and whether an update is downloading or waiting.
 

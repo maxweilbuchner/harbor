@@ -1,0 +1,9 @@
+#!/bin/sh
+# Runs as root after the installer has put Harbor.app in /Applications. An installer's files belong to root;
+# Harbor updates itself (Sparkle), and replacing a root-owned app would ask for an administrator password at
+# every update. So the app goes to the person who installed it, as if they had dragged it there.
+APP="$2/Applications/Harbor.app"
+OWNER="${USER:-}"
+[ -n "$OWNER" ] && [ "$OWNER" != root ] || OWNER=$(/usr/bin/stat -f%Su /dev/console)
+[ -n "$OWNER" ] && [ "$OWNER" != root ] && [ -d "$APP" ] && /usr/sbin/chown -R "$OWNER":admin "$APP"
+exit 0

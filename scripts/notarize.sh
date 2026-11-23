@@ -5,6 +5,7 @@
 #
 #   scripts/notarize.sh [runtime-dir]   # default: build/out/wine (sign it first with scripts/sign-runtime.sh)
 #   scripts/notarize.sh --app-only      # just Harbor.app (the runtime is notarized separately, by content)
+#   scripts/notarize.sh --installer <pkg>   # just an installer package (scripts/package-installer.sh), stapled
 set -eu
 cd "$(dirname "$0")/.."
 PROFILE="${NOTARY_PROFILE:-harbor-notary}"
@@ -23,6 +24,16 @@ submit() { # $1 = zip
     exit 1
   fi
 }
+
+if [ "${1:-}" = --installer ]; then
+  PKG="$2"
+  cp "$PKG" build/notarize/Harbor.pkg   # submitted from here so the result file lands beside the others
+  submit build/notarize/Harbor.pkg
+  xcrun stapler staple "$PKG"
+  xcrun stapler validate "$PKG"
+  spctl -a -vv -t install "$PKG" 2>&1 | head -3
+  exit 0
+fi
 
 ditto -c -k --keepParent build/app/Harbor.app build/notarize/Harbor.zip
 submit build/notarize/Harbor.zip

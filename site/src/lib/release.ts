@@ -18,13 +18,14 @@ export interface Download {
   megabytes: string;
 }
 
-/** The newest item of the Sparkle feed: the feed lists them newest first. */
+/** The newest item of the Sparkle feed: the feed lists them newest first. The download is the item's installer
+ *  (`harbor:installer`, written by scripts/release-app.sh). */
 export function latestDownload(): Download {
   const xml = readFileSync(resolve(root, "updates/appcast.xml"), "utf8");
   const item = xml.match(/<item>[\s\S]*?<\/item>/)?.[0];
   const version = item?.match(/<sparkle:shortVersionString>([^<]+)</)?.[1];
-  const url = item?.match(/<enclosure[^>]*\burl="([^"]+)"/)?.[1];
-  const length = item?.match(/<enclosure[^>]*\blength="(\d+)"/)?.[1];
+  const url = item?.match(/<harbor:installer[^>]*\burl="([^"]+)"/)?.[1];
+  const length = item?.match(/<harbor:installer[^>]*\blength="(\d+)"/)?.[1];
   if (!version || !url || !length) throw new Error("updates/appcast.xml: no complete first item");
   return { version, url, megabytes: (Number(length) / 1_000_000).toFixed(1) };
 }

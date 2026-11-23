@@ -4,7 +4,9 @@ Two things are released independently: the **app** (Harbor.app, updated through 
 runtime** (Wine + D3DMetal + DXMT, updated by Harbor itself from a signed list). Both reach existing
 installations without anything to download by hand. Keys: the runtime list is signed with
 `~/.config/harbor/runtime-signing.key` (Ed25519), app updates with the Sparkle key in the login keychain;
-notarization uses the `harbor-notary` keychain profile. None of these are in the repository.
+the app and the runtime with the "Developer ID Application" certificate, the installer package with the
+"Developer ID Installer" certificate (a separate one: Xcode > Settings > Accounts > Manage Certificates > + ,
+or developer.apple.com > Certificates); notarization uses the `harbor-notary` keychain profile. None of these are in the repository.
 
 ## Runtime only (a Wine patch, a new D3DMetal or DXMT)
 
@@ -27,7 +29,9 @@ Installed copies pick it up within six hours of use and switch when no Windows p
 0. In `CHANGELOG.md`, turn `## Unreleased` into `## <version> (<date>)`. The website builds its changelog and its
    list of releases from that file.
 1. Commit everything. `scripts/release-app.sh <version> --publish` builds, signs, notarizes, zips, signs the zip
-   for Sparkle, creates the GitHub release and adds the item to `updates/appcast.xml`.
+   for Sparkle, builds and notarizes the installer package (`scripts/package-installer.sh`), creates the GitHub
+   release with both and adds the item to `updates/appcast.xml`. Installed copies update from the zip; the
+   website's button downloads the installer.
 2. Commit and push `updates/appcast.xml`: apps read the feed from the main branch. The push also republishes the
    website (`site/`, deployed by `.github/workflows/site.yml`), whose download button reads the feed.
 

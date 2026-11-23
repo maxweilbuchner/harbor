@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:harbor="https://maxweilbuchner.github.io/harbor/">
   <channel>
     <title>Harbor</title>
     <link>https://github.com/maxweilbuchner/harbor</link>
