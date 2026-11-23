@@ -7,6 +7,14 @@
     <language>en</language>
     <!-- items: newest first, added by scripts/release-app.sh -->
     <item>
+      <title>Harbor 0.1.4</title>
+      <pubDate>Mon, 23 Nov 2026 15:07:31 +0000</pubDate>
+      <sparkle:version>128</sparkle:version>
+      <sparkle:shortVersionString>0.1.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <enclosure url="https://github.com/maxweilbuchner/harbor/releases/download/v0.1.4/Harbor-0.1.4.zip" sparkle:edSignature="alDRic700mUF1EuaT33pWaucqPK8WWLYZtpFFApr0S7yddO4aqLBA2u5yBQQ6vC8iFM2RBlSEuMB+h8m8xELAg==" length="1732965" type="application/octet-stream"/>
+    </item>
+    <item>
       <title>Harbor 0.1.3</title>
       <pubDate>Mon, 23 Nov 2026 14:37:37 +0000</pubDate>
       <sparkle:version>122</sparkle:version>
