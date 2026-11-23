@@ -76,7 +76,7 @@ public struct AddProgram: Sendable {
         progress(.runningInstaller(name: name))
         // The exit handler is installed before the installer starts, so its end can't be missed.
         try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
-            do { try launcher.open(file, in: bottle) { _ in done.resume() } } catch { done.resume(throwing: error) }
+            do { try launcher.open(file, in: bottle, withFolder: true) { _ in done.resume() } } catch { done.resume(throwing: error) }
         }
         // Bootstrapper installers start the real setup and exit at once; wait until every Windows process in
         // the bottle has finished (wineserver exits then), or the scan below would run mid-install. That

@@ -180,6 +180,8 @@ An independent review re-checked the plan against the code and runtime. Items ma
   libtasn1 4.21.0), relocated to `@loader_path` and re-signed; a guard fails the build on any absolute build path.
   Not yet built: GStreamer, SDL2.
 - `WindowsTests/net/run.sh` — HTTPS through WinHTTP from a Windows program (passes on example.com).
+- `WindowsTests/installer/run.sh` — the add-program flow with an installer in several files (setup.exe, a data
+  file under another name, a subfolder): it finds its files in the bottle and Harbor finds what it installed.
 - `scripts/check.sh` — the full bar (build, tests, newest-SDK guard); CI runs the same script.
   SwiftPM's default build system records the deployment target as the SDK version, so the script uses the
   native build system until the app moves to an Xcode project (M4).

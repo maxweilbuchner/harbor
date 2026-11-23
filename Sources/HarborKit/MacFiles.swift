@@ -32,12 +32,20 @@ extension Bottle {
     /// Brings a Mac file into the bottle so Wine can run it, and returns the copy (a clone on APFS: no extra disk).
     /// Files already inside the bottle are returned as they are. Parts of a multi-file installer come along: files
     /// beside it whose names start with its name (GOG's `setup_game.exe` + `setup_game-1.bin`).
-    public func importForRunning(_ file: URL) throws -> URL {
+    /// `withFolder`: for an installer, bring its whole folder (data files under other names, subfolders) when the
+    /// folder is the installer's own; from a shared folder such as Downloads only the named parts come, as above.
+    public func importForRunning(_ file: URL, withFolder: Bool = false) throws -> URL {
         let fm = FileManager.default
         let source = file.standardizedFileURL.resolvingSymlinksInPath()
         if source.path.hasPrefix(driveC.standardizedFileURL.resolvingSymlinksInPath().path + "/") { return file }
         if !isRunning() { clearImports() }     // copies from earlier runs, now that nothing can be using them
         let folder = importsDirectory.appending(path: UUID().uuidString)
+        if withFolder, ownsItsFolder(source) {
+            try fm.createDirectory(at: importsDirectory, withIntermediateDirectories: true)
+            try fm.copyItem(at: source.deletingLastPathComponent(), to: folder)
+            try AddProgram.removeLinks(leadingOutOf: folder)      // nothing in the bottle points back at the Mac
+            return folder.appending(path: source.lastPathComponent)
+        }
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
         let copy = folder.appending(path: source.lastPathComponent)
         try fm.copyItem(at: source, to: copy)
@@ -50,6 +58,18 @@ extension Bottle {
             try fm.copyItem(at: sibling, to: folder.appending(path: sibling.lastPathComponent))
         }
         return copy
+    }
+
+    /// Whether the folder `file` sits in may come into the bottle whole: not a shared folder, not a synced or
+    /// working folder (dot-files), and on the bottle's own disk, where the copy is a clone. On another disk it
+    /// would be a real copy of everything, so only the named parts come.
+    private func ownsItsFolder(_ file: URL) -> Bool {
+        let folder = file.deletingLastPathComponent()
+        guard !AddProgram.isSharedFolder(folder) else { return false }
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        guard !names.contains(where: { $0.hasPrefix(".") && $0 != ".DS_Store" && !$0.hasPrefix("._") }) else { return false }
+        var here = stat(), there = stat()
+        return stat(folder.path, &here) == 0 && stat(driveC.path, &there) == 0 && here.st_dev == there.st_dev
     }
 
     /// Removes everything `importForRunning` brought in. Call when the bottle has stopped.

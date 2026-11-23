@@ -207,10 +207,12 @@ public struct WineLauncher: Sendable {
     }
 
     /// Opens a Windows program or installer inside `bottle`. `onExit` runs when the program itself exits.
+    /// `withFolder`: an installer whose own folder comes along (see `importForRunning`).
     @discardableResult
-    public func open(_ file: URL, in bottle: Bottle, onExit: (@Sendable (Int32) -> Void)? = nil) throws -> Process {
+    public func open(_ file: URL, in bottle: Bottle, withFolder: Bool = false,
+                     onExit: (@Sendable (Int32) -> Void)? = nil) throws -> Process {
         // Wine can't start a file by its Mac path once drive Z: is gone: run a copy inside the bottle.
-        let local = try bottle.importForRunning(file)
+        let local = try bottle.importForRunning(file, withFolder: withFolder)
         return try run(bottle, arguments: Self.arguments(toOpen: local, windowsPath: bottle.windowsPath(for: local)),
                        label: file.deletingPathExtension().lastPathComponent, onExit: onExit)
     }

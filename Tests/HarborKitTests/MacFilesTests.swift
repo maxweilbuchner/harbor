@@ -67,4 +67,41 @@ import Testing
         b.clearImports()
         #expect(!fm.fileExists(atPath: copy.path))
     }
+
+    /// An installer in a folder of its own gets that whole folder: data files under any name and subfolders.
+    @Test func anInstallersOwnFolderComesAlong() throws {
+        let b = try bottle()
+        let base = b.root.deletingLastPathComponent()
+        let media = base.appending(path: "Thing Disc")
+        try fm.createDirectory(at: media.appending(path: "Redist"), withIntermediateDirectories: true)
+        for name in ["setup.exe", "data-01.bin", "data-02.bin", "Redist/vc.exe"] {
+            try Data(name.utf8).write(to: media.appending(path: name))
+        }
+        try Data("private".utf8).write(to: base.appending(path: "private.txt"))
+        try fm.createSymbolicLink(atPath: media.appending(path: "out").path, withDestinationPath: "../private.txt")
+        try fm.createSymbolicLink(atPath: media.appending(path: "in").path, withDestinationPath: "data-01.bin")
+
+        let copy = try b.importForRunning(media.appending(path: "setup.exe"), withFolder: true)
+        #expect(b.windowsPath(for: copy)?.hasPrefix(#"C:\windows\temp\harbor-import\"#) == true)
+        let folder = copy.deletingLastPathComponent()
+        #expect(try fm.contentsOfDirectory(atPath: folder.path).sorted()
+                == ["Redist", "data-01.bin", "data-02.bin", "in", "setup.exe"])      // the link out of the folder is gone
+        #expect(fm.fileExists(atPath: folder.appending(path: "Redist/vc.exe").path))
+        #expect(fm.fileExists(atPath: media.appending(path: "data-01.bin").path))    // copied, not moved
+
+        // Programs that aren't installers, and other callers, bring only the named parts.
+        let plain = try b.importForRunning(media.appending(path: "setup.exe"))
+        #expect(try fm.contentsOfDirectory(atPath: plain.deletingLastPathComponent().path) == ["setup.exe"])
+
+        // A shared folder never comes along, nor does a synced or working folder (dot-files).
+        let downloads = base.appending(path: "Downloads")
+        try fm.createDirectory(at: downloads, withIntermediateDirectories: true)
+        for name in ["setup_game.exe", "setup_game-1.bin", "notes.bin"] { try Data().write(to: downloads.appending(path: name)) }
+        let shared = try b.importForRunning(downloads.appending(path: "setup_game.exe"), withFolder: true)
+        #expect(try fm.contentsOfDirectory(atPath: shared.deletingLastPathComponent().path).sorted()
+                == ["setup_game-1.bin", "setup_game.exe"])
+        try Data().write(to: media.appending(path: ".git"))
+        let working = try b.importForRunning(media.appending(path: "setup.exe"), withFolder: true)
+        #expect(try fm.contentsOfDirectory(atPath: working.deletingLastPathComponent().path) == ["setup.exe"])
+    }
 }
