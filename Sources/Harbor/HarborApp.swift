@@ -663,8 +663,12 @@ struct StatusLine: View {
         if model.status != nil || model.runtimeUpdate == .ready {
             VStack(alignment: alignment, spacing: 4) {
                 if let status = model.status {
+                    // Statuses name programs and quote errors, and the sidebar is narrow: a long one is cut after
+                    // a few lines instead of squeezing the list, with the whole text on hover.
                     Text(status).foregroundStyle(.secondary)
                         .multilineTextAlignment(alignment == .center ? .center : .leading)
+                        .lineLimit(4)
+                        .help(status)
                 }
                 if model.runtimeUpdate == .ready {
                     // Short enough for one line in the narrowest sidebar.

@@ -39,11 +39,12 @@ struct LibraryView: View {
     @State private var selection: Set<LibraryItem.ID> = []
     @State private var choosingFile = false
     @State private var dropTargeted = false
+    @State private var columns = NavigationSplitViewVisibility.automatic
 
     var body: some View {
         // Sidebar + grid, like Music and Photos: one place to filter, room for more sections later.
         // (Chosen over a single grid with Games/Apps headers, which repeat the filter and cost vertical space.)
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             VStack(spacing: 0) {
                 List(LibraryFilter.allCases, selection: Binding(get: { filter }, set: { filter = $0 ?? .all })) { f in
                     Label(f.rawValue, systemImage: f.symbol).tag(f)
@@ -56,6 +57,13 @@ struct LibraryView: View {
             .navigationSplitViewColumnWidth(min: 170, ideal: 190)
         } detail: {
             content
+                // With the sidebar hidden its status line would be gone too: it moves under the grid, at the edge
+                // where the sidebar was.
+                .safeAreaInset(edge: .bottom, alignment: .leading) {
+                    if columns == .detailOnly {
+                        StatusLine().padding(.horizontal, 24).padding(.bottom, 12)
+                    }
+                }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search Programs")
         .toolbar {
