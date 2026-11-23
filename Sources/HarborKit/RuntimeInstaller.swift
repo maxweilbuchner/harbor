@@ -210,11 +210,16 @@ public struct RuntimeInstaller: Sendable {
 
     // MARK: Updating an installed runtime
 
-    /// Whether a downloaded update is waiting to be switched to (`activateStaged`).
+    /// Whether a downloaded update is waiting to be switched to (`activateStaged`): every pending component of its
+    /// list was staged. A download that stopped part-way leaves its finished components (`.ready-<id>`) for the
+    /// next `stage` to continue from, but isn't an update to switch to: that would install one component without
+    /// the others and without the list's sequence.
     public var hasStagedUpdate: Bool {
-        ((try? FileManager.default.contentsOfDirectory(atPath: installedDirectory.path)) ?? [])
-            .contains { $0.hasPrefix(Self.readyPrefix) && $0 != Self.readyPrefix + "sequence" }
+        FileManager.default.fileExists(atPath: installedDirectory.appending(path: Self.stagedMarker).path)
     }
+
+    /// Written when `stage` has finished, removed when the update is switched to (or turns out not to start).
+    static let stagedMarker = readyPrefix + "complete"
 
     /// Downloads, verifies and unpacks every pending component next to the installed ones (`.ready-<id>`), without
     /// touching what's in use. Safe while Windows programs run. Throws instead of staging a list that
@@ -251,6 +256,7 @@ public struct RuntimeInstaller: Sendable {
         if let sequence = manifest.sequence {
             try Data("\(sequence)\n".utf8).write(to: installedDirectory.appending(path: Self.readyPrefix + "sequence"))
         }
+        try Data().write(to: installedDirectory.appending(path: Self.stagedMarker))
         progress?(1)
     }
 
@@ -263,7 +269,8 @@ public struct RuntimeInstaller: Sendable {
         try withLock(installedDirectory.appending(path: ".lock")) {
             let ready = ((try? fm.contentsOfDirectory(atPath: installedDirectory.path)) ?? [])
                 .filter { $0.hasPrefix(Self.readyPrefix) && Self.allowedIDs.contains(String($0.dropFirst(Self.readyPrefix.count))) }
-            guard !ready.isEmpty else { return }
+            guard !ready.isEmpty, hasStagedUpdate else { return }
+            try? fm.removeItem(at: installedDirectory.appending(path: Self.stagedMarker))
             var swapped: [(target: URL, previous: URL?)] = []
             func rollBack() {
                 for (target, previous) in swapped.reversed() {

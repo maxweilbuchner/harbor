@@ -75,6 +75,35 @@ import Testing
         #expect(!(try fm.contentsOfDirectory(atPath: installed.path)).contains { $0.hasPrefix(".old-") || $0.hasPrefix(".ready-") || $0.hasPrefix(".staging-") })
     }
 
+    @Test func aDownloadThatStoppedPartWayIsntSwitchedToAndContinuesLater() async throws {
+        let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
+        let list = try serve([("wine", "2", "wine v2"), ("d3dmetal", "2", "d3d v2")], sequence: 200, in: root)
+        let inst = try installer(list, installed: installed)
+        let manifest = try await inst.fetchManifest()
+        // The second archive arrives damaged: Wine is staged, D3DMetal isn't.
+        let d3d = list.deletingLastPathComponent().appending(path: "d3dmetal-2.tar.xz")
+        let good = try Data(contentsOf: d3d)
+        try Data("damaged".utf8).write(to: d3d)
+        await #expect(throws: RuntimeInstallError.checksumMismatch(component: "d3dmetal")) {
+            try await inst.stage(manifest, appBuild: nil)
+        }
+        #expect(fm.fileExists(atPath: installed.appending(path: ".ready-wine").path))
+        #expect(!inst.hasStagedUpdate)
+        try inst.activateStaged()                                         // nothing to switch to
+        #expect(marker("wine", in: installed) == "wine v1" && inst.installedSequence == 100)
+
+        // Next time the download works. Wine isn't fetched again (its archive is gone from the server).
+        try good.write(to: d3d)
+        try fm.removeItem(at: list.deletingLastPathComponent().appending(path: "wine-2.tar.xz"))
+        try await inst.stage(manifest, appBuild: nil)
+        #expect(inst.hasStagedUpdate)
+        try inst.activateStaged()
+        #expect(marker("wine", in: installed) == "wine v2" && marker("d3dmetal", in: installed) == "d3d v2")
+        #expect(inst.installedSequence == 200)
+        #expect(!inst.hasStagedUpdate)
+    }
+
     @Test func aNewRuntimeThatDoesntStartIsRolledBack() async throws {
         let (root, installed) = try await installedV1()
         let inst = try installer(try serve([("wine", "2", "broken"), ("d3dmetal", "2", "d3d v2")], sequence: 200, in: root), installed: installed)
