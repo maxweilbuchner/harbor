@@ -166,4 +166,33 @@ import Testing
         try Self.unicodeLink(base: Self.pokemon, ansi: Self.pokemonANSI).write(to: menu.appending(path: "Pok\u{E9}mon.lnk"))
         #expect(bottle.startMenuPrograms().map(\.windowsPath) == [Self.pokemon])
     }
+
+    // MARK: #43
+
+    /// An installer that makes no shortcut and installs outside Program Files: its program is still found, its
+    /// uninstaller and what Windows itself holds are not.
+    @Test func whatAnInstallerPutOutsideProgramFilesIsFound() throws {
+        let (base, _) = try tree()
+        let bottle = try BottleStore(directory: base.appending(path: "bottles")).create(name: "Outside")
+        let app = try #require(Bundle.module.url(forResource: "app64", withExtension: "exe"))
+        func put(_ path: String) throws {
+            let url = bottle.driveC.appending(path: path)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.copyItem(at: app, to: url)
+        }
+        for path in ["windows/notepad.exe", "users/me/AppData/Local/Temp/tool.exe", "ProgramData/Package Cache/helper.exe"] {
+            try put(path)
+        }
+        let before = AddProgram.installedExecutables(in: bottle)
+        #expect(before.isEmpty)
+        for path in ["Games/Thing/thing.exe", "Games/Thing/unins000.exe", "Program Files/Vendor/Product/bin/product.exe",
+                     "windows/system32/added.exe", "Games/a/b/c/d/e/deep.exe"] {
+            try put(path)
+        }
+        let added = AddProgram.installedExecutables(in: bottle).subtracting(before)
+        #expect(Set(added.map(\.lastPathComponent)) == ["thing.exe", "unins000.exe", "product.exe"])
+        let programs = AddProgram.programs(among: added, in: bottle)
+        #expect(Set(programs.map(\.windowsPath))
+                == [#"C:\Games\Thing\thing.exe"#, #"C:\Program Files\Vendor\Product\bin\product.exe"#])
+    }
 }

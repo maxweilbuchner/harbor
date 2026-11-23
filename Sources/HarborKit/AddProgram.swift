@@ -72,7 +72,7 @@ public struct AddProgram: Sendable {
     private func install(_ file: URL, name: String, into bottle: Bottle,
                          progress: @Sendable (Step) -> Void) async throws -> [Program] {
         let before = Set(bottle.startMenuPrograms().map { $0.windowsPath.lowercased() })
-        let exesBefore = programFilesExecutables(in: bottle)
+        let exesBefore = Self.installedExecutables(in: bottle)
         progress(.runningInstaller(name: name))
         // The exit handler is installed before the installer starts, so its end can't be missed.
         try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
@@ -87,7 +87,14 @@ public struct AddProgram: Sendable {
         let new = bottle.startMenuPrograms().filter { !before.contains($0.windowsPath.lowercased()) }
         if !new.isEmpty { return new }
         // No shortcuts: offer the main executables the installer added.
-        let added = programFilesExecutables(in: bottle).subtracting(exesBefore)
+        let candidates = Self.programs(among: Self.installedExecutables(in: bottle).subtracting(exesBefore), in: bottle)
+        guard !candidates.isEmpty else { throw Failure.installerFoundNothing(name: name) }
+        return candidates
+    }
+
+    /// The main programs among executables an installer added: with a window, not installers themselves, not
+    /// uninstallers or other helpers. Saves their icons.
+    static func programs(among added: Set<URL>, in bottle: Bottle) -> [Program] {
         let candidates = added.compactMap { exe -> Program? in
             guard let analysis = try? ProgramAnalysis.analyze(exe), analysis.isGUI, analysis.installer == nil,
                   !Bottle.isAuxiliary(name: exe.lastPathComponent, target: exe.lastPathComponent),
@@ -97,7 +104,6 @@ public struct AddProgram: Sendable {
             bottle.saveIcon(for: program, from: exe)
             return program
         }
-        guard !candidates.isEmpty else { throw Failure.installerFoundNothing(name: name) }
         return candidates.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
@@ -240,15 +246,18 @@ public struct AddProgram: Sendable {
         return files.prefix(500).contains { personalDocumentExtensions.contains($0.pathExtension.lowercased()) }
     }
 
-    private func programFilesExecutables(in bottle: Bottle) -> Set<URL> {
+    /// Executables where installers put programs: anywhere on drive C: (some install to `C:\Games\<name>` or
+    /// `C:\<name>`) except Windows itself, the user folders and ProgramData, down to the depth of
+    /// `Program Files\<vendor>\<product>\bin`.
+    static func installedExecutables(in bottle: Bottle) -> Set<URL> {
         var found = Set<URL>()
-        for name in ["Program Files", "Program Files (x86)"] {
-            let root = bottle.driveC.appending(path: name)
-            guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { continue }
-            for case let url as URL in walker {
-                if walker.level > 4 { walker.skipDescendants(); continue }
-                if url.pathExtension.lowercased() == "exe" { found.insert(url.standardizedFileURL) }
+        guard let walker = FileManager.default.enumerator(at: bottle.driveC, includingPropertiesForKeys: nil) else { return found }
+        for case let url as URL in walker {
+            if walker.level == 1, ["windows", "users", "programdata"].contains(url.lastPathComponent.lowercased()) {
+                walker.skipDescendants(); continue
             }
+            if walker.level > 5 { walker.skipDescendants(); continue }
+            if url.pathExtension.lowercased() == "exe" { found.insert(url.standardizedFileURL) }
         }
         return found
     }
