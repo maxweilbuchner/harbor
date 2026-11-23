@@ -91,7 +91,9 @@ import Testing
         let wine = base.appending(path: "wine/bin/wine"), cache = base.appending(path: "cache"), calls = base.appending(path: "calls")
         try fm.createDirectory(at: wine.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fm.createDirectory(at: cache, withIntermediateDirectories: true)
-        try "#!/bin/sh\necho \"$*\" >> '\(calls.path)'\ncase \"$*\" in \(exits) esac\n".write(to: wine, atomically: true, encoding: .utf8)
+        // printf, not echo: sh's echo reads backslash escapes, and a Windows path whose folder starts with 0 and
+        // octal digits (the import folder is a random UUID) became a byte that isn't UTF-8, about one run in 25.
+        try "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '\(calls.path)'\ncase \"$*\" in \(exits) esac\n".write(to: wine, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wine.path)
         let downloads = try ["vc_x64.exe", "vc_x86.exe"].map { name in
             let data = Data(name.utf8), hash = WineLauncher.sha256(data)
@@ -137,7 +139,6 @@ extension RecipeInstallTests {
         try await f.launcher.install(recipe, in: f.bottle, cache: f.cache)
         let calls = try String(contentsOf: f.calls, encoding: .utf8).split(separator: "\n").map(String.init)
         let unpack = try #require(calls.firstIndex { $0.hasSuffix("vc_x64.exe /quiet") })
-        // (The stand-in's `echo` mangles the backslashes of the Windows path, so match the end.)
         let setUp = try #require(calls.firstIndex { $0.hasSuffix("SETUP.exe /silent") })
         #expect(unpack < setUp)
         #expect(!fm.fileExists(atPath: unpacked.path))
