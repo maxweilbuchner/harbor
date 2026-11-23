@@ -1,0 +1,66 @@
+--- a/dlls/advapi32/advapi.c
++++ b/dlls/advapi32/advapi.c
+@@ -39,6 +39,18 @@
+ #include "advapi32_misc.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(advapi);
++
++/* HARBOR HACK: the consistent user name (CrossOver Hack 12735 below) is "harbor". A bottle made before this
++ * patch keeps "crossover": its profile folder, and paths that programs installed in it have stored, carry that
++ * name. dlls/shell32/shellpath.c makes the same choice for %USERPROFILE%. */
++static const WCHAR *consistent_user_name(void)
++{
++    static const WCHAR *name;
++
++    if (!name)
++        name = GetFileAttributesW( L"C:\\users\\crossover" ) != INVALID_FILE_ATTRIBUTES ? L"crossover" : L"harbor";
++    return name;
++}
+ 
+ /******************************************************************************
+  * GetUserNameA [ADVAPI32.@]
+@@ -51,8 +63,9 @@
+     /* CrossOver Hack 12735: Use a consistent username */
+     if (!getenv( "CX_REPORT_REAL_USERNAME" ))
+     {
+-        len = sizeof("crossover");
+-        if ((ret = (len <= *size))) strcpy( name, "crossover" );
++        const WCHAR *user = consistent_user_name();   /* HARBOR HACK */
++        len = WideCharToMultiByte( CP_ACP, 0, user, -1, NULL, 0, NULL, NULL );
++        if ((ret = (len <= *size))) WideCharToMultiByte( CP_ACP, 0, user, -1, name, *size, NULL, NULL );
+         else SetLastError( ERROR_INSUFFICIENT_BUFFER );
+         *size = len;
+         return ret;
+@@ -76,8 +89,9 @@
+     /* CrossOver Hack 12735: Use a consistent username */
+     if (!getenv( "CX_REPORT_REAL_USERNAME" ))
+     {
+-        len = ARRAY_SIZE( L"crossover" );
+-        if ((ret = (len <= *size))) wcscpy( name, L"crossover" );
++        const WCHAR *user = consistent_user_name();   /* HARBOR HACK */
++        len = wcslen( user ) + 1;
++        if ((ret = (len <= *size))) wcscpy( name, user );
+         else SetLastError( ERROR_INSUFFICIENT_BUFFER );
+         *size = len;
+         return ret;
+--- a/dlls/shell32/shellpath.c
++++ b/dlls/shell32/shellpath.c
+@@ -2633,10 +2633,15 @@
+         else if (!wcsnicmp(szTemp, L"%USERPROFILE%", lstrlenW(L"%USERPROFILE%")))
+         {
+             /* CrossOver Hack 12735 */
+-            static const WCHAR userName[] = {'c','r','o','s','s','o','v','e','r',0};
+-
++            /* HARBOR HACK: the user is "harbor"; a bottle that already has a "crossover" profile keeps it
++             * (see consistent_user_name in dlls/advapi32/advapi.c). */
+             lstrcpyW(szDest, szProfilesPrefix);
+-            PathAppendW(szDest, userName);
++            PathAppendW(szDest, L"crossover");
++            if (GetFileAttributesW(szDest) == INVALID_FILE_ATTRIBUTES)
++            {
++                lstrcpyW(szDest, szProfilesPrefix);
++                PathAppendW(szDest, L"harbor");
++            }
+             PathAppendW(szDest, szTemp + lstrlenW(L"%USERPROFILE%"));
+         }
+         else if (!wcsnicmp(szTemp, L"%SystemDrive%", lstrlenW(L"%SystemDrive%")))

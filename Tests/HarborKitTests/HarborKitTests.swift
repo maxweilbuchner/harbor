@@ -1164,7 +1164,7 @@ final class Marker {}
         try fm.createDirectory(at: mac, withIntermediateDirectories: true)
         try "keep".write(to: mac.appending(path: "Thesis.txt"), atomically: true, encoding: .utf8)
         let b = try BottleStore(directory: base.appending(path: "bottles")).create(name: "S")
-        let user = b.driveC.appending(path: "users/crossover")
+        let user = b.driveC.appending(path: "users/harbor")
         let pub = b.driveC.appending(path: "users/Public")
         try fm.createDirectory(at: user.appending(path: "AppData"), withIntermediateDirectories: true)
         try fm.createDirectory(at: pub, withIntermediateDirectories: true)

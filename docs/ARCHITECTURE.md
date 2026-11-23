@@ -216,7 +216,8 @@ An independent review re-checked the plan against the code and runtime. Items ma
      `Direct3D11 desc: AMD Compatibility Mode` / `Renderer: Apple`, loads all assets without errors, and the 3D
      scene renders. **Bugs:** it always runs fullscreen at native size (windowed setting doesn't take effect), and
      after leaving and re-entering fullscreen the screen stays blank.
-   - Found along the way: CrossOver's Wine names the Windows user `crossover` (Harbor should use its own);
+   - Found along the way: CrossOver's Wine names the Windows user `crossover` (Wine patch 0014, #49: new bottles get `harbor`,
+     bottles that have a `crossover` profile keep it; WindowsTests/user/run.sh);
      `bcrypt: no encryption support` until GnuTLS is built; `superposition_cli.exe` is Pro-only.
    **Fullscreen (WindowsTests/graphics/fullscreen.sh, samples the real screen centre):** on CrossOver Wine + D3DMetal,
    fullscreen, leave + re-enter fullscreen, and switching to another app and back all show the right content,

@@ -5,6 +5,7 @@ What changed in each Harbor release, newest first. The website's changelog page 
 ## Unreleased
 
 - Harbor has an app icon: a lighthouse.
+- The Windows user in new bottles is named `harbor`. Bottles you already have keep their user and its folders. Takes effect with the next update of the Windows support.
 
 ## 0.1.4 (2026-11-23)
 

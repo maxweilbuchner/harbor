@@ -11,7 +11,7 @@ import Testing
         try fm.createDirectory(at: mac, withIntermediateDirectories: true)
         try "keep".write(to: mac.appending(path: "Notes.txt"), atomically: true, encoding: .utf8)
         let b = try BottleStore(directory: base.appending(path: "bottles")).create(name: "D")
-        let desktop = b.driveC.appending(path: "users/crossover/Desktop")
+        let desktop = b.driveC.appending(path: "users/harbor/Desktop")
         try fm.createDirectory(at: desktop, withIntermediateDirectories: true)
         try fm.createSymbolicLink(at: desktop.appending(path: "My Mac Desktop"), withDestinationURL: mac)
         try "lnk".write(to: desktop.appending(path: "Game.lnk"), atomically: true, encoding: .utf8)
