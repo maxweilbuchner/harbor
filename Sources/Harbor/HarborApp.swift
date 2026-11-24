@@ -225,7 +225,7 @@ final class AppModel {
         // At once, not after the clean-up below: Settings' button is off from the first moment.
         if !installer.hasStagedUpdate { runtimeUpdate = .checking }
         runtimeUpdateTask = Task {
-            defer { runtimeUpdateTask = nil; runtimeCheckWasAsked = false }
+            defer { runtimeUpdateTask = nil; runtimeCheckWasAsked = false; tellHowTheUpdateForAStartEnded() }
             // Runtimes moved aside by an earlier switch (e.g. one that was interrupted) go once nothing can use them.
             let store = store
             await Task.detached { if !store.list().contains(where: { $0.isRunning() }) { installer.removeOldVersions() } }.value
@@ -238,7 +238,13 @@ final class AppModel {
                 }
                 runtimeLastChecked = Date()
                 switch installer.decision(for: manifest, appBuild: build) {
-                case .upToDate, .refusedOlder:
+                case .upToDate:
+                    // The same components under a newer list: only the record changes (it is what
+                    // `runtimeIsTooOld` goes by).
+                    installer.recordSequenceOfInstalled(manifest)
+                    runtimeUpdate = .idle
+                    return
+                case .refusedOlder:
                     runtimeUpdate = .idle
                     return
                 case .failedBefore:
@@ -273,6 +279,22 @@ final class AppModel {
             runtimeUpdate = installer.hasStagedUpdate ? .ready : .idle
             await activateRuntimeUpdateIfIdle(installer)
         }
+    }
+
+    /// A program someone tried to start while Windows support was too old for this Harbor (`open`).
+    private var startWaitingForRuntime: String?
+
+    /// When the check that `open` started for such a program is over: says where things really stand, so that
+    /// "Updating Windows support first" doesn't stay when the check failed or the update can't be installed yet.
+    private func tellHowTheUpdateForAStartEnded() {
+        guard let name = startWaitingForRuntime else { return }
+        startWaitingForRuntime = nil
+        guard runtimeIsTooOld else {
+            status = "Windows support is up to date. Start \(name) again."
+            return
+        }
+        let blocking = library.first { running.contains($0.id) }?.program.name
+        status = runtimeUpdate.statusWhileTooOld(starting: name, running: blocking)
     }
 
     /// Switches to a downloaded runtime, but only while nothing uses the current one. The new Wine must start, or
@@ -533,8 +555,11 @@ final class AppModel {
     func open(_ item: LibraryItem) {
         guard let launcher else { return }
         if runtimeIsTooOld {
-            status = "Updating Windows support first. Start \(item.program.name) again when that’s done."
-            checkForRuntimeUpdate()
+            status = RuntimeUpdateState.checking.statusWhileTooOld(starting: item.program.name, running: nil)
+            // Asked for: a check that fails says why, and its end replaces the line above (see
+            // `tellHowTheUpdateForAStartEnded`).
+            startWaitingForRuntime = item.program.name
+            checkForRuntimeUpdate(userAsked: true)
             return
         }
         // After a runtime update, Wine first refreshes the bottle's Windows files (20–30 s). Say so instead of

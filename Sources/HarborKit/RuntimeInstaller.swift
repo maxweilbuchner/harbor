@@ -76,6 +76,26 @@ public enum RuntimeUpdateState: Equatable, Sendable {
         if userAsked { return .failed(RuntimeInstallError.message(for: error)) }
         return previous.isBusy ? .idle : previous
     }
+
+    /// What to say about `program`, which can't start because the installed Windows support is older than this
+    /// Harbor needs, when the update that was looked for stands here and the support is still too old. `running`
+    /// is a program that keeps a downloaded update from being installed (nil: its name isn't known).
+    public func statusWhileTooOld(starting program: String, running: String?) -> String {
+        switch self {
+        case .checking, .downloading:
+            "Updating Windows support first. Start \(program) again when that’s done."
+        case .ready:
+            "Quit \(running ?? "your Windows programs") to finish updating Windows support, then start \(program) again."
+        case .needsNewerApp:
+            "\(program) needs newer Windows support, which needs a newer Harbor. Choose Harbor > Check for Updates…"
+        case .failedBefore:
+            "\(program) needs newer Windows support, but the newest didn’t start on this Mac. Harbor tries the next one published."
+        case .failed(let message):
+            "Windows support couldn’t be updated: \(message)"
+        case .idle:
+            "\(program) needs newer Windows support than is published yet. Try again later."
+        }
+    }
 }
 
 public enum RuntimeInstallError: Error, CustomStringConvertible, Equatable {
@@ -240,30 +260,66 @@ public struct RuntimeInstaller: Sendable {
         try? Data("\(sequence)\n".utf8).write(to: installedDirectory.appending(path: Self.sequenceFile))
     }
 
+    /// Records the sequence of a list whose components are all installed already (`decision` said `.upToDate`),
+    /// if it is a newer one than the record. Every published list gets a new sequence, also one with unchanged
+    /// components; with nothing pending, nothing else would bring it along, and the installation would stay older
+    /// than an app's minimum (`meetsMinimum`) for good. Nothing was installed just now, so `installedDate` stays.
+    public func recordSequenceOfInstalled(_ manifest: RuntimeManifest) {
+        guard let sequence = manifest.sequence, sequence > installedSequence ?? Int.min, !hasStagedUpdate else { return }
+        let date = installedDate
+        recordSequence(of: manifest)
+        if let date {
+            try? FileManager.default.setAttributes([.modificationDate: date],
+                                                   ofItemAtPath: installedDirectory.appending(path: Self.sequenceFile).path)
+        }
+    }
+
     // MARK: Updating an installed runtime
 
     /// Whether a downloaded update is waiting to be switched to (`activateStaged`): every pending component of its
     /// list was staged. A download that stopped part-way leaves its finished components (`.ready-<id>`) for the
     /// next `stage` to continue from, but isn't an update to switch to: that would install one component without
-    /// the others and without the list's sequence.
+    /// the others and without the list's sequence. A switch that was interrupted waits to be finished the same way.
     public var hasStagedUpdate: Bool {
-        FileManager.default.fileExists(atPath: installedDirectory.appending(path: Self.stagedMarker).path)
+        let fm = FileManager.default
+        return fm.fileExists(atPath: installedDirectory.appending(path: Self.stagedMarker).path)
+            || fm.fileExists(atPath: installedDirectory.appending(path: Self.switchNote).path)
     }
 
     /// Written when `stage` has finished, removed when the update is switched to (or turns out not to start).
     static let stagedMarker = readyPrefix + "complete"
 
+    /// Written before a switch moves anything, removed when it has ended either way: one line per component, its
+    /// id and (after a tab) the name its previous version is moved aside to. If Harbor quits, crashes or loses
+    /// power in between, the next `activateStaged` finds what was being done and finishes it or puts it back.
+    static let switchNote = ".harbor-switching"
+
+    /// The components an interrupted switch was moving (empty: none was interrupted).
+    private var interruptedSwitch: [(id: String, previous: String?)] {
+        guard let note = try? String(contentsOf: installedDirectory.appending(path: Self.switchNote), encoding: .utf8) else { return [] }
+        return note.split(separator: "\n").compactMap { line in
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard fields.count == 2, Self.allowedIDs.contains(fields[0]) else { return nil }
+            return (fields[0], fields[1].hasPrefix(".old-\(fields[0])-") && !fields[1].contains("/") ? fields[1] : nil)
+        }
+    }
+
     /// Downloads, verifies and unpacks every pending component next to the installed ones (`.ready-<id>`), without
     /// touching what's in use. Safe while Windows programs run. Throws instead of staging a list that
-    /// `decision(for:appBuild:)` doesn't allow.
+    /// `decision(for:appBuild:)` doesn't allow. Does nothing while an interrupted switch waits to be finished
+    /// (`activateStaged`): its components must stay as they are.
     public func stage(_ manifest: RuntimeManifest, appBuild: Int?,
                       progress: (@Sendable (Double) -> Void)? = nil) async throws {
+        guard interruptedSwitch.isEmpty else { return }
         let decision = decision(for: manifest, appBuild: appBuild)
         var todo: [RuntimeManifest.Component] = []
         if case .available(let components) = decision { todo = components }
         try discardStaged(except: todo)
         switch decision {
-        case .upToDate, .failedBefore: return
+        case .upToDate:
+            recordSequenceOfInstalled(manifest)
+            return
+        case .failedBefore: return
         case .refusedOlder: throw RuntimeInstallError.olderThanInstalled
         case .needsNewerApp(let build): throw RuntimeInstallError.needsNewerApp(build)
         case .available: break
@@ -316,33 +372,55 @@ public struct RuntimeInstaller: Sendable {
     /// Switches to the staged components. Call only when no Windows program is running. `verify` gets the installed
     /// directory after the switch and says whether the new runtime works; if it doesn't, the previous components
     /// are put back and `verificationFailed` is thrown. The previous versions stay as `.old-*` until
-    /// `removeOldVersions()`.
+    /// `removeOldVersions()`. A switch that was interrupted (Harbor quit before the new runtime was proven and its
+    /// sequence recorded) is taken up where it stopped, and ends the same two ways.
     public func activateStaged(verify: (URL) -> Bool = { _ in true }) throws {
         let fm = FileManager.default
         try withLock(installedDirectory.appending(path: ".lock")) {
-            let ready = ((try? fm.contentsOfDirectory(atPath: installedDirectory.path)) ?? [])
-                .filter { $0.hasPrefix(Self.readyPrefix) && Self.allowedIDs.contains(String($0.dropFirst(Self.readyPrefix.count))) }
-            guard !ready.isEmpty, hasStagedUpdate else { return }
-            try? fm.removeItem(at: installedDirectory.appending(path: Self.stagedMarker))
-            var swapped: [(target: URL, previous: URL?)] = []
-            func rollBack() {
-                for (target, previous) in swapped.reversed() {
-                    try? fm.removeItem(at: target)
-                    if let previous { try? fm.moveItem(at: previous, to: target) }
+            let note = installedDirectory.appending(path: Self.switchNote)
+            var plan = interruptedSwitch
+            if plan.isEmpty {
+                let ready = ((try? fm.contentsOfDirectory(atPath: installedDirectory.path)) ?? [])
+                    .filter { $0.hasPrefix(Self.readyPrefix) && Self.allowedIDs.contains(String($0.dropFirst(Self.readyPrefix.count))) }
+                guard !ready.isEmpty, fm.fileExists(atPath: installedDirectory.appending(path: Self.stagedMarker).path) else {
+                    try? fm.removeItem(at: note)
+                    return
                 }
+                plan = ready.sorted().map { name in
+                    let id = String(name.dropFirst(Self.readyPrefix.count))
+                    let installed = fm.fileExists(atPath: installedDirectory.appending(path: id).path)
+                    return (id, installed ? ".old-\(id)-\(UUID().uuidString)" : nil)
+                }
+                // Before anything moves, so that a switch which doesn't get to its end can be finished later.
+                try Data(plan.map { "\($0.id)\t\($0.previous ?? "")\n" }.joined().utf8).write(to: note, options: .atomic)
+            }
+            try? fm.removeItem(at: installedDirectory.appending(path: Self.stagedMarker))
+            // A component whose staged folder is gone has been moved into place (now, or before an interruption).
+            func rollBack() {
+                for (id, previous) in plan.reversed() {
+                    let target = installedDirectory.appending(path: id)
+                    if !fm.fileExists(atPath: installedDirectory.appending(path: Self.readyPrefix + id).path) {
+                        try? fm.removeItem(at: target)
+                    }
+                    if let previous, !fm.fileExists(atPath: target.path) {
+                        try? fm.moveItem(at: installedDirectory.appending(path: previous), to: target)
+                    }
+                }
+                try? fm.removeItem(at: note)
             }
             do {
-                for name in ready.sorted() {
-                    let id = String(name.dropFirst(Self.readyPrefix.count))
+                for (id, previous) in plan {
+                    let ready = installedDirectory.appending(path: Self.readyPrefix + id)
                     let target = installedDirectory.appending(path: id)
-                    var previous: URL?
+                    guard fm.fileExists(atPath: ready.path) else { continue }
                     if fm.fileExists(atPath: target.path) {
-                        let aside = installedDirectory.appending(path: ".old-\(id)-\(UUID().uuidString)")
-                        try fm.moveItem(at: target, to: aside)
-                        previous = aside
+                        // The noted name, unless it is taken (the previous version went there before an
+                        // interruption and something was installed since).
+                        let aside = previous.flatMap { fm.fileExists(atPath: installedDirectory.appending(path: $0).path) ? nil : $0 }
+                            ?? ".old-\(id)-\(UUID().uuidString)"
+                        try fm.moveItem(at: target, to: installedDirectory.appending(path: aside))
                     }
-                    swapped.append((target, previous))
-                    try fm.moveItem(at: installedDirectory.appending(path: name), to: target)
+                    try fm.moveItem(at: ready, to: target)
                 }
             } catch {
                 rollBack()
@@ -365,6 +443,7 @@ public struct RuntimeInstaller: Sendable {
             for name in [Self.sequenceFile, "wine"] {
                 try? fm.setAttributes([.modificationDate: Date()], ofItemAtPath: installedDirectory.appending(path: name).path)
             }
+            try? fm.removeItem(at: note)
         }
     }
 
@@ -449,11 +528,13 @@ public struct RuntimeInstaller: Sendable {
 
     /// Removes versions that were moved aside by earlier updates. Call when no Wine process is running. Also
     /// removes what an unpack left that was interrupted (Harbor quit meanwhile): every unpack holds the lock, so a
-    /// `.staging-*` folder seen under it belongs to none that is still going.
+    /// `.staging-*` folder seen under it belongs to none that is still going. Leaves everything while an
+    /// interrupted switch waits to be finished: it may have to put the previous versions back.
     public func removeOldVersions() {
         let fm = FileManager.default
         guard fm.fileExists(atPath: installedDirectory.path) else { return }
         try? withLock(installedDirectory.appending(path: ".lock")) {
+            guard interruptedSwitch.isEmpty else { return }
             for name in (try? fm.contentsOfDirectory(atPath: installedDirectory.path)) ?? []
             where name.hasPrefix(".old-") || name.hasPrefix(".staging-") {
                 try? fm.removeItem(at: installedDirectory.appending(path: name))

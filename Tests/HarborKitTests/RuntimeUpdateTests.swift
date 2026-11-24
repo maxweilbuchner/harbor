@@ -194,6 +194,92 @@ import Testing
         #expect(marker("wine", in: installed) == "wine v3" && next.installedSequence == 300)
     }
 
+    /// The installed folder as it is while the new Wine is being proven: where a switch stands if Harbor quits,
+    /// crashes or loses power then. Returns one copy per name in `copies`.
+    func interruptedSwitch(copies: [String]) async throws -> (root: URL, crashed: [URL], manifest: URL) {
+        let (root, installed) = try await installedV1()
+        let list = try serve([("wine", "2", "wine v2"), ("d3dmetal", "2", "d3d v2")], sequence: 200, in: root)
+        let inst = try installer(list, installed: installed)
+        try await inst.stage(try await inst.fetchManifest(), appBuild: nil)
+        let crashed = copies.map { root.appending(path: $0) }
+        try inst.activateStaged { dir in
+            for copy in crashed { try? FileManager.default.copyItem(at: dir, to: copy) }
+            return true
+        }
+        return (root, crashed, list)
+    }
+
+    @Test func aSwitchInterruptedAfterTheSwapIsFinishedAtTheNextStart() async throws {
+        let (root, crashed, list) = try await interruptedSwitch(copies: ["crashed"])
+        defer { try? fm.removeItem(at: root) }
+        let inst = try installer(list, installed: crashed[0])
+        // The new components are in place, under the old sequence.
+        #expect(marker("wine", in: crashed[0]) == "wine v2" && inst.installedSequence == 100)
+        #expect(inst.decision(for: try await inst.fetchManifest(), appBuild: nil) == .upToDate)
+        // The switch still counts as waiting, and the previous versions stay until it is settled.
+        #expect(inst.hasStagedUpdate)
+        inst.removeOldVersions()
+        #expect(try fm.contentsOfDirectory(atPath: crashed[0].path).contains { $0.hasPrefix(".old-wine-") })
+
+        try inst.activateStaged()
+        #expect(marker("wine", in: crashed[0]) == "wine v2" && marker("d3dmetal", in: crashed[0]) == "d3d v2")
+        #expect(inst.installedSequence == 200 && inst.meetsMinimum(200))
+        #expect(!inst.hasStagedUpdate)
+        inst.removeOldVersions()
+        #expect(!(try fm.contentsOfDirectory(atPath: crashed[0].path)).contains { $0.hasPrefix(".old-") || $0.hasPrefix(".ready-") })
+        try inst.activateStaged { _ in false }                            // nothing left to switch or to roll back
+        #expect(marker("wine", in: crashed[0]) == "wine v2" && inst.installedSequence == 200)
+    }
+
+    @Test func anInterruptedSwitchWhoseWineDoesntStartIsRolledBackAtTheNextStart() async throws {
+        let (root, crashed, list) = try await interruptedSwitch(copies: ["crashed"])
+        defer { try? fm.removeItem(at: root) }
+        let inst = try installer(list, installed: crashed[0])
+        #expect(throws: RuntimeInstallError.verificationFailed) { try inst.activateStaged { _ in false } }
+        #expect(marker("wine", in: crashed[0]) == "wine v1" && marker("d3dmetal", in: crashed[0]) == "d3d v1")
+        #expect(inst.installedVersion(of: "wine") == "1" && inst.installedSequence == 100)
+        #expect(inst.failedSequence == 200 && !inst.hasStagedUpdate)
+        #expect(!(try fm.contentsOfDirectory(atPath: crashed[0].path)).contains { $0.hasPrefix(".old-") || $0.hasPrefix(".ready-") })
+    }
+
+    /// Interrupted between the components: Wine is the new one, D3DMetal still the old one with the new one staged.
+    @Test func aSwitchInterruptedHalfWayIsFinishedOrRolledBackAsAWhole() async throws {
+        let (root, crashed, list) = try await interruptedSwitch(copies: ["finish", "undo"])
+        defer { try? fm.removeItem(at: root) }
+        for dir in crashed {
+            let aside = try #require(try fm.contentsOfDirectory(atPath: dir.path).first { $0.hasPrefix(".old-d3dmetal-") })
+            try fm.moveItem(at: dir.appending(path: "d3dmetal"), to: dir.appending(path: ".ready-d3dmetal"))
+            try fm.moveItem(at: dir.appending(path: aside), to: dir.appending(path: "d3dmetal"))
+            #expect(marker("wine", in: dir) == "wine v2" && marker("d3dmetal", in: dir) == "d3d v1")
+        }
+        let finish = try installer(list, installed: crashed[0])
+        try finish.activateStaged()
+        #expect(marker("wine", in: crashed[0]) == "wine v2" && marker("d3dmetal", in: crashed[0]) == "d3d v2")
+        #expect(finish.installedSequence == 200 && !finish.hasStagedUpdate)
+
+        let undo = try installer(list, installed: crashed[1])
+        #expect(throws: RuntimeInstallError.verificationFailed) { try undo.activateStaged { _ in false } }
+        #expect(marker("wine", in: crashed[1]) == "wine v1" && marker("d3dmetal", in: crashed[1]) == "d3d v1")
+        #expect(undo.installedSequence == 100 && !undo.hasStagedUpdate)
+    }
+
+    /// Every packaging run gets a new sequence, also with unchanged components. Nothing is pending then, so
+    /// nothing would bring the newer sequence along, and an app that needs it would never see it installed.
+    @Test func aListPackagedAgainWithTheSameComponentsIsRecorded() async throws {
+        let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
+        let then = Date(timeIntervalSince1970: 1_700_000_000)
+        try fm.setAttributes([.modificationDate: then], ofItemAtPath: installed.appending(path: ".harbor-sequence").path)
+        let inst = try installer(try serve([("wine", "1", "wine v1"), ("d3dmetal", "1", "d3d v1")], sequence: 200, in: root), installed: installed)
+        let manifest = try await inst.fetchManifest()
+        #expect(inst.decision(for: manifest, appBuild: nil) == .upToDate)
+        #expect(!inst.meetsMinimum(200))
+        try await inst.stage(manifest, appBuild: nil)
+        #expect(inst.installedSequence == 200 && inst.meetsMinimum(200))
+        #expect(!inst.hasStagedUpdate)
+        #expect(inst.installedDate == then)                               // nothing was installed just now
+    }
+
     /// An app can need a newer runtime than is installed; installations from before sequences count as older.
     @Test func comparesTheInstalledRuntimeWithTheAppsMinimum() async throws {
         let (_, installed) = try await installedV1()                     // sequence 100
@@ -283,6 +369,24 @@ import Testing
         // A list in a newer format means a newer Harbor, asked or not.
         #expect(RuntimeUpdateState.afterFailedCheck(RuntimeInstallError.unsupportedSchema(9), previous: .idle, userAsked: false)
                 == .needsNewerApp)
+    }
+
+    /// A program that can't start on Windows support that is too old is told what is really going on.
+    @Test func theStatusForTooOldWindowsSupportSaysWhatIsHappening() {
+        func status(_ state: RuntimeUpdateState, running: String? = nil) -> String {
+            state.statusWhileTooOld(starting: "Paint", running: running)
+        }
+        #expect(status(.checking) == "Updating Windows support first. Start Paint again when that’s done.")
+        #expect(status(.downloading(0.3)) == status(.checking))
+        #expect(status(.ready, running: "Notepad") == "Quit Notepad to finish updating Windows support, then start Paint again.")
+        #expect(status(.ready) == "Quit your Windows programs to finish updating Windows support, then start Paint again.")
+        #expect(status(.failed("The update server couldn’t be reached.")) == "Windows support couldn’t be updated: The update server couldn’t be reached.")
+        #expect(status(.needsNewerApp).contains("needs a newer Harbor"))
+        #expect(status(.failedBefore).contains("didn’t start on this Mac"))
+        // Only "checking" and "downloading" may say that an update is under way.
+        for state in [RuntimeUpdateState.ready, .needsNewerApp, .failedBefore, .failed("x"), .idle] {
+            #expect(!status(state).contains("Updating"))
+        }
     }
 
     @Test func anOlderSignedListCantDowngrade() async throws {
