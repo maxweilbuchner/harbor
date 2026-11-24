@@ -188,6 +188,19 @@ lic gnutls "$B/src/gnutls-$GNUTLS_VERSION" COPYING.LESSERv2 COPYING
 lic libtasn1 "$B/src/libtasn1-$LIBTASN1_VERSION" COPYING.LESSERv2 COPYING
 lic freetype "$B/src/freetype-$FREETYPE_VERSION" LICENSE.TXT docs/FTL.TXT docs/GPLv2.TXT
 lic moltenvk "$B/src/moltenvk-$MOLTENVK_VERSION/MoltenVK" LICENSE
+# Wine Mono and Wine Gecko ship as their projects' installers (share/wine above). Their licence files come out of
+# the source archives scripts/fetch-sources.sh fetched and verified, the ones published beside the runtime, and
+# keep the paths they have there (several are called LICENSE). Wine Mono's COPYING says which part has which.
+srclic() { # $1 = component, $2 = top folder of build/download/$2-src.tar.xz, the rest = licence files in it
+  d="$OUT/share/licenses/$1"; top="$2"; shift 2; mkdir -p "$d"
+  for f in "$@"; do set -- "$@" "$top/$f"; shift; done
+  tar -xJf "$B/download/$top-src.tar.xz" -C "$d" --strip-components 1 "$@" || { echo "build-wine: licence files missing in $top-src.tar.xz (scripts/fetch-sources.sh)" >&2; exit 1; }
+}
+srclic wine-mono "wine-mono-$WINE_MONO_VERSION" COPYING mono/LICENSE monoDX/LICENSE winforms/LICENSE.TXT \
+  winforms-datavisualization/LICENSE.TXT wpf/LICENSE.TXT SDL3/LICENSE.txt FNA.NetStub/LICENSE FNA/licenses/LICENSE \
+  FNA/licenses/lzxdecoder.LICENSE FNA/licenses/monoxna.LICENSE FNA/lib/FAudio/LICENSE FNA/lib/FNA3D/LICENSE \
+  FNA/lib/FNA3D/MojoShader/LICENSE.txt FNA/lib/SDL2-CS/LICENSE FNA/lib/SDL3-CS/LICENSE
+srclic wine-gecko "wine-gecko-$WINE_GECKO_VERSION" LICENSE toolkit/content/license.html
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$OUT/share/licenses/"
 # Which Harbor commit's build scripts and Wine patches (scripts/) this runtime was built from: part of its
 # corresponding source, shipped inside it and quoted in the release notes (scripts/publish-runtime.sh).

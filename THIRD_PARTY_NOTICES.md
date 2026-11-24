@@ -13,18 +13,22 @@ It bundles or downloads:
 | Nettle 3.10 (libnettle, libhogweed) | LGPL-3.0-or-later or GPL-2.0-or-later | https://ftp.gnu.org/gnu/nettle/ |
 | GMP 6.3.0 (from CrossOver 26.3 sources) | LGPL-3.0-or-later or GPL-2.0-or-later | https://gmplib.org/ |
 | libtasn1 4.21.0 | LGPL-2.1-or-later | https://ftp.gnu.org/gnu/libtasn1/ |
-| Wine Mono 10.4.1 | Mixed (MIT, LGPL, GPL with exceptions; see its sources) | https://dl.winehq.org/wine/wine-mono/10.4.1/ |
-| Wine Gecko 2.47.4 | MPL-2.0 | https://dl.winehq.org/wine/wine-gecko/2.47.4/ |
+| Wine Mono 10.4.1 (the project's installer, unmodified) | Mixed (MIT, LGPL, GPL with exceptions, MS-PL, zlib; its `COPYING` says which part has which) | https://dl.winehq.org/wine/wine-mono/10.4.1/ |
+| Wine Gecko 2.47.4 (the project's installers, unmodified) | MPL-2.0, and the licences of the code in it (its `toolkit/content/license.html`) | https://dl.winehq.org/wine/wine-gecko/2.47.4/ |
+| Sparkle 2.10.1 (app updates; the framework inside Harbor.app, the project's release, unmodified) | MIT; its `LICENSE` also holds the licences of the code it embeds (bsdiff, sais-lite, Ed25519, SUSignatureVerifier) | https://github.com/sparkle-project/Sparkle |
 | D3DMetal (Apple Game Porting Toolkit `/redist/lib`) | Apple Software License Agreement for Game Porting Toolkit — non-commercial redistribution only, Apple-branded systems only (§2A(iii), §2C). Shipped unmodified with Apple's `License.rtf` and `Acknowledgements.rtf`. | https://developer.apple.com/games/game-porting-toolkit/ |
 
-Harbor.app carries this file and Harbor's `LICENSE` in its Resources folder. From runtime revision 8 the Wine
-runtime carries the licence texts of Wine, GMP, Nettle, GnuTLS, libtasn1, FreeType and MoltenVK in
-`share/licenses/`, beside a copy of this file; DXMT's is at `lib/dxmt/LICENSE`.
+Harbor.app carries this file and Harbor's `LICENSE` in its Resources folder, and from the release after 0.1.5
+Sparkle's `LICENSE` in `Resources/licenses/sparkle/`. From runtime revision 8 the Wine runtime carries the
+licence texts of Wine, GMP, Nettle, GnuTLS, libtasn1, FreeType and MoltenVK in `share/licenses/`, beside a copy
+of this file; DXMT's is at `lib/dxmt/LICENSE`. From the revision after 8 it also carries Wine Mono's and Wine
+Gecko's licence files there, taken from their source archives.
 
 D3DMetal is Apple's software, not Harbor's, and is not covered by Harbor's own license. Harbor never
 modifies, patches or reverse engineers it (§2D).
 
-Before public release, every LGPL/GPL/MPL binary Harbor hosts needs a matching source offer hosted by Harbor
-(see ARCHITECTURE §12.4). The Wine runtime records the Harbor commit its patches and build scripts came from
-in `.harbor-source`; the runtime release notes name it too. Planned: DXVK, GStreamer, SDL2 — add rows when
-they ship.
+The source code of every LGPL/GPL/MPL component in the runtime is published beside it, on the same GitHub
+release (`scripts/publish-runtime.sh`): CrossOver's sources (Wine, GMP) and the upstream archives of FreeType,
+Nettle, GnuTLS, libtasn1, Wine Mono and Wine Gecko. The Wine runtime records the Harbor commit its patches and
+build scripts came from in `.harbor-source`; the runtime release notes name it too. Not built in yet: GStreamer,
+SDL2 — add rows when they ship.

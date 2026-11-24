@@ -46,6 +46,10 @@ mkdir -p "$APP/Contents/Frameworks"
 ditto "$(dirname "$BIN")/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Harbor"
 cp THIRD_PARTY_NOTICES.md LICENSE "$APP/Contents/Resources/"   # Harbor's own licence (GPL-3.0) and the notices
+# Sparkle's licence (MIT; the file also holds those of the code Sparkle embeds), out of the release SwiftPM took
+# the framework from. A missing file stops the build.
+mkdir -p "$APP/Contents/Resources/licenses/sparkle"
+cp "$(dirname "$BIN")/../../artifacts/sparkle/Sparkle/LICENSE" "$APP/Contents/Resources/licenses/sparkle/"
 # App icon: Design/Harbor.icon (the Icon Composer source) compiled into Assets.car; CFBundleIconName below names it.
 # actool also writes a 256px Harbor.icns for older systems. Harbor needs macOS 26, so that one isn't bundled.
 ICON_OUT=$(mktemp -d)

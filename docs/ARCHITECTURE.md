@@ -1,7 +1,10 @@
 # Harbor architecture
 
 Harbor is a free, non-commercial, native macOS app that runs Windows programs — games and general apps,
-any `.exe` or installer — with a UX simple enough for almost anyone. Status: plan, 2026-11-19.
+any `.exe` or installer — with a UX simple enough for almost anyone.
+
+Sections 1–12 are the plan of 2026-11-19, kept as it was written; where the work since went another way, a
+note in italics says so. What is built and verified, with dates, is in §13 and §14.
 
 ## 1. Principles
 
@@ -36,6 +39,9 @@ does with each idea. Nothing here comes from anyone's proprietary code; Harbor's
 Harbor ships D3DMetal 4.0b3.
 
 ## 3. Verified so far (on M4 Pro, macOS 27.3 beta, 2026-11-19)
+
+*The first day's results, on stock Wine. Superseded: Harbor runs its own build of CodeWeavers' CrossOver Wine
+sources since M2, and rendering, DXMT and real programs have been verified since (§14).*
 
 - Gcenx Wine 11.21 (x86_64, ad-hoc signed, runs under Rosetta, wow64 layout) creates a win10 prefix in ~31 s;
   `cmd /c ver` reports `Microsoft Windows 10.0.19045`.
@@ -74,12 +80,12 @@ under `~/Library/Application Support/Harbor/Runtimes/<base-hash>-<layer>-<versio
 - **Automatic selection** (planned) from PE imports of the main executable:
   - D3D12 → D3DMetal
   - D3D11/D3D10 → D3DMetal, fall back to DXMT on known-bad titles
-  - D3D9/D3D8 → DXVK (+MoltenVK) or wined3d
+  - D3D9/D3D8 → DXVK (+MoltenVK) or wined3d *(DXVK was not pursued: §14, M6)*
   - OpenGL/GDI-only (most general apps) → plain Wine
   Launchers that load D3D dynamically won't show imports → per-program override + known-title table.
 - **Base Wine plan:** move from stock Wine 11.21 to our own build of CodeWeavers' LGPL CrossOver 26.3
   Wine sources (what D3DMetal's glue targets; the LGPL itself permits building and redistributing them). Built in CI,
-  reproducible, versioned.
+  reproducible, versioned. *(Done in M2, `scripts/build-wine.sh`; built on the release machine, not in CI.)*
 
 ## 6. Programs and bottles (UX model)
 
@@ -109,7 +115,8 @@ known-program table. Downloads cached in `Caches/Harbor`.
 - Wine/graphics runtimes are **downloaded on first run** from Harbor's own release manifest (pinned versions,
   SHA-256, signature check), not embedded: keeps the app small and lets runtimes update independently.
   D3DMetal stays unmodified and Apple-signed; its license files ship next to it.
-- Entitlements for spawned Wine processes are an open question (§11).
+- Entitlements for spawned Wine processes are an open question (§11). *(Settled in M4: the runtime is signed
+  with Harbor's Developer ID under the hardened runtime, with `scripts/wine.entitlements`.)*
 - Launching: the app spawns `wine` via the Launch module; a per-bottle supervisor tracks the process tree so
   quitting Harbor doesn't kill running programs, and "Force Quit" maps to `wineserver -k`.
 
@@ -326,4 +333,6 @@ An independent review re-checked the plan against the code and runtime. Items ma
    runtime update (`RuntimeUpdateState`: checking, downloading, ready, needs a newer Harbor, failed before, failed) and offers a
    check; a waiting update is a link in the main window. No version picker and no off switch: updates need no
    decisions. `HARBOR_PREVIEW_RUNTIME_UPDATE=<state>` shows a state without a check (for screenshots; development builds only).
-8. **M7:** Runtime downloader + source offers, legal review, first public beta.
+8. **M7:** Runtime downloader + source offers, legal review, first public beta. Done: the runtime is downloaded
+   and updated from a signed list (`RuntimeInstaller`), and the sources of its copyleft components are published
+   beside it (`scripts/publish-runtime.sh`); public releases since 0.1.0 (2026-11-20). Not done: the legal review.
