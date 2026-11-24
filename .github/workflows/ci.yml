@@ -1,8 +1,11 @@
 name: CI
 
-# Manual only for now (out of CI minutes; macOS runners bill at 10x on private repos).
-# Run `scripts/check.sh` locally before every commit. Restore push/pull_request triggers when minutes allow.
+# The repository is public, so the runners cost nothing: every push to main and every pull request is built.
+# `scripts/check.sh` is the same bar as on a developer's Mac; run it locally before every commit all the same.
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -13,7 +16,10 @@ jobs:
   check:
     # scripts/check.sh selects the newest Xcode on the runner and fails if any product
     # doesn't link against that Xcode's macOS SDK. Unit tests need no Wine runtime.
-    runs-on: macos-latest
+    # Package.swift asks for Swift tools 6.4, which comes with Xcode 27. `macos-latest` is the macOS 26 image,
+    # whose newest Xcode is 26.6 (actions/runner-images, 2026-11-24); `xcode-27` is GitHub's image with Xcode
+    # 27.0 to 27.2, still marked a preview there. Move to `macos-latest` once that label has Xcode 27.
+    runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
