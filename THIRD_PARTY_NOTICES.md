@@ -18,10 +18,10 @@ It bundles or downloads:
 | Sparkle 2.10.1 (app updates; the framework inside Harbor.app, the project's release, unmodified) | MIT; its `LICENSE` also holds the licences of the code it embeds (bsdiff, sais-lite, Ed25519, SUSignatureVerifier) | https://github.com/sparkle-project/Sparkle |
 | D3DMetal (Apple Game Porting Toolkit `/redist/lib`) | Apple Software License Agreement for Game Porting Toolkit — non-commercial redistribution only, Apple-branded systems only (§2A(iii), §2C). Shipped unmodified with Apple's `License.rtf` and `Acknowledgements.rtf`. | https://developer.apple.com/games/game-porting-toolkit/ |
 
-Harbor.app carries this file and Harbor's `LICENSE` in its Resources folder, and from the release after 0.1.5
+Harbor.app carries this file and Harbor's `LICENSE` in its Resources folder, and from 0.1.6
 Sparkle's `LICENSE` in `Resources/licenses/sparkle/`. From runtime revision 8 the Wine runtime carries the
 licence texts of Wine, GMP, Nettle, GnuTLS, libtasn1, FreeType and MoltenVK in `share/licenses/`, beside a copy
-of this file; DXMT's is at `lib/dxmt/LICENSE`. From the revision after 8 it also carries Wine Mono's and Wine
+of this file; DXMT's is at `lib/dxmt/LICENSE`. From revision 9 it also carries Wine Mono's and Wine
 Gecko's licence files there, taken from their source archives.
 
 D3DMetal is Apple's software, not Harbor's, and is not covered by Harbor's own license. Harbor never

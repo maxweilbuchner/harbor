@@ -4,6 +4,7 @@ What changed in each Harbor release, newest first. The website's changelog page 
 
 ## 0.1.6 (2026-11-24)
 
+- With Windows support 26.3.0 (9), which installs itself: Quit (Cmd-Q) asks a Windows program's windows to close, so a program with unsaved work shows its own "save?" question instead of being ended. Overlay windows such as screenshot pickers and screen dimmers stay on the Desktop instead of moving into a fullscreen Space of their own.
 - A program that couldn't run can be reported from its message: Report Problem shows the whole report (versions, the cause and the end of the log, without your user name or your Mac's name) and opens it as a new issue on GitHub in your browser. Help > Report a Problem… does the same for problems with Harbor itself.
 - An installation that never finishes can be left: the progress sheet has Stop (add what was installed) and Cancel (add nothing), and a running program can be quit from its tile's menu.
 - The library works from the keyboard: Tab reaches the programs, the arrow keys move between them, Return opens one and Cmd-Delete removes it. File has Add Program… (Cmd-O), Open and Remove from Library….
