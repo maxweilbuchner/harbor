@@ -25,6 +25,22 @@ public struct GameStores: Sendable {
             case .epic: URL(string: "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi")!
             }
         }
+        /// Where the installer may come from once redirects are followed: the vendor's domains with their
+        /// subdomains, and single hosts by exact name. Epic's link ends on its Akamai host; `akamaized.net`
+        /// itself is shared by Akamai's customers, so only that one name counts.
+        var downloadSources: (domains: [String], hosts: [String]) {
+            self == .steam ? (["steamstatic.com"], []) : (["epicgames.com"], ["epicgames-download1.akamaized.net"])
+        }
+
+        /// Whether a download that ended at `url` may be run as this store's installer. The vendors replace
+        /// these files as they please, so no checksum can be pinned as the components' recipes do; that the
+        /// file came over HTTPS from the vendor's own host is the protection there is.
+        func trustsDownload(from url: URL?) -> Bool {
+            guard let url, url.scheme?.lowercased() == "https", let host = url.host()?.lowercased() else { return false }
+            let (domains, hosts) = downloadSources
+            return hosts.contains(host) || domains.contains { host == $0 || host.hasSuffix("." + $0) }
+        }
+
         var installerKind: ProgramAnalysis.Installer { self == .steam ? .nsis : .msi }
         var installerExtension: String { self == .steam ? "exe" : "msi" }
         /// Names for the Dock, Cmd-Tab and the menu bar where an executable's own ProductName is wrong (read by
@@ -35,6 +51,18 @@ public struct GameStores: Sendable {
         }
         func silentInstall(_ installer: String) -> [String] {
             self == .steam ? [installer, "/S"] : ["msiexec", "/i", installer, "/qn"]
+        }
+    }
+
+    public enum Failure: Error, CustomStringConvertible, Equatable {
+        /// The installer's download ended somewhere other than the vendor's servers.
+        case untrustedDownload(Store, host: String)
+
+        public var description: String {
+            switch self {
+            case .untrustedDownload(let store, let host):
+                "The \(store.name) installer came from \(host), not from \(store.vendor). Harbor didn’t run it."
+            }
         }
     }
 
@@ -60,6 +88,11 @@ public struct GameStores: Sendable {
         progress(.downloading)
         let (download, response) = try await URLSession.shared.download(from: which.installerURL)
         if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw URLError(.badServerResponse) }
+        // The installer runs unattended in the bottle: not one that a redirect fetched from somewhere else.
+        guard which.trustsDownload(from: response.url) else {
+            try? FileManager.default.removeItem(at: download)
+            throw Failure.untrustedDownload(which, host: response.url?.host() ?? "an unknown server")
+        }
         let installer = FileManager.default.temporaryDirectory
             .appending(path: "\(which.rawValue)-setup-\(UUID().uuidString).\(which.installerExtension)")
         try FileManager.default.moveItem(at: download, to: installer)
