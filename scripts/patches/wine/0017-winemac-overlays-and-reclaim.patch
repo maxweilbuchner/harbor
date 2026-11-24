@@ -1,0 +1,154 @@
+Harbor: overlay windows stay out of the fullscreen Space, and a fullscreen program no longer takes its Desktop
+back from an app the user chose (#82).
+
+On top of 0011 (a fullscreen program gets a macOS fullscreen Space of its own) and 0009 (a fullscreen program
+gets its Desktop back after a switch of Desktops).
+
+1. 0011 moved every visible, unowned top-level window that covers a screen into a Space of its own. That is right
+   for a program's own window, and wrong for a window laid over the Desktop: a screen dimmer, a screenshot
+   region picker, a transparent overlay ended up alone on an empty Space. Left out now (-isOverlayWindow):
+     - WS_EX_LAYERED windows (an alpha value, a colour key, per-pixel alpha), WS_EX_TRANSPARENT (click-through),
+       WS_EX_TOOLWINDOW and WS_EX_NOACTIVATE windows, and windows cut to a region (SetWindowRgn).
+   The window state passed to Cocoa gets one more bit for them, no_own_space: winemac tracked none of the styles
+   for a window without a title bar (it has no ignoresMouseEvents handling at all), and what the Cocoa window
+   does know, its alpha value, per-pixel alpha and shape image, arrives only after the window is shown
+   (UpdateLayeredWindow shows the window first; a region's or colour key's shape comes with the first drawing),
+   which is after the decision. A shape that is already there counts as well. A layered window that is in fact
+   opaque is left out too; it keeps Wine's raised fullscreen window.
+   WS_EX_TOPMOST ("floating") windows are deliberately not left out: Direct3D's exclusive fullscreen makes the
+   game's window topmost, and those are the windows 0011 is for.
+   The check is made when the window would enter its Space; a window that turns into an overlay while it is in
+   one stays there.
+
+2. 0009's "left by a switch of Desktops" mark never expired. With the Desktop of a (Wine-raised) fullscreen
+   window out of view, picking another app whose window is on that Desktop brought the Desktop back, and the
+   fullscreen program then took activation away from the app just picked, however long ago the switch was. The
+   mark is now dropped when another app is activated later than 2 seconds after the program lost activation
+   (the activation macOS itself makes as part of the switch falls inside those 2 seconds, the same allowance
+   0009 already uses). Chosen over a timeout: a timeout either still overrules a choice made within it or stops
+   giving the Desktop back after a long look at another one, and it is no less code.
+   Cost: after a switch away, using a second app there and switching back, the fullscreen program is no longer
+   brought to the front by this; macOS activates whatever is frontmost on that Desktop.
+
+Not changed: the review's third point, that a program going windowed while macOS still animates its window into
+the Space stays there because -windowDidEnterFullScreen: doesn't look again, did not reproduce (delays of 50 to
+1500 ms after going fullscreen: the window was back on the Desktop within 3 seconds every time; Wine sets the
+frame again after the animation, which leaves the Space through -updateFullscreen).
+
+Tests: WindowsTests/graphics/spaces.sh; WindowsTests/graphics/fullscreen.sh for 0011 itself.
+
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -885,6 +885,18 @@
+                 [self tryToActivateIgnoringOtherApps:YES];
+         }
+     }
++
++    /* Taking the Desktop back is for coming back to it, not for overruling a choice. Once the user has picked
++     * another app (any activation later than the one macOS makes as part of the switch away), the Desktop may
++     * well return because they picked an app with a window on it; that app stays in front, also an hour later. */
++    - (void) otherAppDidActivate:(NSNotification*)note
++    {
++        NSRunningApplication* app = [[note userInfo] objectForKey:NSWorkspaceApplicationKey];
++
++        if (fullscreenLeftBySpaceSwitch && ![app isEqual:[NSRunningApplication currentApplication]] &&
++            [NSDate timeIntervalSinceReferenceDate] - lastResignTime >= 2.0)
++            fullscreenLeftBySpaceSwitch = FALSE;
++    }
+     /* HARBOR HACK - END */
+ 
+     - (void) activeSpaceDidChange
+@@ -2114,6 +2126,11 @@
+         [wsnc addObserver:self
+                  selector:@selector(activeSpaceDidChange)
+                      name:NSWorkspaceActiveSpaceDidChangeNotification
++                   object:nil];
++
++        [wsnc addObserver:self /* HARBOR HACK */
++                 selector:@selector(otherAppDidActivate:)
++                     name:NSWorkspaceDidActivateApplicationNotification
+                    object:nil];
+ 
+         [nc addObserver:self
+--- a/dlls/winemac.drv/cocoa_window.m
++++ b/dlls/winemac.drv/cocoa_window.m
+@@ -419,6 +419,7 @@
+  * and: the user took it out of that Space, so don't put it back until the program changes its size. */
+ @property (nonatomic) BOOL ownSpaceForFullscreen;
+ @property (nonatomic) BOOL ownSpaceDeclined;
++@property (nonatomic) BOOL noOwnSpace;
+ /* The frame macOS gave the window in its Space (smaller than the screen on Macs with a camera housing). */
+ @property (nonatomic) NSRect ownSpaceFrame;
+ 
+@@ -1015,7 +1016,7 @@
+     @synthesize shapeChangedSinceLastDraw;
+     @synthesize usePerPixelAlpha;
+     @synthesize himc, commandDone;
+-    @synthesize ownSpaceForFullscreen, ownSpaceDeclined, ownSpaceFrame;
++    @synthesize ownSpaceForFullscreen, ownSpaceDeclined, ownSpaceFrame, noOwnSpace;
+     @synthesize contentViewMaskLayer;
+ 
+     + (WineWindow*) createWindowWithFeatures:(const struct macdrv_window_features*)wf
+@@ -1314,6 +1315,7 @@
+ 
+         self.disabled = state->disabled;
+         self.noForeground = state->no_foreground;
++        self.noOwnSpace = state->no_own_space; /* HARBOR HACK */
+ 
+         if (self.floating != state->floating)
+         {
+@@ -1953,7 +1955,21 @@
+      * top-level window cover the screen, the window enters macOS fullscreen; when the program makes it smaller
+      * again, it leaves. If the user takes it out of fullscreen (green button, Ctrl-Cmd-F), it stays out until the
+      * program next changes its size, and Wine's raised window is used as before. The same fallback applies if
+-     * macOS refuses the transition. "FullscreenInOwnSpace"=n (Mac Driver registry key) turns this off. */
++     * macOS refuses the transition. "FullscreenInOwnSpace"=n (Mac Driver registry key) turns this off.
++     *
++     * Only for a program's own ordinary window. A screen-sized window that is layered (an alpha value, a colour
++     * key, per-pixel alpha), click-through (WS_EX_TRANSPARENT), a tool window, one that never takes activation
++     * or cut to a shape (all of these arrive as noOwnSpace) is laid over the Desktop, not a fullscreen program: a
++     * screen dimmer, a region picker for screenshots, an overlay. Moved into a Space of its own it would cover
++     * nothing. The window's style decides, not what it looks like at this moment: a layered or shaped window
++     * gets its alpha, picture and shape only after it is shown. Topmost windows are not left out: Direct3D's
++     * exclusive fullscreen makes the game's window topmost. */
++    - (BOOL) isOverlayWindow
++    {
++        WineContentView* view = (WineContentView*)[self contentView];
++        return self.noOwnSpace || view.layer.mask || [view hasShapeImage];
++    }
++
+     - (void) useOwnSpaceIfFullscreen
+     {
+         BOOL native, covers;
+@@ -1986,6 +2002,8 @@
+         if (native || self.ownSpaceForFullscreen || self.ownSpaceDeclined)
+             return;
+         if (![self isVisible] || [self isMiniaturized] || self.parentWindow || self.latentParentWindow)
++            return;
++        if ([self isOverlayWindow])
+             return;
+ 
+         self.ownSpaceForFullscreen = TRUE;
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -520,6 +520,7 @@
+     unsigned int    minimized:1;
+     unsigned int    minimized_valid:1;
+     unsigned int    maximized:1;
++    unsigned int    no_own_space:1; /* HARBOR HACK: not a program's main window, see -isOverlayWindow */
+ };
+ 
+ struct window_surface;
+--- a/dlls/winemac.drv/window.c
++++ b/dlls/winemac.drv/window.c
+@@ -167,6 +167,10 @@
+     state->minimized = (style & WS_MINIMIZE) != 0;
+     state->minimized_valid = state->minimized != data->minimized;
+     state->maximized = (style & WS_MAXIMIZE) != 0;
++    /* HARBOR HACK: layered, click-through, tool, never-activated and shaped windows are overlays, whatever
++     * their size. */
++    state->no_own_space = data->shaped ||
++        (ex_style & (WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)) != 0;
+ }
+ 
+ 
