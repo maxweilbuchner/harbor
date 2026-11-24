@@ -194,6 +194,29 @@ import Testing
         #expect(marker("wine", in: installed) == "wine v3" && next.installedSequence == 300)
     }
 
+    /// Downloading takes minutes and proving the new Wine up to one: "nothing is running" is asked right before
+    /// the switch, and again before the previous runtime is removed.
+    @Test func theSwitchAsksAgainWhetherAnythingRuns() async throws {
+        let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
+        let inst = try installer(try serve([("wine", "2", "wine v2"), ("d3dmetal", "1", "d3d v1")], sequence: 200, in: root), installed: installed)
+        try await inst.stage(try await inst.fetchManifest(), appBuild: nil)
+        var asked = 0
+        // A program was started since the download began: nothing is switched, the update stays.
+        #expect(try !inst.activateStagedIfIdle({ asked += 1; return false }) { _ in Issue.record("switched"); return true })
+        #expect(asked == 1 && inst.hasStagedUpdate && marker("wine", in: installed) == "wine v1")
+
+        // One was started while the new Wine was being proven: it may run from the previous runtime, which stays.
+        asked = 0
+        #expect(try inst.activateStagedIfIdle({ asked += 1; return asked == 1 }) { _ in asked == 1 })
+        #expect(asked == 2 && marker("wine", in: installed) == "wine v2" && inst.installedSequence == 200)
+        #expect(try fm.contentsOfDirectory(atPath: installed.path).contains { $0.hasPrefix(".old-wine-") })
+
+        // Nothing staged any more; with nothing running the previous runtime goes.
+        #expect(try inst.activateStagedIfIdle({ true }))
+        #expect(!(try fm.contentsOfDirectory(atPath: installed.path)).contains { $0.hasPrefix(".old-") })
+    }
+
     /// The installed folder as it is while the new Wine is being proven: where a switch stands if Harbor quits,
     /// crashes or loses power then. Returns one copy per name in `copies`.
     func interruptedSwitch(copies: [String]) async throws -> (root: URL, crashed: [URL], manifest: URL) {

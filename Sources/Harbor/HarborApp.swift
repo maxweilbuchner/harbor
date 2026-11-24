@@ -303,17 +303,34 @@ final class AppModel {
         status = runtimeUpdate.statusWhileTooOld(starting: name, running: blocking)
     }
 
+    /// Windows support is being switched to a downloaded update: the Wine folder is being replaced, and the new
+    /// one isn't proven yet (if it doesn't start, it is removed again and the previous one put back).
+    private var runtimeIsSwitching = false
+
+    /// Whether a program, an add or a component install has to wait for that switch; says so if it does. Starting
+    /// meanwhile could find no Wine at all, or one that is taken away under it.
+    private func waitsForRuntimeSwitch() -> Bool {
+        guard runtimeIsSwitching else { return false }
+        status = "Windows support is being updated; try again in a moment."
+        return true
+    }
+
     /// Switches to a downloaded runtime, but only while nothing uses the current one. The new Wine must start, or
     /// the previous one is put back.
     private func activateRuntimeUpdateIfIdle(_ installer: RuntimeInstaller) async {
+        guard installer.hasStagedUpdate, addState == nil, running.isEmpty else { return }
+        // Before the first suspension: from here on nothing of Harbor's starts (`waitsForRuntimeSwitch`), so what
+        // the check below finds running is all there is.
+        runtimeIsSwitching = true
+        defer { runtimeIsSwitching = false }
         let store = store
-        guard installer.hasStagedUpdate, addState == nil, running.isEmpty,
-              await Task.detached(operation: { !store.list().contains { $0.isRunning() } }).value else { return }
         do {
-            try await Task.detached {
-                try installer.activateStaged { installed in WineRuntime(root: installed.appending(path: "wine")).starts() }
-                installer.removeOldVersions()
+            let switched = try await Task.detached {
+                try installer.activateStagedIfIdle({ !store.list().contains { $0.isRunning() } }) { installed in
+                    WineRuntime(root: installed.appending(path: "wine")).starts()
+                }
             }.value
+            guard switched else { return }
             launcher = Self.makeLauncher()
             prepareTemplate()
             updateBottlesInBackground()
@@ -492,6 +509,7 @@ final class AppModel {
             pendingDuplicate = (file, existing, name)
             return
         }
+        if waitsForRuntimeSwitch() { return }
         addState = AddState(fileName: file.lastPathComponent, phase: .working(.analyzing))
         let flow = AddProgram(store: store, launcher: launcher)
         do {
@@ -525,6 +543,7 @@ final class AppModel {
     /// Installs a Windows component (Visual C++ runtime) into the program's bottle, showing progress.
     func install(_ recipe: Recipe, for item: LibraryItem) async {
         guard let launcher, addState == nil else { return }
+        if waitsForRuntimeSwitch() { return }
         addState = AddState(fileName: recipe.name, phase: .component(item.program.name))
         do {
             try await launcher.install(recipe, in: item.bottle)
@@ -538,6 +557,7 @@ final class AppModel {
     /// store is already set up, just opens it.
     func addStore(_ which: GameStores.Store) async {
         guard let launcher, addState == nil else { return }
+        if waitsForRuntimeSwitch() { return }
         let stores = GameStores(store: store, launcher: launcher)
         if let bottle = stores.existingBottle(for: which),
            let item = library.first(where: { $0.bottle == bottle && !$0.managedByStore }) {
@@ -560,6 +580,7 @@ final class AppModel {
 
     func open(_ item: LibraryItem) {
         guard let launcher else { return }
+        if waitsForRuntimeSwitch() { return }
         if runtimeIsTooOld {
             status = RuntimeUpdateState.checking.statusWhileTooOld(starting: item.program.name, running: nil)
             // Asked for: a check that fails says why, and its end replaces the line above (see

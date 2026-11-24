@@ -462,6 +462,18 @@ public struct RuntimeInstaller: Sendable {
         }
     }
 
+    /// `activateStaged(verify:)` and then `removeOldVersions()`, each only while `idle` says that no Windows
+    /// program is running; returns whether that was so for the switch. `idle` is asked right before the switch,
+    /// not when the download began, and again before the previous versions go: proving the new Wine takes up to
+    /// a minute, and something started meanwhile may run from them.
+    @discardableResult
+    public func activateStagedIfIdle(_ idle: () -> Bool, verify: (URL) -> Bool = { _ in true }) throws -> Bool {
+        guard idle() else { return false }
+        try activateStaged(verify: verify)
+        if idle() { removeOldVersions() }
+        return true
+    }
+
     /// Installs every pending component. `progress` gets the fraction of all pending bytes downloaded so far.
     /// Like `stage`, throws instead of installing a list that `decision(for:appBuild:)` doesn't allow.
     public func installPending(_ manifest: RuntimeManifest, appBuild: Int? = nil,
