@@ -346,5 +346,5 @@ public struct WineExitError: Error, CustomStringConvertible {
     public let status: Int32
     /// Shown as it is in the add sheet and the status line (`ErrorMessage`), so in the app's words: what ended
     /// is Windows being set up or updated, or an installer. The status stays for bug reports.
-    public var description: String { "A Windows setup step ended with an error (status \(status))." }
+    public var description: String { String(localized: "A Windows setup step ended with an error (status \(String(status))).", bundle: Strings.bundle) }
 }

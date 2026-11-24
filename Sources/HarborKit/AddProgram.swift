@@ -28,11 +28,11 @@ public struct AddProgram: Sendable {
 
         public var description: String {
             switch self {
-            case .notAWindowsProgram: "This doesn’t look like a Windows program or installer."
-            case .unclearFolder: "Harbor couldn’t tell which program in this folder to add. Drop the program itself."
-            case .sharedFolder: "This folder holds more than one program’s files. Drop the program itself."
-            case .installerFoundNothing(let n): "The \(n) installer finished, but Harbor couldn’t find what it installed."
-            case .nothingInstalled(let n): "The \(n) installer didn’t install anything."
+            case .notAWindowsProgram: String(localized: "This doesn’t look like a Windows program or installer.", bundle: Strings.bundle)
+            case .unclearFolder: String(localized: "Harbor couldn’t tell which program in this folder to add. Drop the program itself.", bundle: Strings.bundle)
+            case .sharedFolder: String(localized: "This folder holds more than one program’s files. Drop the program itself.", bundle: Strings.bundle)
+            case .installerFoundNothing(let n): String(localized: "The \(n) installer finished, but Harbor couldn’t find what it installed.", bundle: Strings.bundle)
+            case .nothingInstalled(let n): String(localized: "The \(n) installer didn’t install anything.", bundle: Strings.bundle)
             }
         }
     }

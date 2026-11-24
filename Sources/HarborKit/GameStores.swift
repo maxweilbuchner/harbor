@@ -55,13 +55,15 @@ public struct GameStores: Sendable {
     }
 
     public enum Failure: Error, CustomStringConvertible, Equatable {
-        /// The installer's download ended somewhere other than the vendor's servers.
-        case untrustedDownload(Store, host: String)
+        /// The installer's download ended somewhere other than the vendor's servers (`host`: nil when it has no name).
+        case untrustedDownload(Store, host: String?)
 
         public var description: String {
             switch self {
-            case .untrustedDownload(let store, let host):
-                "The \(store.name) installer came from \(host), not from \(store.vendor). Harbor didn’t run it."
+            case .untrustedDownload(let store, let host?):
+                String(localized: "The \(store.name) installer came from \(host), not from \(store.vendor). Harbor didn’t run it.", bundle: Strings.bundle)
+            case .untrustedDownload(let store, nil):
+                String(localized: "The \(store.name) installer came from an unknown server, not from \(store.vendor). Harbor didn’t run it.", bundle: Strings.bundle)
             }
         }
     }
@@ -93,7 +95,7 @@ public struct GameStores: Sendable {
         // The installer runs unattended in the bottle: not one that a redirect fetched from somewhere else.
         guard which.trustsDownload(from: response.url) else {
             try? FileManager.default.removeItem(at: download)
-            throw Failure.untrustedDownload(which, host: response.url?.host() ?? "an unknown server")
+            throw Failure.untrustedDownload(which, host: response.url?.host())
         }
         let installer = FileManager.default.temporaryDirectory
             .appending(path: "\(which.rawValue)-setup-\(UUID().uuidString).\(which.installerExtension)")

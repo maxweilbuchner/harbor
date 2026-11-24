@@ -56,7 +56,8 @@ struct LibraryView: View {
         NavigationSplitView(columnVisibility: $columns) {
             VStack(spacing: 0) {
                 List(LibraryFilter.allCases, selection: Binding(get: { filter }, set: { filter = $0 ?? .all })) { f in
-                    Label(f.rawValue, systemImage: f.symbol).tag(f)
+                    // As a key: a `String` would be shown as it is, without being looked up.
+                    Label(LocalizedStringKey(f.rawValue), systemImage: f.symbol).tag(f)
                 }
                 // Under the list rather than centred under the whole window, where it sat off-centre below the grid.
                 StatusLine()
@@ -295,7 +296,7 @@ struct ProgramMenu: View {
         Menu("Install Windows Component") {
             ForEach(Recipe.all) { recipe in
                 let installed = recipe.isInstalled(in: item.bottle)
-                Button(installed ? "\(recipe.name) (Installed)" : recipe.name) { Task { await model.install(recipe, for: item) } }
+                Button(installed ? String(localized: "\(recipe.name) (Installed)") : recipe.name) { Task { await model.install(recipe, for: item) } }
                     .disabled(installed)
             }
         }
@@ -382,36 +383,36 @@ struct AddProgressSheet: View {
 
     private func storeTitle(_ which: GameStores.Store, _ step: GameStores.Step) -> String {
         switch step {
-        case .downloading: "Downloading \(which.name)…"
-        case .preparingWindows: "Preparing Windows for \(which.name)…"
-        case .installing: "Installing \(which.name)…"
+        case .downloading: String(localized: "Downloading \(which.name)…")
+        case .preparingWindows: String(localized: "Preparing Windows for \(which.name)…")
+        case .installing: String(localized: "Installing \(which.name)…")
         }
     }
 
     private func storeDetail(_ which: GameStores.Store, _ step: GameStores.Step) -> String {
         switch step {
-        case .downloading: "Getting the installer from \(which.vendor)."
-        case .preparingWindows: "Setting up a separate Windows environment for your games."
-        case .installing: which == .steam ? "Steam updates itself on its first start, which can take a few minutes."
-                                          : "This takes a minute or two."
+        case .downloading: String(localized: "Getting the installer from \(which.vendor).")
+        case .preparingWindows: String(localized: "Setting up a separate Windows environment for your games.")
+        case .installing: which == .steam ? String(localized: "Steam updates itself on its first start, which can take a few minutes.")
+                                          : String(localized: "This takes a minute or two.")
         }
     }
 
     private func title(_ step: AddProgram.Step) -> String {
         switch step {
-        case .analyzing: "Reading \(state.fileName)…"
-        case .preparingWindows(let name): "Preparing Windows for \(name)…"
-        case .runningInstaller(let name): "Installing \(name)"
-        case .findingPrograms: "Finding Programs…"
+        case .analyzing: String(localized: "Reading \(state.fileName)…")
+        case .preparingWindows(let name): String(localized: "Preparing Windows for \(name)…")
+        case .runningInstaller(let name): String(localized: "Installing \(name)")
+        case .findingPrograms: String(localized: "Finding Programs…")
         }
     }
 
     private func detail(_ step: AddProgram.Step) -> String {
         switch step {
-        case .analyzing: "Checking what kind of program this is."
-        case .preparingWindows: "This takes about half a minute the first time."
-        case .runningInstaller: "Finish the installer’s window to continue. If it starts the program at the end, quit the program too. If nothing happens after that, click Stop."
-        case .findingPrograms: "Looking for what the installer added."
+        case .analyzing: String(localized: "Checking what kind of program this is.")
+        case .preparingWindows: String(localized: "This takes about half a minute the first time.")
+        case .runningInstaller: String(localized: "Finish the installer’s window to continue. If it starts the program at the end, quit the program too. If nothing happens after that, click Stop.")
+        case .findingPrograms: String(localized: "Looking for what the installer added.")
         }
     }
 }

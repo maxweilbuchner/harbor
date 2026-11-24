@@ -151,14 +151,14 @@ extension Program {
         let visible = raw.unicodeScalars.map { CharacterSet.controlCharacters.contains($0) ? " " : String($0) }.joined()
         let collapsed = visible.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         let capped = String(collapsed.prefix(80))
-        return capped.isEmpty ? "Windows Program" : capped
+        return capped.isEmpty ? String(localized: "Windows Program", bundle: Strings.bundle) : capped
     }
 }
 
 /// A bottle's programs.json can't be changed because part of it can't be read.
 public struct UnreadableProgramsError: Error, CustomStringConvertible, Equatable {
     public var description: String {
-        "Harbor can’t read part of what it has recorded for this program, and saving would lose that part. Nothing was changed."
+        String(localized: "Harbor can’t read part of what it has recorded for this program, and saving would lose that part. Nothing was changed.", bundle: Strings.bundle)
     }
 }
 

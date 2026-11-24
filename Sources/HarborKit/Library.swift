@@ -39,12 +39,14 @@ public enum Library {
     /// What to ask before `name` goes to the Trash with its whole bottle. `games`: how many store games go with
     /// it (it is Steam or the Epic Games Launcher). `running`: something in the bottle runs, and removing ends it.
     public static func removalQuestion(name: String, games: Int, running: Bool) -> (title: String, message: String) {
-        let title = games == 0 ? "Remove \(name)?" : "Remove \(name) and \(games) \(games == 1 ? "Game" : "Games")?"
+        // The two with a number have a form for one game and one for several (Localizable.stringsdict).
+        let title = games == 0 ? String(localized: "Remove \(name)?", bundle: Strings.bundle)
+                               : String(localized: "Remove \(name) and \(games) Games?", bundle: Strings.bundle)
         var message = games == 0
-            ? "Everything installed for \(name), including its saved data, goes to the Trash. You can put it back from there until you empty it."
-            : "\(name), the \(games == 1 ? "game" : "\(games) games") installed with it and their saved data go to the Trash. You can put them back from there until you empty it."
+            ? String(localized: "Everything installed for \(name), including its saved data, goes to the Trash. You can put it back from there until you empty it.", bundle: Strings.bundle)
+            : String(localized: "\(name), the \(games) games installed with it and their saved data go to the Trash. You can put them back from there until you empty it.", bundle: Strings.bundle)
         // First: it is what can't be put back (unsaved work).
-        if running { message = "\(name) is running and will be quit. " + message }
+        if running { message = String(localized: "\(name) is running and will be quit. \(message)", bundle: Strings.bundle) }
         return (title, message)
     }
 }

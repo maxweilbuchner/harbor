@@ -164,9 +164,9 @@ public enum RecipeError: Error, CustomStringConvertible, Equatable {
     public var description: String {
         switch self {
         case .leftWithoutDotNet(let name, let reason):
-            "\(name) couldn’t be installed (\(reason)). Harbor’s built-in .NET was already removed to make room for it, so this program’s Windows environment has no .NET now. Install \(name) again to complete it."
-        case .checksumMismatch(let file): "The download of \(file) didn’t match Microsoft’s published file. Nothing was installed."
-        case .bottleInUse: "Quit this program, and any installed together with it, before installing this component."
+            String(localized: "\(name) couldn’t be installed (\(reason)). Harbor’s built-in .NET was already removed to make room for it, so this program’s Windows environment has no .NET now. Install \(name) again to complete it.", bundle: Strings.bundle)
+        case .checksumMismatch(let file): String(localized: "The download of \(file) didn’t match Microsoft’s published file. Nothing was installed.", bundle: Strings.bundle)
+        case .bottleInUse: String(localized: "Quit this program, and any installed together with it, before installing this component.", bundle: Strings.bundle)
         }
     }
 }

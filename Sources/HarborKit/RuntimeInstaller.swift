@@ -83,17 +83,21 @@ public enum RuntimeUpdateState: Equatable, Sendable {
     public func statusWhileTooOld(starting program: String, running: String?) -> String {
         switch self {
         case .checking, .downloading:
-            "Updating Windows support first. Start \(program) again when that’s done."
+            String(localized: "Updating Windows support first. Start \(program) again when that’s done.", bundle: Strings.bundle)
         case .ready:
-            "Quit \(running ?? "your Windows programs") to finish updating Windows support, then start \(program) again."
+            if let running {
+                String(localized: "Quit \(running) to finish updating Windows support, then start \(program) again.", bundle: Strings.bundle)
+            } else {
+                String(localized: "Quit your Windows programs to finish updating Windows support, then start \(program) again.", bundle: Strings.bundle)
+            }
         case .needsNewerApp:
-            "\(program) needs newer Windows support, which needs a newer Harbor. Choose Harbor > Check for Updates…"
+            String(localized: "\(program) needs newer Windows support, which needs a newer Harbor. Choose Harbor > Check for Updates…", bundle: Strings.bundle)
         case .failedBefore:
-            "\(program) needs newer Windows support, but the newest didn’t start on this Mac. Harbor tries the next one published."
+            String(localized: "\(program) needs newer Windows support, but the newest didn’t start on this Mac. Harbor tries the next one published.", bundle: Strings.bundle)
         case .failed(let message):
-            "Windows support couldn’t be updated: \(message)"
+            String(localized: "Windows support couldn’t be updated: \(message)", bundle: Strings.bundle)
         case .idle:
-            "\(program) needs newer Windows support than is published yet. Try again later."
+            String(localized: "\(program) needs newer Windows support than is published yet. Try again later.", bundle: Strings.bundle)
         }
     }
 }
@@ -112,17 +116,18 @@ public enum RuntimeInstallError: Error, CustomStringConvertible, Equatable {
     case badURL(component: String)
 
     public var description: String {
+        // Versions, builds and exit codes go in as text: a number would be written with grouping (“1,234”).
         switch self {
-        case .badSignature: "The runtime list isn't signed by Harbor."
-        case .unsupportedSchema(let v): "The runtime list needs a newer Harbor (schema \(v))."
-        case .checksumMismatch(let c): "The \(c) download is damaged (checksum mismatch)."
-        case .invalidComponent(let c): "Unknown runtime component “\(c)”."
-        case .extractFailed(let c, let s): "Couldn't unpack \(c) (tar exit \(s))."
-        case .olderThanInstalled: "The runtime list is older than the installed Windows support."
-        case .needsNewerApp(let b): "This Windows support needs a newer Harbor (build \(b))."
-        case .verificationFailed: "The updated Windows support didn't start; the previous version was kept."
-        case .unprovenUpdateKept: "The updated Windows support didn't start when Harbor tried it, and the previous version is gone, so the update stays installed."
-        case .badURL(let c): "The runtime list has no usable address for \(c)."
+        case .badSignature: String(localized: "The runtime list isn't signed by Harbor.", bundle: Strings.bundle)
+        case .unsupportedSchema(let v): String(localized: "The runtime list needs a newer Harbor (schema \(String(v))).", bundle: Strings.bundle)
+        case .checksumMismatch(let c): String(localized: "The \(c) download is damaged (checksum mismatch).", bundle: Strings.bundle)
+        case .invalidComponent(let c): String(localized: "Unknown runtime component “\(c)”.", bundle: Strings.bundle)
+        case .extractFailed(let c, let s): String(localized: "Couldn't unpack \(c) (tar exit \(String(s))).", bundle: Strings.bundle)
+        case .olderThanInstalled: String(localized: "The runtime list is older than the installed Windows support.", bundle: Strings.bundle)
+        case .needsNewerApp(let b): String(localized: "This Windows support needs a newer Harbor (build \(String(b))).", bundle: Strings.bundle)
+        case .verificationFailed: String(localized: "The updated Windows support didn't start; the previous version was kept.", bundle: Strings.bundle)
+        case .unprovenUpdateKept: String(localized: "The updated Windows support didn't start when Harbor tried it, and the previous version is gone, so the update stays installed.", bundle: Strings.bundle)
+        case .badURL(let c): String(localized: "The runtime list has no usable address for \(c).", bundle: Strings.bundle)
         }
     }
 }
@@ -142,9 +147,9 @@ extension RuntimeInstallError {
             // The system's sentence where it has one ("The network connection was lost."), not its fallback
             // that names the error domain and code.
             error.localizedDescription.contains("NSURLErrorDomain")
-                ? "The update server couldn’t be reached."
-                : "The update server couldn’t be reached: \(error.localizedDescription)"
-        case is DecodingError: "The update list couldn’t be read."
+                ? String(localized: "The update server couldn’t be reached.", bundle: Strings.bundle)
+                : String(localized: "The update server couldn’t be reached: \(error.localizedDescription)", bundle: Strings.bundle)
+        case is DecodingError: String(localized: "The update list couldn’t be read.", bundle: Strings.bundle)
         default: error.localizedDescription
         }
     }

@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>%@, the %lld games installed with it and their saved data go to the Trash. You can put them back from there until you empty it.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$@, the %2$#@n@ installed with it and their saved data go to the Trash. You can put them back from there until you empty it.</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>game</string>
+			<key>other</key>
+			<string>%lld games</string>
+		</dict>
+	</dict>
+	<key>%lld programs’ data couldn’t be read.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld program’s data couldn’t be read.</string>
+			<key>other</key>
+			<string>%lld programs’ data couldn’t be read.</string>
+		</dict>
+	</dict>
+	<key>Added %lld programs</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Added %lld program</string>
+			<key>other</key>
+			<string>Added %lld programs</string>
+		</dict>
+	</dict>
+	<key>Found %lld programs installed earlier.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Found %lld program installed earlier.</string>
+			<key>other</key>
+			<string>Found %lld programs installed earlier.</string>
+		</dict>
+	</dict>
+	<key>Remove %@ and %lld Games?</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Remove %1$@ and %2$#@n@?</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld Game</string>
+			<key>other</key>
+			<string>%lld Games</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

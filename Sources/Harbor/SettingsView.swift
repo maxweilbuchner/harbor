@@ -43,8 +43,8 @@ struct SettingsView: View {
             }
             if let versions = model.runtimeVersions {
                 Section("Graphics") {
-                    LabeledContent("D3DMetal (games)", value: versions.d3dmetal ?? "Not installed")
-                    LabeledContent("DXMT (other Direct3D 10 and 11 programs)", value: versions.dxmt ?? "Not installed")
+                    LabeledContent("D3DMetal (games)", value: versions.d3dmetal ?? String(localized: "Not installed"))
+                    LabeledContent("DXMT (other Direct3D 10 and 11 programs)", value: versions.dxmt ?? String(localized: "Not installed"))
                 }
             }
         }
@@ -57,42 +57,43 @@ struct SettingsView: View {
     /// The same call does all three: it checks, or retries, or switches to a downloaded update if nothing runs.
     private var runtimeButton: String {
         switch model.runtimeUpdate {
-        case .failed: "Try Again"
-        case .ready: "Install Now"
-        default: "Check Now"
+        case .failed: String(localized: "Try Again")
+        case .ready: String(localized: "Install Now")
+        default: String(localized: "Check Now")
         }
     }
 
     private var runtimeTitle: String {
-        guard let versions = model.runtimeVersions else { return "Not installed" }
-        return versions.wine.map { "Version \($0)" } ?? "This checkout’s own build"
+        guard let versions = model.runtimeVersions else { return String(localized: "Not installed") }
+        return versions.wine.map { String(localized: "Version \($0)") } ?? String(localized: "This checkout’s own build")
     }
 
     private var runtimeDetail: String {
         switch model.runtimeUpdate {
         case .checking:
-            return "Checking for updates…"
+            return String(localized: "Checking for updates…")
         case .downloading(let fraction):
-            return "Downloading an update… \(Int(fraction * 100))%"
+            return String(localized: "Downloading an update… \(Int(fraction * 100))%")
         case .ready:
-            return "An update is ready. Quit your Windows programs to install it."
+            return String(localized: "An update is ready. Quit your Windows programs to install it.")
         case .needsNewerApp:
-            return "A newer version needs a newer Harbor. Update Harbor first."
+            return String(localized: "A newer version needs a newer Harbor. Update Harbor first.")
         case .failedBefore:
-            return "The newest version didn’t start on this Mac, so this one was kept. Harbor tries the next one published."
+            return String(localized: "The newest version didn’t start on this Mac, so this one was kept. Harbor tries the next one published.")
         case .failed(let message):
-            return "Couldn’t update. \(message)"
+            return String(localized: "Couldn’t update. \(message)")
         case .idle:
-            guard let versions = model.runtimeVersions else { return "Harbor’s main window offers the download." }
+            guard let versions = model.runtimeVersions else { return String(localized: "Harbor’s main window offers the download.") }
             if let checked = model.runtimeLastChecked {
                 // A clock time, not "5 minutes ago": nothing redraws this while the window stays open.
                 let time = checked.formatted(date: Calendar.current.isDateInToday(checked) ? .omitted : .abbreviated, time: .shortened)
-                return "Up to date. Checked \(Calendar.current.isDateInToday(checked) ? "at " : "")\(time)."
+                return Calendar.current.isDateInToday(checked) ? String(localized: "Up to date. Checked at \(time).")
+                                                               : String(localized: "Up to date. Checked \(time).")
             }
             if let installed = versions.installed {
-                return "Installed \(installed.formatted(date: .abbreviated, time: .shortened))."
+                return String(localized: "Installed \(installed.formatted(date: .abbreviated, time: .shortened)).")
             }
-            return versions.wine == nil ? "Built by scripts/build-wine.sh; not updated by Harbor." : ""
+            return versions.wine == nil ? String(localized: "Built by \("scripts/build-wine.sh"); not updated by Harbor.") : ""
         }
     }
 }

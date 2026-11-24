@@ -56,6 +56,10 @@ The app runs from `swift run Harbor`; `harbor-cli` drives the same engine from t
 Distribution: `scripts/bundle-app.sh`, `scripts/sign-runtime.sh`, `scripts/notarize.sh`,
 `scripts/package-runtime.sh`.
 
+Harbor's sentences are in `Sources/HarborKit/Resources/en.lproj` (English is the key): run
+`scripts/update-strings.sh` after adding or changing one; a translation is a copy of that folder under its own
+language code.
+
 ## License
 
 Harbor's own code is licensed under the [GNU General Public License v3.0](LICENSE).

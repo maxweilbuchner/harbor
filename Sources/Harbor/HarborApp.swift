@@ -303,11 +303,11 @@ final class AppModel {
                     return
                 case .needsNewerApp:
                     runtimeUpdate = .needsNewerApp
-                    status = "Newer Windows support is available for a newer Harbor. Choose Harbor > Check for Updates…"
+                    status = String(localized: "Newer Windows support is available for a newer Harbor. Choose Harbor > Check for Updates…")
                     return
                 case .available:
                     runtimeUpdate = .downloading(0)
-                    status = "Downloading an update to Windows support…"
+                    status = String(localized: "Downloading an update to Windows support…")
                     do {
                         try await installer.stage(manifest, appBuild: build) { fraction in
                             Task { @MainActor in
@@ -318,7 +318,7 @@ final class AppModel {
                     } catch {
                         let message = RuntimeInstallError.message(for: error)
                         runtimeUpdate = .failed(message)
-                        status = "Windows support couldn’t be updated: \(message)"
+                        status = String(localized: "Windows support couldn’t be updated: \(message)")
                         return
                     }
                     // The main window says so with a link to Settings instead of a sentence.
@@ -341,7 +341,7 @@ final class AppModel {
         guard let name = startWaitingForRuntime else { return }
         startWaitingForRuntime = nil
         guard runtimeIsTooOld else {
-            status = "Windows support is up to date. Start \(name) again."
+            status = String(localized: "Windows support is up to date. Start \(name) again.")
             return
         }
         let blocking = library.first { running.contains($0.id) }?.program.name
@@ -356,7 +356,7 @@ final class AppModel {
     /// meanwhile could find no Wine at all, or one that is taken away under it.
     private func waitsForRuntimeSwitch() -> Bool {
         guard runtimeIsSwitching else { return false }
-        status = "Windows support is being updated; try again in a moment."
+        status = String(localized: "Windows support is being updated; try again in a moment.")
         return true
     }
 
@@ -381,11 +381,11 @@ final class AppModel {
             prepareTemplate()
             updateBottlesInBackground()
             runtimeUpdate = .idle
-            status = "Windows support was updated."
+            status = String(localized: "Windows support was updated.")
         } catch {
             let message = RuntimeInstallError.message(for: error)
             runtimeUpdate = .failed(message)
-            status = "Windows support couldn’t be updated: \(message)"
+            status = String(localized: "Windows support couldn’t be updated: \(message)")
             // Kept although it didn't start (there was nothing to go back to): it is what is installed now, and
             // the sentence says so by itself.
             if case RuntimeInstallError.unprovenUpdateKept = error { launcher = Self.makeLauncher(); status = message }
@@ -573,8 +573,10 @@ final class AppModel {
             }.value
             show(scan)
             if let first = found.first {
-                status = found.count == 1 ? "Found \(first.settings.name), installed earlier."
-                                          : "Found \(found.count) programs installed earlier."
+                // The sentence with a number names the table itself, as every one with a form per number does:
+                // under `swift run` the main bundle has none, and English needs it too.
+                status = found.count == 1 ? String(localized: "Found \(first.settings.name), installed earlier.")
+                                          : String(localized: "Found \(found.count) programs installed earlier.", bundle: Strings.bundle)
             }
         }
         reloading = task
@@ -618,17 +620,17 @@ final class AppModel {
             guard let item = library.first(where: { $0.id == id }) else {
                 // A shortcut that outlived its program (kept in the Dock, copied elsewhere), or a link Harbor
                 // doesn't know.
-                status = "That shortcut’s program isn’t in Harbor any more."
+                status = String(localized: "That shortcut’s program isn’t in Harbor any more.")
                 return
             }
             // The window shows the download then; say why nothing opened.
-            if launcher == nil { status = "Download Windows support to open \(item.program.name)." }
+            if launcher == nil { status = String(localized: "Download Windows support to open \(item.program.name).") }
             open(item)
         }
     }
 
     /// Said when a second program is dropped while one is being added, or several at once.
-    static let oneAtATime = "Add one program at a time."
+    static let oneAtATime = String(localized: "Add one program at a time.")
 
     /// Adds a dropped program or installer: a new bottle, the installer's own window if it has one, then the
     /// programs it installed.
@@ -680,7 +682,8 @@ final class AppModel {
         case .success((_, let programs)):
             await reload().value
             addState = nil
-            status = programs.count == 1 ? "Added \(programs[0].name)" : "Added \(programs.count) programs"
+            status = programs.count == 1 ? String(localized: "Added \(programs[0].name)")
+                                         : String(localized: "Added \(programs.count) programs", bundle: Strings.bundle)
         case .failure(let error):
             reload()
             // Cancelled: nothing of it was kept, and how the installer ended is no news.
@@ -692,9 +695,10 @@ final class AppModel {
     func setMacFilesAccess(_ item: LibraryItem, _ allowed: Bool) {
         var bottle = item.bottle
         bottle.settings.macFilesAccess = allowed
-        do { try bottle.save() } catch { status = "Couldn’t save the setting: \(error.localizedDescription)" }
+        do { try bottle.save() } catch { status = String(localized: "Couldn’t save the setting: \(error.localizedDescription)") }
         if running.contains(item.id) || bottle.isRunning() {
-            status = "\(item.program.name) \(allowed ? "can open" : "can no longer open") your Mac’s files the next time it starts."
+            status = allowed ? String(localized: "\(item.program.name) can open your Mac’s files the next time it starts.")
+                             : String(localized: "\(item.program.name) can no longer open your Mac’s files the next time it starts.")
         }
         reload()
     }
@@ -704,7 +708,7 @@ final class AppModel {
         guard let launcher else { return }
         // Offered by the alert about a program that couldn't run, which can come up over a sheet.
         guard addState == nil else {
-            status = "\(recipe.name) wasn’t installed because Harbor is busy. Try again when it’s done."
+            status = String(localized: "\(recipe.name) wasn’t installed because Harbor is busy. Try again when it’s done.")
             return
         }
         if waitsForRuntimeSwitch() { return }
@@ -714,13 +718,13 @@ final class AppModel {
         do {
             try await task.value
             addState = nil
-            status = "Installed \(recipe.name) for \(item.program.name)."
+            status = String(localized: "Installed \(recipe.name) for \(item.program.name).")
         } catch {
             // Stopped by the user: how the installer ended is no news then. What the stop left the program's
             // Windows environment without (`RecipeError`) is.
             if task.isCancelled, !(error is RecipeError) {
                 addState = nil
-                status = "Stopped installing \(recipe.name)."
+                status = String(localized: "Stopped installing \(recipe.name).")
             } else {
                 addState?.phase = .failed(ErrorMessage.text(for: error))
             }
@@ -787,7 +791,7 @@ final class AppModel {
                 if Task.isCancelled { return }
                 // The program is started all the same: Windows tries the update again by itself then, and the
                 // program may well run. But what went wrong here is said.
-                if let problem { status = "Opening \(item.program.name) although Windows couldn’t be updated for it: \(problem)" }
+                if let problem { status = String(localized: "Opening \(item.program.name) although Windows couldn’t be updated for it: \(problem)") }
                 launchNow(item, with: launcher)
             }
             endAddTask = { task.cancel() }
@@ -831,7 +835,7 @@ final class AppModel {
             } catch {
                 await MainActor.run {
                     self.launchEnded(id)
-                    self.status = "Couldn’t open \(item.program.name): \(ErrorMessage.text(for: error))"
+                    self.status = String(localized: "Couldn’t open \(item.program.name): \(ErrorMessage.text(for: error))")
                 }
             }
         }
@@ -913,7 +917,9 @@ final class AppModel {
             case .cause(let diagnosis):
                 if let log = exit.log { failure = Failure(item: item, diagnosis: diagnosis, log: log, exit: exit) }
             case .unexplained:
-                status = exit.signalled ? "\(name) was stopped unexpectedly" : "\(name) quit unexpectedly (\(exit.status))"
+                // The exit code goes in as text: a number would be written with grouping.
+                status = exit.signalled ? String(localized: "\(name) was stopped unexpectedly")
+                                        : String(localized: "\(name) quit unexpectedly (\(String(exit.status)))")
             }
         }
     }
@@ -930,7 +936,7 @@ final class AppModel {
                 do { try launcher.shutdown(bottle) } catch { return ErrorMessage.text(for: error) }
                 return nil
             }.value
-            if let problem { status = "Couldn’t quit \(name): \(problem)" }
+            if let problem { status = String(localized: "Couldn’t quit \(name): \(problem)") }
         }
     }
 
@@ -945,7 +951,7 @@ final class AppModel {
     /// The user's choice whether a store's title is a game (kept in the bottle; the library is rescanned).
     func setStoreTitle(_ item: LibraryItem, isGame: Bool) {
         guard let key = item.storeTitleKey else { return }
-        do { try item.bottle.setStoreTitle(key, isGame: isGame) } catch { status = "Couldn’t save the setting: \(error.localizedDescription)" }
+        do { try item.bottle.setStoreTitle(key, isGame: isGame) } catch { status = String(localized: "Couldn’t save the setting: \(error.localizedDescription)") }
         reload()
     }
 
@@ -959,7 +965,7 @@ final class AppModel {
                 if let i = programs.firstIndex(where: { $0.id == item.id }) { change(&programs[i]) }
             }
         } catch {
-            status = "Couldn’t save the setting: \(ErrorMessage.text(for: error))"
+            status = String(localized: "Couldn’t save the setting: \(ErrorMessage.text(for: error))")
         }
         reload()
     }
@@ -1000,7 +1006,7 @@ final class AppModel {
                     do { try store.moveToTrash(item.bottle) } catch { return error.localizedDescription }
                     return nil
                 }.value
-                if let problem { status = "Couldn’t move \(item.program.name) to the Trash: \(problem)" }
+                if let problem { status = String(localized: "Couldn’t move \(item.program.name) to the Trash: \(problem)") }
                 reload()
             }
             pendingRemoval = nil
@@ -1010,7 +1016,7 @@ final class AppModel {
                 try item.bottle.changePrograms { $0.removeAll { $0.id == item.id } }
                 shortcuts.remove(item.id)
             } catch {
-                status = "Couldn’t remove \(item.program.name): \(ErrorMessage.text(for: error))"
+                status = String(localized: "Couldn’t remove \(item.program.name): \(ErrorMessage.text(for: error))")
             }
         }
         pendingRemoval = nil
@@ -1024,14 +1030,15 @@ final class AppModel {
     func installRosetta() {
         guard !rosettaInstalling else { return }
         rosettaInstalling = true
-        status = "Installing Rosetta…"
+        status = String(localized: "Installing Rosetta…")
         Task.detached {
             // The system's administrator prompt; softwareupdate needs root to install Rosetta.
             let failure = Rosetta.install()
             await MainActor.run {
                 self.rosettaInstalling = false
                 self.rosettaAvailable = Rosetta.isAvailable
-                self.status = self.rosettaAvailable ? nil : "Rosetta wasn’t installed\(failure.map { ": \($0)" } ?? ".")"
+                self.status = self.rosettaAvailable ? nil
+                    : failure.map { String(localized: "Rosetta wasn’t installed: \($0)") } ?? String(localized: "Rosetta wasn’t installed.")
             }
         }
     }
@@ -1067,8 +1074,7 @@ struct StatusLine: View {
                 }
                 if !model.damaged.isEmpty {
                     // Not through `status`, which the next message replaces: this is said for as long as it is so.
-                    Text(model.damaged.count == 1 ? "1 program’s data couldn’t be read."
-                                                  : "\(model.damaged.count) programs’ data couldn’t be read.")
+                    Text(String(localized: "\(model.damaged.count) programs’ data couldn’t be read.", bundle: Strings.bundle))
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(alignment == .center ? .center : .leading)
                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting(model.damaged) }
@@ -1162,7 +1168,7 @@ struct ContentView: View {
 
     private var removalTitle: String {
         guard let item = model.pendingRemoval else { return "" }
-        return model.removesBottle(item) ? model.removalQuestion(item).title : "Remove \(item.program.name)?"
+        return model.removesBottle(item) ? model.removalQuestion(item).title : String(localized: "Remove \(item.program.name)?")
     }
 }
 
@@ -1184,7 +1190,7 @@ struct RuntimeDownloadView: View {
             case nil where model.canDownloadRuntime:
                 Text(sizeText)
             case nil:
-                Text("This development build has no download location. Run scripts/fetch-runtime.sh, then relaunch Harbor.")
+                Text("This development build has no download location. Run \("scripts/fetch-runtime.sh"), then relaunch Harbor.")
             }
         } actions: {
             if model.canDownloadRuntime, !isRunning {
@@ -1202,8 +1208,9 @@ struct RuntimeDownloadView: View {
     }
 
     private var sizeText: String {
-        let base = "Harbor needs a one-time download to run Windows programs."
-        guard let size = model.runtimeDownloadSize, size > 0 else { return base }
-        return base + " (\(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)))"
+        guard let size = model.runtimeDownloadSize, size > 0 else {
+            return String(localized: "Harbor needs a one-time download to run Windows programs.")
+        }
+        return String(localized: "Harbor needs a one-time download to run Windows programs. (\(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)))")
     }
 }

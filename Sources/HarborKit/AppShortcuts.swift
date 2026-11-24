@@ -134,7 +134,7 @@ public struct AppShortcuts: Sendable {
     static func fileName(_ name: String) -> String {
         let cleaned = name.map { "/:".contains($0) ? "-" : $0 }
         let trimmed = String(cleaned).trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: ".")))
-        return trimmed.isEmpty ? "Windows Program" : trimmed
+        return trimmed.isEmpty ? String(localized: "Windows Program", bundle: Strings.bundle) : trimmed
     }
 
     /// Builds an .icns from a PNG or JPEG with sips + iconutil (small Windows icons are scaled up).

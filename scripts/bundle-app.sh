@@ -46,6 +46,11 @@ mkdir -p "$APP/Contents/Frameworks"
 ditto "$(dirname "$BIN")/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Harbor"
 cp THIRD_PARTY_NOTICES.md LICENSE "$APP/Contents/Resources/"   # Harbor's own licence (GPL-3.0) and the notices
+# Harbor's sentences (Sources/HarborKit/Resources/en.lproj), as SwiftPM compiled them: in the app's own Resources,
+# where SwiftUI looks its texts up and HarborKit looks first (Strings.bundle). A missing table stops the build.
+ditto "$(dirname "$BIN")/Harbor_HarborKit.bundle/en.lproj" "$APP/Contents/Resources/en.lproj"
+[ -s "$APP/Contents/Resources/en.lproj/Localizable.strings" ] && [ -s "$APP/Contents/Resources/en.lproj/Localizable.stringsdict" ] \
+  || { echo "bundle-app: the strings table is missing from the build" >&2; exit 1; }
 # Sparkle's licence (MIT; the file also holds those of the code Sparkle embeds), out of the release SwiftPM took
 # the framework from. A missing file stops the build.
 mkdir -p "$APP/Contents/Resources/licenses/sparkle"
@@ -63,6 +68,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleName</key><string>Harbor</string>
   <key>CFBundleDisplayName</key><string>Harbor</string>
   <key>CFBundleExecutable</key><string>Harbor</string>

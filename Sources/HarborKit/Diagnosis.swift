@@ -18,15 +18,15 @@ public struct Diagnosis: Equatable, Sendable {
         switch cause {
         case .missingLibrary(let dll, let recipe?):
             let component = Recipe.named(recipe)?.name ?? recipe
-            return "\(program) needs Microsoft \(component), which isn’t installed for it yet (\(dll) is missing)."
+            return String(localized: "\(program) needs Microsoft \(component), which isn’t installed for it yet (\(dll) is missing).", bundle: Strings.bundle)
         case .missingLibrary(let dll, nil):
-            return "\(program) is missing a file it needs (\(dll)). It usually comes with the program’s installer: try installing the program again with its full installer."
+            return String(localized: "\(program) is missing a file it needs (\(dll)). It usually comes with the program’s installer: try installing the program again with its full installer.", bundle: Strings.bundle)
         case .dotNet:
-            return "\(program) is a .NET program and stopped inside Harbor’s built-in .NET. Microsoft’s .NET Framework 4.8 may run it."
+            return String(localized: "\(program) is a .NET program and stopped inside Harbor’s built-in .NET. Microsoft’s .NET Framework 4.8 may run it.", bundle: Strings.bundle)
         case .antiCheat(let name):
-            return "\(program) uses \(name) anti-cheat, which only runs on Windows itself. Games that need it can’t run in Harbor."
+            return String(localized: "\(program) uses \(name) anti-cheat, which only runs on Windows itself. Games that need it can’t run in Harbor.", bundle: Strings.bundle)
         case .crashed:
-            return "\(program) crashed. The log has the details for a bug report."
+            return String(localized: "\(program) crashed. The log has the details for a bug report.", bundle: Strings.bundle)
         }
     }
 

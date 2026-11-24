@@ -3,6 +3,8 @@ import PackageDescription
 
 let package = Package(
     name: "Harbor",
+    // English only so far; the strings are in Sources/HarborKit/Resources/en.lproj (docs/ARCHITECTURE.md).
+    defaultLocalization: "en",
     platforms: [.macOS(.v26)],
     products: [
         .executable(name: "Harbor", targets: ["Harbor"]),
@@ -14,7 +16,7 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
     ],
     targets: [
-        .target(name: "HarborKit"),
+        .target(name: "HarborKit", resources: [.process("Resources")]),
         .executableTarget(name: "Harbor", dependencies: ["HarborKit", .product(name: "Sparkle", package: "Sparkle")]),
         .executableTarget(name: "harbor-cli", dependencies: ["HarborKit"]),
         .testTarget(name: "HarborKitTests", dependencies: ["HarborKit"],
