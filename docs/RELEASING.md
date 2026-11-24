@@ -26,9 +26,13 @@ matches two: set `SIGN_IDENTITY` to the SHA-1 of the one to use (`security find-
    packaging refuses a D3DMetal folder that has no list (one imported before the list existed) or that no longer
    matches it: import again.
 4. Run the Wine tests against it (`HARBOR_WINE_ROOT=<folder>`): `WindowsTests/abi/run.sh`, `xproc/run.sh`,
-   `net/run.sh`, `user/run.sh`, `appname/run.sh`, `quit/run.sh`, `graphics/run.sh "d3dmetal dxmt"`,
-   `graphics/fullscreen.sh`, `graphics/modeset.sh`, `graphics/spaces.sh` (the last four open windows, some
-   fullscreen: leave the Mac alone while they run).
+   `net/run.sh`, `user/run.sh`, `appname/run.sh`, `installer/run.sh`, `quit/run.sh`, `graphics/modeset.sh`,
+   `graphics/run.sh "d3dmetal dxmt"`, `graphics/fullscreen.sh`, `graphics/spaces.sh` (`quit/run.sh` and the last
+   three open windows, `fullscreen.sh` and `spaces.sh` fullscreen ones, and switch Spaces: leave the Mac alone
+   while they run). `graphics/run.sh` and `graphics/fullscreen.sh` test D3DMetal and need it in the checkout:
+   step 3's import (`Runtime/d3dmetal-<version>`). An installed copy of Harbor's runtime is found before that
+   folder, so name it to be sure which one is tested: `HARBOR_D3DMETAL_LIB=$PWD/Runtime/d3dmetal-<version>/lib`.
+   Without D3DMetal `fullscreen.sh` stops at once and says so; `run.sh` reports its D3DMetal tests as "no result".
 5. `scripts/package-runtime.sh <wine folder> <d3dmetal folder>` then `scripts/publish-runtime.sh`. Packaging
    refuses a runtime that was built with uncommitted changes in `scripts/` or that Apple doesn't know as
    notarized (sign, then notarize, and don't sign again). The list gets a new `sequence`; installations refuse
