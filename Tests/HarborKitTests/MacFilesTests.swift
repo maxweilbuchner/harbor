@@ -110,6 +110,44 @@ import Testing
         #expect(try fm.contentsOfDirectory(atPath: working.deletingLastPathComponent().path) == ["setup.exe"])
     }
 
+    // MARK: #61
+
+    /// Beside an installer in a shared place, only what is named as one of its parts comes along: the name,
+    /// then a separator or a number. A document that merely starts the same way stays on the Mac.
+    @Test func onlyNamedPartsComeAlongFromASharedPlace() throws {
+        let b = try bottle()
+        let base = b.root.deletingLastPathComponent()
+        defer { try? fm.removeItem(at: base) }
+        let downloads = base.appending(path: "Downloads")
+        try fm.createDirectory(at: downloads, withIntermediateDirectories: true)
+        let parts = ["Setup-1.bin", "setup-2.bin", "Setup.cab", "Setup1.cab", "Setup 2.bin", "Setup_data.bin"]
+        for name in parts + ["Setup.exe", "Setup notes.docx", "Setupper.exe", "Setup.pdf", "Setup-photo.jpg", "Settings.ini"] {
+            try Data().write(to: downloads.appending(path: name))
+        }
+        let copy = try b.importForRunning(downloads.appending(path: "Setup.exe"), withFolder: true)
+        #expect(try fm.contentsOfDirectory(atPath: copy.deletingLastPathComponent().path).sorted() == (parts + ["Setup.exe"]).sorted())
+        // `a.exe` doesn't bring every file that starts with "a".
+        for name in ["a.exe", "a1.bin", "apple.txt", "archive.bin"] { try Data().write(to: downloads.appending(path: name)) }
+        let short = try b.importForRunning(downloads.appending(path: "a.exe"))
+        #expect(try fm.contentsOfDirectory(atPath: short.deletingLastPathComponent().path).sorted() == ["a.exe", "a1.bin"])
+    }
+
+    /// A folder on another disk is drive D: only where nothing can be written to it; from a writable disk it is
+    /// copied like one on the bottles' disk, unless it is too much to copy.
+    @Test func onlyAReadOnlyDiskIsLinkedAsDriveD() throws {
+        let media = fm.temporaryDirectory.appending(path: "harbor-mac-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: media) }
+        try fm.createDirectory(at: media.appending(path: "Data"), withIntermediateDirectories: true)
+        for name in ["setup.exe", "Data/a.bin", "Data/b.bin"] { try Data(count: 1000).write(to: media.appending(path: name)) }
+        #expect(!Bottle.runsFromItsDisk(media, onBottlesDisk: true, readOnly: true))
+        #expect(Bottle.runsFromItsDisk(media, onBottlesDisk: false, readOnly: true))
+        #expect(!Bottle.runsFromItsDisk(media, onBottlesDisk: false, readOnly: false))
+        // Too many files or too many bytes for a copy: the link, as before.
+        #expect(Bottle.runsFromItsDisk(media, onBottlesDisk: false, readOnly: false, files: 2))
+        #expect(Bottle.runsFromItsDisk(media, onBottlesDisk: false, readOnly: false, bytes: 2500))
+        #expect(!Bottle.runsFromItsDisk(media, onBottlesDisk: false, readOnly: false, files: 4, bytes: 3000))
+    }
+
     /// An installer found inside a folder the user dropped gets that folder, at the same layout (#60).
     @Test func aDroppedFolderComesAlongAroundAnInstallerInItsSubfolder() throws {
         let b = try bottle()

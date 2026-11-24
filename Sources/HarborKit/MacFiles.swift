@@ -33,11 +33,11 @@ extension Bottle {
 
     /// Brings a Mac file into the bottle so Wine can run it, and returns the copy (a clone on APFS: no extra disk).
     /// Files already inside the bottle are returned as they are. Parts of a multi-file installer come along: files
-    /// beside it whose names start with its name (GOG's `setup_game.exe` + `setup_game-1.bin`).
+    /// beside it that are named as its parts (GOG's `setup_game.exe` + `setup_game-1.bin`; `isInstallerPart`).
     /// `withFolder`: for an installer, bring its whole folder (data files under other names, subfolders) when the
     /// folder is the installer's own; from a shared folder such as Downloads only the named parts come, as above.
-    /// A folder on another disk (a mounted disk image, an external drive) isn't copied: it becomes drive D: until
-    /// `clearImports`, and the installer is returned at its place on that drive.
+    /// A folder on a disk that can't be written to (a disc, a mounted disk image) isn't copied: it becomes drive
+    /// D: until `clearImports`, and the installer is returned at its place on that drive (`runsFromItsDisk`).
     /// `mediaRoot`: the folder the user dropped, when the installer was found inside it (`AddProgram.entry`).
     /// That folder comes along instead of the installer's own, and the installer is returned at its place below
     /// it, so `Setup\setup.exe` finds `..\Data`.
@@ -46,9 +46,10 @@ extension Bottle {
         let source = file.standardizedFileURL.resolvingSymlinksInPath()
         if source.path.hasPrefix(driveC.standardizedFileURL.resolvingSymlinksInPath().path + "/") { return file }
         if !isRunning() { clearImports() }     // copies from earlier runs, now that nothing can be using them
-        if withFolder, let media = droppedFolder(mediaRoot, holding: source) ?? installerFolder(of: source),
-           let local = try bringFolder(media, of: source, asDrive: !isOnBottlesDisk(media)) {
-            return local
+        if withFolder, let media = droppedFolder(mediaRoot, holding: source) ?? installerFolder(of: source) {
+            let readOnly = (try? media.resourceValues(forKeys: [.volumeIsReadOnlyKey]).volumeIsReadOnly) == true
+            let asDrive = Self.runsFromItsDisk(media, onBottlesDisk: isOnBottlesDisk(media), readOnly: readOnly)
+            if let local = try bringFolder(media, of: source, asDrive: asDrive) { return local }
         }
         let folder = importsDirectory.appending(path: UUID().uuidString)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -58,11 +59,42 @@ extension Bottle {
         let siblings = (try? fm.contentsOfDirectory(at: source.deletingLastPathComponent(),
                                                     includingPropertiesForKeys: [.isRegularFileKey])) ?? []
         for sibling in siblings.prefix(5000) where sibling.lastPathComponent != source.lastPathComponent
-            && sibling.lastPathComponent.hasPrefix(stem)
+            && Self.isInstallerPart(sibling.lastPathComponent, of: stem)
             && (try? sibling.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
             try fm.copyItem(at: sibling, to: folder.appending(path: sibling.lastPathComponent))
         }
         return copy
+    }
+
+    /// Whether the file `name` is a part of the installer named `stem`: the installer's name, then a separator
+    /// or a number (`setup-1.bin`, `setup.cab`, `setup1.cab`, `setup 2.bin`), whatever the case, and not a
+    /// document's type. "Setup notes.docx" beside `Setup.exe` in Downloads is someone's notes.
+    static func isInstallerPart(_ name: String, of stem: String) -> Bool {
+        guard let start = name.range(of: stem, options: [.anchored, .caseInsensitive]) else { return false }
+        let rest = name[start.upperBound...]
+        guard let next = rest.first, "-_.".contains(next) || next.isNumber
+                || (next == " " && rest.dropFirst().first?.isNumber == true) else { return false }
+        return !AddProgram.personalDocumentExtensions.contains((name as NSString).pathExtension.lowercased())
+    }
+
+    /// Whether an installer's folder is linked as drive D: instead of being copied. On the bottles' own disk a
+    /// copy is a free clone. On another disk the link is for what can't be written to (a disc, a mounted disk
+    /// image): through it the installer, and whatever it starts, reaches the folder itself. A folder on a
+    /// writable disk is copied, so nothing beside the installer can be changed. Only one too large to copy
+    /// (`files`, `bytes`) is linked all the same, rather than have the install fail or take the disk's time
+    /// and space twice.
+    static func runsFromItsDisk(_ media: URL, onBottlesDisk: Bool, readOnly: Bool,
+                                files: Int = AddProgram.unprovenFolderLimit, bytes: Int = 2 << 30) -> Bool {
+        if onBottlesDisk { return false }
+        if readOnly { return true }
+        guard let walker = FileManager.default.enumerator(at: media, includingPropertiesForKeys: [.fileSizeKey]) else { return false }
+        var seen = 0, size = 0
+        for case let url as URL in walker {
+            seen += 1
+            size += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            if seen > files || size > bytes { return true }
+        }
+        return false
     }
 
     /// Makes the installer's folder `media` available in the bottle and returns the installer `source` there:
