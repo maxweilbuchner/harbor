@@ -74,6 +74,7 @@ public struct ProblemReport: Sendable, Equatable {
         switch diagnosis?.cause {
         case .missingLibrary(let dll, _): return "A program doesn’t run: \(dll) is missing"
         case .dotNet: return "A .NET program doesn’t run"
+        case .shaderCompiler: return "A program doesn’t run: its shaders don’t compile"
         case .antiCheat(let name): return "A program doesn’t run: \(name) anti-cheat"
         case .crashed: return "A program crashes"
         case nil: return "A program doesn’t run"

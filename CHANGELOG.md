@@ -2,6 +2,10 @@
 
 What changed in each Harbor release, newest first. The website's changelog page is built from this file.
 
+## Unreleased
+
+- Programs that stop at start because Harbor's built-in shader compiler can't build their graphics code (games made with wgpu on DirectX 12, such as Veloren) get the offer to install Microsoft's Direct3D Shader Compiler, a new Windows component.
+
 ## 0.1.7 (2026-11-24)
 
 - The progress bar moves while Windows support is downloading; it used to stay at 0% until the download was complete, which looked frozen.

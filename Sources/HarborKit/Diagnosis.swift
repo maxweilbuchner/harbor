@@ -7,6 +7,8 @@ public struct Diagnosis: Equatable, Sendable {
         /// A DLL the program imports isn't there. `recipe` installs it when it's part of a Windows component.
         case missingLibrary(String, recipe: String?)
         case dotNet
+        /// Wine's Direct3D shader compiler gave up on the program's shaders; Microsoft's builds them.
+        case shaderCompiler
         case antiCheat(String)
         case crashed
     }
@@ -23,6 +25,8 @@ public struct Diagnosis: Equatable, Sendable {
             return String(localized: "\(program) is missing a file it needs (\(dll)). It usually comes with the program’s installer: try installing the program again with its full installer.", bundle: Strings.bundle)
         case .dotNet:
             return String(localized: "\(program) is a .NET program and stopped inside Harbor’s built-in .NET. Microsoft’s .NET Framework 4.8 may run it.", bundle: Strings.bundle)
+        case .shaderCompiler:
+            return String(localized: "\(program) couldn’t prepare its graphics with the shader compiler built into Harbor. Microsoft’s Direct3D shader compiler can.", bundle: Strings.bundle)
         case .antiCheat(let name):
             return String(localized: "\(program) uses \(name) anti-cheat, which only runs on Windows itself. Games that need it can’t run in Harbor.", bundle: Strings.bundle)
         case .crashed:
@@ -34,6 +38,7 @@ public struct Diagnosis: Equatable, Sendable {
     public var recipe: Recipe? {
         if case .missingLibrary(_, let id?) = cause { return Recipe.named(id) }
         if cause == .dotNet { return .dotnet48 }
+        if cause == .shaderCompiler { return .d3dcompiler47 }
         return nil
     }
 
@@ -80,6 +85,12 @@ public struct Diagnosis: Equatable, Sendable {
                                ("vgk.sys", "Riot Vanguard"), ("riot vanguard", "Riot Vanguard")]
         where loads.contains(where: { $0.contains(needle) }) {
             return Diagnosis(cause: .antiCheat(name))
+        }
+        // What Wine's HLSL compiler (vkd3d-shader) says when a program hands it something it doesn't know yet, as
+        // the program passes it on: "…D3DCompile error (Not implemented…): …: E5017: Aborting due to not yet
+        // implemented feature: Shader model 5.1+ resource array." Not once Microsoft's compiler is in the bottle.
+        if !installed(.d3dcompiler47), lower.contains("e5017: aborting due to not yet implemented feature") {
+            return Diagnosis(cause: .shaderCompiler)
         }
         // Not in a bottle that has Microsoft's .NET already: the advice would be to install what is there.
         if !installed(.dotnet48),

@@ -3,6 +3,7 @@
 "%@ can no longer open your Mac’s files the next time it starts." = "%@ can no longer open your Mac’s files the next time it starts.";
 "%@ can open your Mac’s files the next time it starts." = "%@ can open your Mac’s files the next time it starts.";
 "%@ couldn’t be installed (%@). Harbor’s built-in .NET was already removed to make room for it, so this program’s Windows environment has no .NET now. Install %@ again to complete it." = "%@ couldn’t be installed (%@). Harbor’s built-in .NET was already removed to make room for it, so this program’s Windows environment has no .NET now. Install %@ again to complete it.";
+"%@ couldn’t prepare its graphics with the shader compiler built into Harbor. Microsoft’s Direct3D shader compiler can." = "%@ couldn’t prepare its graphics with the shader compiler built into Harbor. Microsoft’s Direct3D shader compiler can.";
 "%@ Couldn’t Run" = "%@ Couldn’t Run";
 "%@ crashed. The log has the details for a bug report." = "%@ crashed. The log has the details for a bug report.";
 "%@ is a .NET program and stopped inside Harbor’s built-in .NET. Microsoft’s .NET Framework 4.8 may run it." = "%@ is a .NET program and stopped inside Harbor’s built-in .NET. Microsoft’s .NET Framework 4.8 may run it.";
@@ -51,8 +52,8 @@
 "Couldn’t remove %@: %@" = "Couldn’t remove %@: %@";
 "Couldn’t save the setting: %@" = "Couldn’t save the setting: %@";
 "Couldn’t update. %@" = "Couldn’t update. %@";
-"D3DMetal (Games)" = "D3DMetal (Games)";
 "D3DMetal (games)" = "D3DMetal (games)";
+"D3DMetal (Games)" = "D3DMetal (Games)";
 "Don’t add %@" = "Don’t add %@";
 "Don’t add this program" = "Don’t add this program";
 "Don’t open %@ now" = "Don’t open %@ now";

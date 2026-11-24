@@ -20,6 +20,19 @@ public struct Recipe: Sendable, Identifiable, Equatable {
         public var windowsVersion: String?
     }
 
+    /// One file out of a package Microsoft publishes as a zip, fetched without the rest of the package: the bytes
+    /// of that member as the package stores them (deflated), and where the file goes in the bottle. The package
+    /// and the position are pinned; the SHA-256 is the file's own, so anything else that arrives is refused.
+    public struct PackagedFile: Sendable, Equatable {
+        public let package: URL
+        /// Where the member's data starts in the package, and how long it is there.
+        public let offset: Int
+        public let length: Int
+        public let sha256: String
+        /// Below drive C:, with the file's name.
+        public let destination: String
+    }
+
     public let id: String
     public let name: String
     public let downloads: [Download]
@@ -33,8 +46,32 @@ public struct Recipe: Sendable, Identifiable, Equatable {
     public var replacesWineMono = false
     /// More registry settings, in .reg form (sections only), applied after the installers have run.
     public var registryAfterInstall = ""
+    /// Files put into the bottle as they are, for components that have no installer.
+    public var files: [PackagedFile] = []
 
-    public static let all: [Recipe] = [vcrun2022, vcrun2013, vcrun2010, directx2010, dotnet48]
+    public static let all: [Recipe] = [vcrun2022, vcrun2013, vcrun2010, directx2010, d3dcompiler47, dotnet48]
+
+    /// Microsoft's Direct3D shader compiler in place of Wine's. Programs that build their shaders when they
+    /// start (everything on wgpu's DirectX 12 backend: Rust and Bevy games, for one) hand it HLSL that Wine's
+    /// own compiler doesn't know yet ("Shader model 5.1+ resource array") and stop (#89).
+    ///
+    /// It has no installer of its own. The two files are the redistributable copies in Microsoft's Windows SDK
+    /// package on NuGet (`c/Redist/D3D/<arch>/d3dcompiler_47.dll`): only their 4 MB are fetched out of the
+    /// package's 160.
+    public static let d3dcompiler47: Recipe = {
+        let package = URL(string: "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.cpp/10.0.28000.2957/microsoft.windows.sdk.cpp.10.0.28000.2957.nupkg")!
+        return Recipe(
+            id: "d3dcompiler47", name: "Direct3D Shader Compiler",
+            downloads: [], overrides: ["d3dcompiler_47"], marker: "d3dcompiler_47.dll",
+            files: [
+                PackagedFile(package: package, offset: 46_425_171, length: 2_152_895,
+                             sha256: "d28d341306db9067c779d2cfe5865c3840e3a863efa47a2e0b0d4a1b906f6158",
+                             destination: "windows/system32/d3dcompiler_47.dll"),
+                PackagedFile(package: package, offset: 82_725_936, length: 1_842_930,
+                             sha256: "fd9d7048af7013ad7c138dffeb053db6b1422aa35005cd67fc53d8822ffdc8d4",
+                             destination: "windows/syswow64/d3dcompiler_47.dll"),
+            ])
+    }()
 
     /// Microsoft's .NET Framework 4.8 in place of Wine Mono, for programs Mono can't run.
     ///
@@ -196,6 +233,9 @@ extension WineLauncher {
             for (n, download) in recipe.downloads.enumerated() { group.addTask { (n, try await Self.fetch(download, into: cache)) } }
             return try await group.reduce(into: [:]) { $0[$1.0] = $1.1 }
         }
+        // Before anything in the bottle changes: a file that doesn't arrive whole leaves the bottle as it was.
+        var packaged: [(Recipe.PackagedFile, URL)] = []
+        for file in recipe.files { packaged.append((file, try await Self.fetch(file, into: cache))) }
         // Wine Mono goes before anything else changes: its uninstaller needs Wine's own mscoree, which the steps
         // below take away (in the other order the uninstaller hangs).
         if recipe.replacesWineMono {
@@ -218,6 +258,12 @@ extension WineLauncher {
         defer { try? FileManager.default.removeItem(at: reg) }
         try await execute(bottle, arguments: ["reg", "import", #"C:\windows\temp\"# + reg.lastPathComponent], label: recipe.id)
         recipe.removeBuiltinCopies(in: bottle)
+        for (file, local) in packaged {
+            let target = bottle.driveC.appending(path: file.destination)
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FileManager.default.removeItem(at: target)
+            try FileManager.default.copyItem(at: local, to: target)
+        }
         var failure: WineExitError?
         var versionChanged = false
         func present(_ version: String) async throws {
@@ -291,6 +337,35 @@ extension WineLauncher {
         }
         try? FileManager.default.removeItem(at: file)
         try FileManager.default.moveItem(at: temp, to: file)
+        return file
+    }
+
+    /// The file a `PackagedFile` names: its bytes out of the package (a range request; a package on disk is
+    /// read at that place), inflated, and kept in `cache` once it matches its SHA-256.
+    static func fetch(_ packaged: Recipe.PackagedFile, into cache: URL) async throws -> URL {
+        let name = URL(filePath: packaged.destination).lastPathComponent
+        let file = cache.appending(path: "\(packaged.sha256)-\(name)")
+        if let data = try? Data(contentsOf: file), Self.sha256(data) == packaged.sha256 { return file }
+        let stored: Data
+        if packaged.package.isFileURL {
+            let handle = try FileHandle(forReadingFrom: packaged.package)
+            defer { try? handle.close() }
+            try handle.seek(toOffset: UInt64(packaged.offset))
+            stored = try handle.read(upToCount: packaged.length) ?? Data()
+        } else {
+            var request = URLRequest(url: packaged.package)
+            request.setValue("bytes=\(packaged.offset)-\(packaged.offset + packaged.length - 1)", forHTTPHeaderField: "Range")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            // 206: the server sent the part asked for. A 200 would be the whole package from its start.
+            if let http = response as? HTTPURLResponse, http.statusCode != 206 { throw URLError(.badServerResponse) }
+            stored = data
+        }
+        // A zip member is a bare deflate stream, which is what NSData calls zlib.
+        guard stored.count == packaged.length, let inflated = try? (stored as NSData).decompressed(using: .zlib) as Data,
+              Self.sha256(inflated) == packaged.sha256 else {
+            throw RecipeError.checksumMismatch(name)
+        }
+        try inflated.write(to: file, options: .atomic)
         return file
     }
 
