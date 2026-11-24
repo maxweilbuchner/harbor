@@ -21,6 +21,7 @@ import Testing
     /// A loose program in a folder of other games (`/Volumes/SSD/Games/tool.exe`): only the program is copied.
     @Test func aLooseProgramBesideOtherGamesDoesNotTakeTheirFolder() throws {
         let (base, touch) = try tree()
+        defer { try? fm.removeItem(at: base) }
         for f in ["Games/tool.exe", "Games/Quest/Quest.exe", "Games/Quest/Data/quest.pak",
                   "Games/Racer/racer.exe", "Games/Racer/engine.dll"] { try touch(f) }
         #expect(AddProgram.programRoot(for: base.appending(path: "Games/tool.exe")) == nil)
@@ -29,6 +30,7 @@ import Testing
     /// `~/Sync/bin/tool.exe` beside a letter and photos: walking up from `bin` stops below `Sync`.
     @Test func walkingUpFromBinNeverTakesAFolderOfPersonalFiles() throws {
         let (base, touch) = try tree()
+        defer { try? fm.removeItem(at: base) }
         for f in ["Sync/bin/tool.exe", "Sync/letter.pdf", "Sync/Photos/2026/beach.jpg"] { try touch(f) }
         let bin = base.appending(path: "Sync/bin").standardizedFileURL
         #expect(AddProgram.programRoot(for: base.appending(path: "Sync/bin/tool.exe")) == bin)
@@ -41,6 +43,7 @@ import Testing
     /// someone else's: another program, personal documents, or the dot-files of a synced or working folder.
     @Test func subfoldersComeAlongOnlyWhenTheyLookLikeTheProgramsOwn() throws {
         let (base, touch) = try tree()
+        defer { try? fm.removeItem(at: base) }
         for f in ["Old/game.exe", "Old/data/levels/one.dat", "Old/.DS_Store"] { try touch(f) }
         #expect(AddProgram.programRoot(for: base.appending(path: "Old/game.exe")) == base.appending(path: "Old").standardizedFileURL)
         for f in ["Work/tool.exe", "Work/project/.git/HEAD", "Work/project/notes.txt"] { try touch(f) }
@@ -78,6 +81,7 @@ import Testing
     /// Links that lead out of the program's folder would let Windows programs reach (and delete) Mac files.
     @Test func linksOutOfTheProgramFolderStayOutOfTheBottle() throws {
         let (flow, bottle, analysis, game) = try placing()
+        defer { try? fm.removeItem(at: game.deletingLastPathComponent()) }
         let outside = game.deletingLastPathComponent().appending(path: "Mac Documents")
         try fm.createDirectory(at: outside, withIntermediateDirectories: true)
         try fm.createDirectory(at: game.appending(path: "data"), withIntermediateDirectories: true)
@@ -99,6 +103,7 @@ import Testing
     /// A dropped alias of a program brings the program, not a link back to the Mac.
     @Test func aLinkedProgramIsCopiedAsAFile() throws {
         let (flow, bottle, analysis, game) = try placing()
+        defer { try? fm.removeItem(at: game.deletingLastPathComponent()) }
         let shared = game.deletingLastPathComponent().appending(path: "Downloads")
         try fm.createDirectory(at: shared, withIntermediateDirectories: true)
         try fm.createSymbolicLink(at: shared.appending(path: "tool.exe"), withDestinationURL: game.appending(path: "game.exe"))
@@ -111,6 +116,7 @@ import Testing
     /// A product called ".." has no usable folder name; the program's file name stands in.
     @Test func aNameWithoutUsableCharactersFallsBackToTheFileName() throws {
         let (flow, bottle, analysis, game) = try placing()
+        defer { try? fm.removeItem(at: game.deletingLastPathComponent()) }
         let program = try flow.place(game.appending(path: "game.exe"), analysis: analysis, name: "..", in: bottle)
         #expect(program.windowsPath == #"C:\Program Files\game\game.exe"#)
         #expect(fm.fileExists(atPath: bottle.driveC.appending(path: "Program Files/game/game.exe").path))
@@ -156,6 +162,7 @@ import Testing
 
     @Test func findsStartMenuProgramsInstalledToNonASCIIFolders() throws {
         let store = BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-edge-\(UUID().uuidString)"))
+        defer { try? fm.removeItem(at: store.directory) }
         let bottle = try store.create(name: "Unicode")
         let app = bottle.driveC.appending(path: "Games/Pok\u{E9}mon")
         try fm.createDirectory(at: app, withIntermediateDirectories: true)
@@ -173,6 +180,7 @@ import Testing
     /// uninstaller and what Windows itself holds are not.
     @Test func whatAnInstallerPutOutsideProgramFilesIsFound() throws {
         let (base, _) = try tree()
+        defer { try? fm.removeItem(at: base) }
         let bottle = try BottleStore(directory: base.appending(path: "bottles")).create(name: "Outside")
         let app = try #require(Bundle.module.url(forResource: "app64", withExtension: "exe"))
         func put(_ path: String) throws {
@@ -201,6 +209,7 @@ import Testing
     /// A dropped folder stands for the installer or program at its top.
     @Test func aDroppedFolderIsResolvedToItsInstallerOrProgram() throws {
         let (base, touch) = try tree()
+        defer { try? fm.removeItem(at: base) }
         let app = try #require(Bundle.module.url(forResource: "app64", withExtension: "exe"))
         func put(_ path: String) throws {
             try touch(path)
@@ -250,6 +259,7 @@ import Testing
     /// A dropped program folder comes into the bottle whole, also where Harbor wouldn't have dared on its own.
     @Test func aDroppedProgramFolderIsCopiedWhole() async throws {
         let (base, touch) = try tree()
+        defer { try? fm.removeItem(at: base) }
         let store = BottleStore(directory: base.appending(path: "bottles"))
         let flow = AddProgram(store: store, launcher: WineLauncher(runtime: WineRuntime(root: URL(filePath: "/nonexistent"))))
         let app = try #require(Bundle.module.url(forResource: "app64", withExtension: "exe"))

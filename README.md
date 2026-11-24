@@ -46,6 +46,7 @@ Development needs Xcode 27 or later.
 
 ```sh
 scripts/check.sh            # build, unit tests, newest-SDK check (the full bar)
+HARBOR_TEST_REAL_MACHINE=1 scripts/check.sh   # also the few tests that read this Mac's Harbor library, Rosetta and Trash
 scripts/fetch-sources.sh    # CrossOver/Wine sources and toolchain into build/ (pinned, checksummed)
 scripts/build-wine.sh       # Harbor's Wine runtime into build/out/wine (~20 min)
 WindowsTests/graphics/run.sh d3dmetal   # D3D11/D3D12 rendering proof (import D3DMetal from Apple's image with scripts/import-d3dmetal.sh)

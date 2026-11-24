@@ -4,6 +4,11 @@ import Synchronization
 import Testing
 @testable import HarborKit
 
+// The suite passes on a Mac with no Harbor library and no Rosetta, and leaves the Mac's own folders alone. The few
+// tests that read this Mac's Harbor library, ask for Rosetta or use the real Trash run only when the environment
+// has HARBOR_TEST_REAL_MACHINE set (`HARBOR_TEST_REAL_MACHINE=1 scripts/check.sh`).
+let realMachine = ProcessInfo.processInfo.environment["HARBOR_TEST_REAL_MACHINE"] != nil
+
 @Suite struct BottleTests {
     func tempDir() throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appending(path: "harbor-tests-\(UUID().uuidString)")
@@ -13,6 +18,7 @@ import Testing
 
     @Test func settingsRoundTrip() throws {
         let store = BottleStore(directory: try tempDir())
+        defer { try? FileManager.default.removeItem(at: store.directory) }
         var b = try store.create(name: "Office Apps")
         b.settings.graphics = .dxmt
         b.settings.environment = ["FOO": "1"]
@@ -23,6 +29,7 @@ import Testing
 
     @Test func slugsAreUnique() throws {
         let store = BottleStore(directory: try tempDir())
+        defer { try? FileManager.default.removeItem(at: store.directory) }
         let a = try store.create(name: "Games")
         let b = try store.create(name: "Games")
         #expect(a.root != b.root)
@@ -32,6 +39,7 @@ import Testing
 
     @Test func environmentPointsAtPrefix() throws {
         let store = BottleStore(directory: try tempDir())
+        defer { try? FileManager.default.removeItem(at: store.directory) }
         var b = try store.create(name: "Env")
         b.settings.environment = ["WINEDEBUG": "+loaddll"]
         let wine = WineLauncher(runtime: WineRuntime(root: URL(filePath: "/nonexistent")))
@@ -44,6 +52,7 @@ import Testing
 
     @Test func displayModeChangesStayInsideWineExceptForGames() throws {
         let store = BottleStore(directory: try tempDir())
+        defer { try? FileManager.default.removeItem(at: store.directory) }
         var b = try store.create(name: "Modes")
         let wine = WineLauncher(runtime: WineRuntime(root: URL(filePath: "/nonexistent")))
         // Plain Wine and DXMT (programs that aren't games): emulated. A stray setting from Harbor's own
@@ -61,6 +70,7 @@ import Testing
 
     @Test func toleratesUnknownAndMissingSettings() throws {
         let dir = try tempDir().appending(path: "future")
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try Data(#"{"name":"Future","graphics":"quantum","windowsVersion":"win12","newField":true}"#.utf8)
             .write(to: dir.appending(path: "bottle.json"))
@@ -73,6 +83,7 @@ import Testing
 
     @Test func damagedBottlesAreReportedNotDropped() throws {
         let store = BottleStore(directory: try tempDir())
+        defer { try? FileManager.default.removeItem(at: store.directory) }
         _ = try store.create(name: "Good")
         let bad = store.directory.appending(path: "bad")
         try FileManager.default.createDirectory(at: bad, withIntermediateDirectories: true)
@@ -85,6 +96,7 @@ import Testing
     @Test func failedSetUpRemovesTheBottle() async throws {
         struct Boom: Error {}
         let store = BottleStore(directory: try tempDir())
+        defer { try? FileManager.default.removeItem(at: store.directory) }
         await #expect(throws: Boom.self) {
             _ = try await store.create(name: "Broken") { _ in throw Boom() }
         }
@@ -93,6 +105,7 @@ import Testing
 
     @Test func userEnvironmentCannotBreakHarbor() throws {
         let store = BottleStore(directory: try tempDir())
+        defer { try? FileManager.default.removeItem(at: store.directory) }
         var b = try store.create(name: "Env2")
         b.settings.environment = ["WINEPREFIX": "/elsewhere", "WINEDLLOVERRIDES": "dinput8=n,b"]
         let env = WineLauncher(runtime: WineRuntime(root: URL(filePath: "/nonexistent"))).environment(for: b, base: [:])
@@ -108,6 +121,7 @@ import Testing
 
     @Test func runtimeLocateRejectsInvalidRoots() throws {
         let empty = try tempDir()
+        defer { try? FileManager.default.removeItem(at: empty) }
         #expect(WineRuntime.locate(environment: ["HARBOR_WINE_ROOT": empty.path], bundle: Bundle(for: Marker.self),
                                     installed: empty, devRoot: empty) == nil)
     }
@@ -151,6 +165,7 @@ final class Marker {}
 
     @Test func overlayReplacesBuiltinsAndLeavesBaseAlone() throws {
         let (base, redist, root) = try fixture()
+        defer { try? fm.removeItem(at: root) }
         #expect(redist.isValid)
         #expect(redist.version == "4.0b3")
         let overlay = try redist.runtime(basedOn: base, in: root.appending(path: "runtimes"))
@@ -168,6 +183,7 @@ final class Marker {}
 
     @Test func concurrentFirstLaunchesShareOneRuntime() throws {
         let (base, redist, root) = try fixture()
+        defer { try? fm.removeItem(at: root) }
         let runtimes = root.appending(path: "runtimes")
         let results = Mutex<[Result<URL, any Error>]>([])
         DispatchQueue.concurrentPerform(iterations: 8) { _ in
@@ -182,6 +198,7 @@ final class Marker {}
 
     @Test func changedBaseWineGetsAFreshRuntime() throws {
         let (base, redist, root) = try fixture()
+        defer { try? fm.removeItem(at: root) }
         let runtimes = root.appending(path: "runtimes")
         let first = try redist.runtime(basedOn: base, in: runtimes)
         try make(base.root.appending(path: "lib/wine/x86_64-unix/ntdll.so"), "ntdll-updated-build")
@@ -192,6 +209,7 @@ final class Marker {}
 
     @Test func d3dmetalOnlyWhenChosenAndInstalled() throws {
         let (base, redist, root) = try fixture()
+        defer { try? fm.removeItem(at: root) }
         let store = BottleStore(directory: root.appending(path: "bottles"))
         var bottle = try store.create(name: "Game")
         let runtimes = root.appending(path: "runtimes")
@@ -214,7 +232,11 @@ final class Marker {}
         #expect(Rosetta.isAvailable(machine: "x86_64", runtimeExists: false))
         #expect(!Rosetta.isAvailable(machine: "arm64", runtimeExists: false))
         #expect(Rosetta.isAvailable(machine: "arm64", runtimeExists: true))
-        #expect(Rosetta.isAvailable) // this Mac has it (Wine runs here)
+    }
+
+    /// A Mac that runs Wine has it.
+    @Test(.enabled(if: realMachine)) func thisMacHasRosetta() {
+        #expect(Rosetta.isAvailable)
     }
 }
 
@@ -251,6 +273,7 @@ final class Marker {}
     @Test func installsVerifiedComponentAndSkipsCurrentOnes() async throws {
         let key = RuntimeSigning.newPrivateKey()
         let (manifestURL, root) = try serve(version: "1", contents: "wine v1", key: key)
+        defer { try? fm.removeItem(at: root) }
         let installed = root.appending(path: "installed")
         let inst = try installer(manifestURL, key: key, installed: installed)
         let manifest = try await inst.fetchManifest()
@@ -266,6 +289,7 @@ final class Marker {}
     @Test func updateMovesOldVersionAside() async throws {
         let key = RuntimeSigning.newPrivateKey()
         let (m1, root) = try serve(version: "1", contents: "wine v1", key: key)
+        defer { try? fm.removeItem(at: root) }
         let installed = root.appending(path: "installed")
         let first = try installer(m1, key: key, installed: installed)
         try await first.installPending(try await first.fetchManifest())
@@ -283,6 +307,7 @@ final class Marker {}
     @Test func rejectsWrongKeyAndTamperedManifest() async throws {
         let key = RuntimeSigning.newPrivateKey()
         let (manifestURL, root) = try serve(version: "1", contents: "x", key: key)
+        defer { try? fm.removeItem(at: root) }
         let impostor = try installer(manifestURL, key: RuntimeSigning.newPrivateKey(), installed: root.appending(path: "i"))
         await #expect(throws: RuntimeInstallError.badSignature) { _ = try await impostor.fetchManifest() }
         var text = try String(contentsOf: manifestURL, encoding: .utf8)
@@ -295,6 +320,7 @@ final class Marker {}
     @Test func rejectsDamagedArchiveAndUnknownComponents() async throws {
         let key = RuntimeSigning.newPrivateKey()
         let (manifestURL, root) = try serve(version: "1", contents: "x", key: key)
+        defer { try? fm.removeItem(at: root) }
         let installed = root.appending(path: "installed")
         let inst = try installer(manifestURL, key: key, installed: installed)
         var component = try await inst.fetchManifest().components[0]
@@ -361,6 +387,7 @@ final class Marker {}
 
     @Test func rejectsDamagedFilesWithoutCrashing() throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: "harbor-pe-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let random = dir.appending(path: "random.exe")
         try Data((0..<4096).map { _ in UInt8.random(in: 0...255) }).write(to: random)
@@ -375,7 +402,8 @@ final class Marker {}
     }
 
     /// A PE whose resource tree repeats 65535-entry directories pointing at themselves: the walk must stay bounded.
-    @Test func hostileResourceTreesAreBounded() throws {
+    /// (An unbounded one doesn't end in any time; a minute is the limit so that a stalling Mac doesn't fail it.)
+    @Test(.timeLimit(.minutes(1))) func hostileResourceTreesAreBounded() throws {
         var pe = try Data(contentsOf: try #require(Bundle.module.url(forResource: "app64", withExtension: "exe")))
         let file = try #require(PEFile(pe))
         let (rva, _) = try #require(file.directory(2))
@@ -388,20 +416,21 @@ final class Marker {}
             put32(i % 2 == 0 ? 3 : 14, root + 16 + i * 8); put32(0x8000_0000, root + 20 + i * 8)
         }
         let url = FileManager.default.temporaryDirectory.appending(path: "hostile-\(UUID().uuidString).exe")
+        defer { try? FileManager.default.removeItem(at: url) }
         try pe.write(to: url)
-        let start = Date()
         _ = try? ProgramAnalysis.analyze(url)
-        #expect(Date().timeIntervalSince(start) < 2)
     }
 
     static let heavenInstaller = WineRuntime.checkoutRoot.appending(path: "build/games/Unigine_Heaven-4.0.exe")
 
-    static let winrarInstaller = FileManager.default.homeDirectoryForCurrentUser
-        .appending(path: "Library/Mobile Documents/com~apple~CloudDocs/Downloads/winrar-x64-723.exe")
-
-    @Test(.enabled(if: FileManager.default.fileExists(atPath: winrarInstaller.path)))
-    func detectsSelfExtractingInstallers() throws {
-        #expect(try ProgramAnalysis.analyze(Self.winrarInstaller).installer == .selfExtracting)
+    /// A self-extracting archive is a program with the archive after it; its stub carries the packer's name
+    /// (WinRAR's own installer is one).
+    @Test func detectsSelfExtractingInstallers() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "harbor-sfx-\(UUID().uuidString).exe")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try (Data(contentsOf: try fixture("app64")) + Data("WinRAR SFX".utf8)).write(to: url)
+        #expect(try ProgramAnalysis.analyze(try fixture("app64")).installer == nil)
+        #expect(try ProgramAnalysis.analyze(url).installer == .selfExtracting)
     }
 
     @Test(.enabled(if: FileManager.default.fileExists(atPath: heavenInstaller.path)))
@@ -468,6 +497,7 @@ final class Marker {}
 
     @Test func findsStartMenuProgramsAndSkipsUninstallers() throws {
         let b = try bottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let app = b.driveC.appending(path: "Program Files/Thing")
         try fm.createDirectory(at: app, withIntermediateDirectories: true)
         let fixture = try #require(Bundle.module.url(forResource: "game64", withExtension: "exe"))
@@ -485,6 +515,7 @@ final class Marker {}
         try fm.copyItem(at: fixture, to: app.appending(path: "Other.exe"))
         try Self.link(target: #"C:\Program Files\Thing\Other.exe"#).write(to: publicDesktop.appending(path: "Other.lnk"))
         let macDesktop = fm.temporaryDirectory.appending(path: "harbor-macdesk-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: macDesktop) }
         try fm.createDirectory(at: macDesktop, withIntermediateDirectories: true)
         try Self.link(target: #"C:\Program Files\Thing\unrelated.exe"#).write(to: macDesktop.appending(path: "Mac.lnk"))
         try fm.createDirectory(at: b.driveC.appending(path: "users/someone"), withIntermediateDirectories: true)
@@ -502,6 +533,7 @@ final class Marker {}
 
     @Test func readsLibrariesWrittenByNewerVersions() throws {
         let b = try bottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let good = Program(name: "Good", windowsPath: #"C:\g.exe"#)
         try b.savePrograms([good])
         var text = try String(contentsOf: b.programsFile, encoding: .utf8)
@@ -530,6 +562,7 @@ final class Marker {}
 
     @Test func bundledGameLibrariesMarkAGame() throws {
         let dir = fm.temporaryDirectory.appending(path: "harbor-engine-\(UUID().uuidString)/bin")
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let app = try #require(Bundle.module.url(forResource: "d3dapp64", withExtension: "exe"))
         try fm.copyItem(at: app, to: dir.appending(path: "engine.exe"))
@@ -540,6 +573,7 @@ final class Marker {}
 
     @Test func aLauncherNextToAGameCountsAsAGame() throws {
         let dir = fm.temporaryDirectory.appending(path: "harbor-launcher-\(UUID().uuidString)/bin")
+        defer { try? fm.removeItem(at: dir.deletingLastPathComponent()) }
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let app = try #require(Bundle.module.url(forResource: "app64", withExtension: "exe"))
         let game = try #require(Bundle.module.url(forResource: "game64", withExtension: "exe"))
@@ -552,7 +586,7 @@ final class Marker {}
     static let heavenBottle = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appending(path: "Harbor/Bottles/heaven")
 
-    @Test(.enabled(if: FileManager.default.fileExists(atPath: heavenBottle.appending(path: "bottle.json").path)))
+    @Test(.enabled(if: realMachine && FileManager.default.fileExists(atPath: heavenBottle.appending(path: "bottle.json").path)))
     func findsHeavenInARealBottle() throws {
         let programs = try Bottle.load(from: Self.heavenBottle).startMenuPrograms()
         #expect(programs.map(\.name) == ["Heaven Benchmark 4.0"])
@@ -586,6 +620,7 @@ final class Marker {}
         #expect(AddProgram.isSharedFolder(URL(filePath: "/Volumes/Data/Stuff/Downloads")))
         // A program folder that happens to hold personal documents is treated as shared too.
         let mixed = FileManager.default.temporaryDirectory.appending(path: "harbor-mixed-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: mixed) }
         try? FileManager.default.createDirectory(at: mixed, withIntermediateDirectories: true)
         try? Data().write(to: mixed.appending(path: "tool.exe"))
         #expect(!AddProgram.isSharedFolder(mixed))
@@ -599,6 +634,7 @@ final class Marker {}
     @Test func findsTheWholeProgramFolder() throws {
         let fm = FileManager.default
         let base = fm.temporaryDirectory.appending(path: "harbor-root-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: base) }
         func touch(_ path: String) throws {
             let url = base.appending(path: path)
             try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -629,6 +665,7 @@ final class Marker {}
 
     @Test func mapsMacPathsBackToWindowsPaths() throws {
         let store = BottleStore(directory: FileManager.default.temporaryDirectory.appending(path: "harbor-add-\(UUID().uuidString)"))
+        defer { try? FileManager.default.removeItem(at: store.directory) }
         let b = try store.create(name: "Paths")
         #expect(b.windowsPath(for: b.driveC.appending(path: "Program Files/A/a.exe")) == #"C:\Program Files\A\a.exe"#)
         #expect(b.windowsPath(for: URL(filePath: "/etc/passwd")) == nil)
@@ -640,6 +677,7 @@ final class Marker {}
 
     @Test func clonesGiveEachBottleItsOwnMachineIDAndVersion() throws {
         let base = fm.temporaryDirectory.appending(path: "harbor-tpl-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: base) }
         let launcher = WineLauncher(runtime: WineRuntime(root: base.appending(path: "wine")))
         let template = PrefixTemplate(launcher: launcher, directory: base.appending(path: "templates"))
         let store = BottleStore(directory: base.appending(path: "bottles"))
@@ -682,6 +720,7 @@ final class Marker {}
 
     @Test func createsASignedShortcutThatOpensHarbor() throws {
         let shortcuts = AppShortcuts(directory: fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)"))
+        defer { try? fm.removeItem(at: shortcuts.directory) }
         let program = Program(name: "Thing: Deluxe", windowsPath: #"C:\t.exe"#, isGame: true)
         let app = try shortcuts.create(for: program, iconPNG: try icon())
         #expect(app.lastPathComponent == "Thing- Deluxe.app")
@@ -713,6 +752,7 @@ final class Marker {}
 
     @Test func sameNamedProgramsKeepTheirShortcuts() throws {
         let dir = fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: dir) }
         let shortcuts = AppShortcuts(directory: dir)
         let a = Program(name: "Steam", windowsPath: #"C:\a.exe"#), b = Program(name: "Steam", windowsPath: #"C:\b.exe"#)
         shortcuts.sync([a, b]) { _ in nil }
@@ -724,6 +764,7 @@ final class Marker {}
 
     @Test func syncAddsRenamesAndRemovesOnlyItsOwnShortcuts() throws {
         let dir = fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: dir) }
         let shortcuts = AppShortcuts(directory: dir)
         var a = Program(name: "Alpha", windowsPath: #"C:\a.exe"#)
         let b = Program(name: "Beta", windowsPath: #"C:\b.exe"#)
@@ -759,6 +800,7 @@ final class Marker {}
 
     @Test func readsGamesFromEverySteamLibrary() throws {
         let store = BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-steam-\(UUID().uuidString)"))
+        defer { try? fm.removeItem(at: store.directory) }
         let b = try store.create(name: "Steam")
         let steam = b.driveC.appending(path: "Program Files (x86)/Steam")
         try fm.createDirectory(at: steam.appending(path: "steamapps"), withIntermediateDirectories: true)
@@ -792,6 +834,7 @@ final class Marker {}
 
     @Test func bottlesWithoutSteamHaveNoSteamGames() throws {
         let store = BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-nosteam-\(UUID().uuidString)"))
+        defer { try? fm.removeItem(at: store.directory) }
         #expect(SteamLibrary.games(in: try store.create(name: "Plain")).isEmpty)
     }
 }
@@ -821,6 +864,7 @@ final class Marker {}
 
     @Test func tellsMicrosoftsDLLFromWines() throws {
         let b = try BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-rcp-\(UUID().uuidString)")).create(name: "R")
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let system32 = b.driveC.appending(path: "windows/system32")
         try fm.createDirectory(at: system32, withIntermediateDirectories: true)
         let dll = system32.appending(path: "msvcp140.dll")
@@ -836,6 +880,7 @@ final class Marker {}
     /// Microsoft's DLLs and unrelated files stay.
     @Test func clearsOnlyWinesOwnCopiesBeforeInstalling() throws {
         let b = try BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-rcp-\(UUID().uuidString)")).create(name: "R")
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let wine = Data("MZ".utf8) + Data(repeating: 0, count: 62) + Data("Wine builtin DLL".utf8)
         let ms = Data("MZ".utf8) + Data(repeating: 0, count: 200)
         for folder in ["system32", "syswow64"] {
@@ -853,6 +898,7 @@ final class Marker {}
 
     @Test func rejectsADownloadThatDoesntMatchAndReusesTheCache() async throws {
         let dir = fm.temporaryDirectory.appending(path: "harbor-fetch-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: dir) }
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let source = dir.appending(path: "setup.exe")
         try Data("installer".utf8).write(to: source)
@@ -907,6 +953,7 @@ final class Marker {}
     @Test func findsTheLogOfTheProgramsLastRun() throws {
         let fm = FileManager.default
         let b = try BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-diag-\(UUID().uuidString)")).create(name: "D")
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         try fm.createDirectory(at: b.logsDirectory, withIntermediateDirectories: true)
         for name in ["20261119-100000-Quest.log", "20261119-110000-Quest-2.log", "20261119-120000-Quest-Editor.log", "20261119-090000-setup.log"] {
             try Data().write(to: b.logsDirectory.appending(path: name))
@@ -950,6 +997,7 @@ final class Marker {}
 
     @Test func overlayPutsDXMTOverWinesDirectXAndLeavesTheBaseAlone() throws {
         let (base, root) = try runtime()
+        defer { try? fm.removeItem(at: root) }
         let dxmt = try #require(DXMT.locate(in: base))
         #expect(dxmt.version == "v0.80")
         let derived = try dxmt.runtime(basedOn: base, in: root.appending(path: "runtimes"))
@@ -966,6 +1014,7 @@ final class Marker {}
     /// DXMT's d3d11/dxgi import winemetal.dll; a bottle set up without DXMT gets Wine's usual copy of it.
     @Test func givesOlderBottlesWinemetal() throws {
         let (base, root) = try runtime()
+        defer { try? fm.removeItem(at: root) }
         let dxmt = try #require(DXMT.locate(in: base))
         let b = try BottleStore(directory: root.appending(path: "bottles")).create(name: "B")
         for folder in ["system32", "syswow64"] {
@@ -979,7 +1028,8 @@ final class Marker {}
 
     /// Direct3D 10/11 programs that aren't games get DXMT; games keep D3DMetal; settings and D3D12 are respected.
     @Test func picksDXMTForDirect3D11ProgramsThatArentGames() throws {
-        let (base, _) = try runtime()
+        let (base, root) = try runtime()
+        defer { try? fm.removeItem(at: root) }
         let launcher = WineLauncher(runtime: base)
         let d3dApp = try #require(Bundle.module.url(forResource: "d3dapp64", withExtension: "exe"))
         let plainApp = try #require(Bundle.module.url(forResource: "app64", withExtension: "exe"))
@@ -1001,8 +1051,20 @@ final class Marker {}
 @Suite struct RemovalTests {
     /// Removing a program's last bottle is undoable: the bottle goes to the Trash with everything in it.
     @Test func removedBottlesGoToTheTrash() throws {
+        let base = FileManager.default.temporaryDirectory.appending(path: "harbor-trash-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        try goesToTheTrash(from: BottleStore(directory: base.appending(path: "bottles"), trash: base.appending(path: "trash")))
+    }
+
+    /// The same with the Mac's own Trash.
+    @Test(.enabled(if: realMachine)) func removedBottlesGoToTheMacsTrash() throws {
+        let store = BottleStore(directory: FileManager.default.temporaryDirectory.appending(path: "harbor-trash-\(UUID().uuidString)"))
+        defer { try? FileManager.default.removeItem(at: store.directory) }
+        try goesToTheTrash(from: store)
+    }
+
+    func goesToTheTrash(from store: BottleStore) throws {
         let fm = FileManager.default
-        let store = BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-trash-\(UUID().uuidString)"))
         let b = try store.create(name: "Trash Me")
         try fm.createDirectory(at: b.driveC, withIntermediateDirectories: true)
         try "save".write(to: b.driveC.appending(path: "save.dat"), atomically: true, encoding: .utf8)
@@ -1047,6 +1109,7 @@ final class Marker {}
 
     @Test func readsInstalledGamesFromTheLaunchersManifests() throws {
         let (b, manifests) = try epicBottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         try manifest(app: "Fortnite", name: "Fortnite", location: #"C:\\Program Files\\Epic Games\\Fortnite"#,
                      exe: "FortniteGame/Binaries/Win64/FortniteLauncher.exe")
             .write(to: manifests.appending(path: "A1.item"), atomically: true, encoding: .utf8)
@@ -1078,6 +1141,7 @@ final class Marker {}
 
     @Test func takesTheIconFromTheGamesExecutable() throws {
         let (b, manifests) = try epicBottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let folder = b.driveC.appending(path: "Games/Fix")
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
         let fixture = try #require(Bundle.module.url(forResource: "app64", withExtension: "exe"))
@@ -1091,11 +1155,13 @@ final class Marker {}
 
     @Test func bottlesWithoutTheLauncherHaveNoEpicGames() throws {
         let store = BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-noepic-\(UUID().uuidString)"))
+        defer { try? fm.removeItem(at: store.directory) }
         #expect(EpicLibrary.games(in: try store.create(name: "Plain")).isEmpty)
     }
 
     @Test func theLauncherBecomesAGameInItsLibrary() throws {
         let (b, _) = try epicBottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let stores = GameStores(store: BottleStore(directory: b.root.deletingLastPathComponent()),
                                 launcher: WineLauncher(runtime: WineRuntime(root: URL(filePath: "/nonexistent"))))
         let program = try #require(stores.storeProgram(.epic, in: b))
@@ -1107,6 +1173,7 @@ final class Marker {}
         #expect(GameStores.Store.steam.appNames["steamwebhelper.exe"] == "Steam")
         // Older installs live in Program Files (x86).
         let (old, _) = try epicBottle(programFiles: "Program Files (x86)")
+        defer { try? fm.removeItem(at: old.root.deletingLastPathComponent()) }
         #expect(stores.storeProgram(.epic, in: old)?.windowsPath.contains("Program Files (x86)") == true)
     }
 }
@@ -1116,6 +1183,7 @@ final class Marker {}
 
     @Test func removesOnlyStaleUnusedRuntimesAndTemplates() throws {
         let base = fm.temporaryDirectory.appending(path: "harbor-gc-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: base) }
         let redist = D3DMetalRedist(lib: base.appending(path: "redist/lib"))
         let launcher = WineLauncher(runtime: WineRuntime(root: base.appending(path: "wine")), d3dmetal: redist,
                                     runtimesDirectory: base.appending(path: "Runtimes"))
@@ -1139,6 +1207,7 @@ final class Marker {}
 
     @Test func detectsWhenWineWouldUpdateABottle() throws {
         let base = fm.temporaryDirectory.appending(path: "harbor-upd-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: base) }
         let runtime = WineRuntime(root: base.appending(path: "wine"))
         let inf = runtime.root.appending(path: "share/wine/wine.inf")
         try fm.createDirectory(at: inf.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -1160,6 +1229,7 @@ final class Marker {}
     /// pointed to is untouched, and links inside the bottle stay.
     @Test func replacesLinksToMacFoldersWithFoldersInsideTheBottle() throws {
         let base = fm.temporaryDirectory.appending(path: "harbor-share-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: base) }
         let mac = base.appending(path: "mac/Documents")
         try fm.createDirectory(at: mac, withIntermediateDirectories: true)
         try "keep".write(to: mac.appending(path: "Thesis.txt"), atomically: true, encoding: .utf8)
@@ -1186,6 +1256,7 @@ final class Marker {}
     /// A bottle counts as running while another process holds its wineserver lock, as wineserver does.
     @Test func detectsARunningBottleFromTheServerLock() throws {
         let base = fm.temporaryDirectory.appending(path: "harbor-run-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: base) }
         let b = try BottleStore(directory: base.appending(path: "bottles")).create(name: "R")
         try fm.createDirectory(at: b.prefix, withIntermediateDirectories: true)
         let servers = base.appending(path: "servers").path

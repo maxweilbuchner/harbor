@@ -26,7 +26,8 @@ import Testing
     // MARK: D3DMetal is for games (#14)
 
     @Test func d3dmetalChosenForAProgramThatIsntAGameIsNotUsed() throws {
-        let (base, _) = try DXMTTests().runtime(withDXMT: false)
+        let (base, root) = try DXMTTests().runtime(withDXMT: false)
+        defer { try? fm.removeItem(at: root) }
         let launcher = WineLauncher(runtime: base, d3dmetal: redist)
         var program = Program(name: "Editor", windowsPath: #"C:\e.exe"#, graphics: .d3dmetal)
         #expect(launcher.effectiveGraphics(for: program) == .wined3d)
@@ -38,6 +39,7 @@ import Testing
     /// A bottle's own setting covers what isn't a library launch: installers, `reg`, recipes, wineboot.
     @Test func bottleSetToD3DMetalRunsOtherCommandsOnPlainWine() throws {
         let (base, root) = try DXMTTests().runtime(withDXMT: false)
+        defer { try? fm.removeItem(at: root) }
         let launcher = WineLauncher(runtime: base, d3dmetal: redist, runtimesDirectory: root.appending(path: "runtimes"))
         var bottle = try BottleStore(directory: root.appending(path: "bottles")).create(name: "B")
         bottle.settings.graphics = .d3dmetal
@@ -46,7 +48,8 @@ import Testing
     }
 
     @Test func offersD3DMetalOnlyForGamesAndOnlyInstalledLayers() throws {
-        let (base, _) = try DXMTTests().runtime()
+        let (base, root) = try DXMTTests().runtime()
+        defer { try? fm.removeItem(at: root) }
         let launcher = WineLauncher(runtime: base, d3dmetal: redist)
         let bare = WineLauncher(runtime: try DXMTTests().runtime(withDXMT: false).0)
         let app = Program(name: "A", windowsPath: #"C:\a.exe"#)
@@ -71,6 +74,7 @@ import Testing
     /// D3DMetal has no 32-bit DLLs, so a 32-bit Direct3D 10/11 game gets DXMT like any other 32-bit program.
     @Test func thirtyTwoBitDirect3D11GamesGetDXMT() throws {
         let (base, root) = try DXMTTests().runtime()
+        defer { try? fm.removeItem(at: root) }
         let exe = try fixture("app32", importing: "d3d11.dll", insteadOf: "USER32.dll", at: root.appending(path: "old/game.exe"))
         #expect(try ProgramAnalysis.analyze(exe).architecture == .x86)
         var game = Program(name: "G", windowsPath: #"C:\g.exe"#, isGame: true)
@@ -90,6 +94,7 @@ import Testing
         #expect(ProgramAnalysis(architecture: .x64, isGUI: true, imports: ["dxgi.dll"]).direct3D == nil)
         #expect(ProgramAnalysis(architecture: .x64, isGUI: true, imports: ["d3d10core.dll", "dxgi.dll"]).direct3D == 10)
         let (base, root) = try DXMTTests().runtime()
+        defer { try? fm.removeItem(at: root) }
         let exe = try fixture("d3dapp64", importing: "other.dll", insteadOf: "d3d11.dll", at: root.appending(path: "app/app.exe"))
         #expect(try ProgramAnalysis.analyze(exe).imports.contains("dxgi.dll"))
         let program = Program(name: "A", windowsPath: #"C:\a.exe"#)
@@ -99,6 +104,7 @@ import Testing
     /// A Direct3D 11 launcher whose folder holds a Direct3D 12 program stays on Wine: the child shares its runtime.
     @Test func direct3D12InTheProgramsFolderKeepsItOffDXMT() throws {
         let (base, root) = try DXMTTests().runtime()
+        defer { try? fm.removeItem(at: root) }
         let launcher = WineLauncher(runtime: base)
         let program = Program(name: "Launcher", windowsPath: #"C:\l.exe"#)
         let exe = root.appending(path: "suite/launcher.exe")
@@ -124,6 +130,7 @@ import Testing
     /// Stopping a bottle must not depend on its graphics layer being usable.
     @Test func shutdownReachesWineserverWhenDXMTCantBePrepared() throws {
         let (base, root) = try DXMTTests().runtime()
+        defer { try? fm.removeItem(at: root) }
         try "#!/bin/sh\necho \"$@\" > \"$0.args\"\n".write(to: base.wineserver, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: base.wineserver.path)
         var bottle = try BottleStore(directory: root.appending(path: "bottles")).create(name: "B")
@@ -144,6 +151,7 @@ import Testing
     @Test func aBottlesVariablesCantTakeAwayWhatWineIsStartedWith() throws {
         let (base, root) = try DXMTTests().runtime(withDXMT: false)
         defer { try? fm.removeItem(at: root) }
+        defer { try? fm.removeItem(at: root) }
         var bottle = try BottleStore(directory: root.appending(path: "bottles")).create(name: "B")
         bottle.settings.environment = ["DYLD_FALLBACK_LIBRARY_PATH": "/opt/extra/lib", "WINESERVER": "/elsewhere/wineserver",
                                        "WINELOADER": "/elsewhere/wine", "WINEDEBUG": "+loaddll", "MY_VARIABLE": "1"]
@@ -157,6 +165,7 @@ import Testing
     /// ago: an install in the same bottle may be between importing its installer and starting it.
     @Test func aLaunchLeavesFreshImportsAlone() async throws {
         let (base, root) = try DXMTTests().runtime(withDXMT: false)      // its "wine" exits at once
+        defer { try? fm.removeItem(at: root) }
         defer { try? fm.removeItem(at: root) }
         let bottle = try BottleStore(directory: root.appending(path: "bottles")).create(name: "B")
         let launcher = WineLauncher(runtime: base, runtimesDirectory: root.appending(path: "runtimes"))

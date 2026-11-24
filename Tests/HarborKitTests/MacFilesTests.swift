@@ -17,6 +17,7 @@ import Testing
     /// Drive Z: (the whole Mac) is gone unless the bottle allows it; C: is never touched.
     @Test func theMacDriveFollowsTheBottlesSetting() throws {
         var b = try bottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let z = b.prefix.appending(path: "dosdevices/z:").path
         #expect(!b.settings.macFilesAccess)
         b.applyMacFilesAccess()
@@ -37,6 +38,7 @@ import Testing
 
     @Test func aBottleWithoutAPrefixIsLeftAlone() throws {
         let b = try BottleStore(directory: fm.temporaryDirectory.appending(path: "harbor-mac-\(UUID().uuidString)")).create(name: "N")
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         b.applyMacFilesAccess()
         #expect(!fm.fileExists(atPath: b.prefix.appending(path: "dosdevices").path))
     }
@@ -44,6 +46,7 @@ import Testing
     /// An installer on the Mac is run from a copy inside the bottle, with the parts that belong to it and nothing else.
     @Test func filesToRunAreBroughtIntoTheBottle() throws {
         let b = try bottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let downloads = b.root.deletingLastPathComponent().appending(path: "Downloads")
         try fm.createDirectory(at: downloads, withIntermediateDirectories: true)
         for name in ["setup_game.exe", "setup_game-1.bin", "setup_game-2.bin", "Tax Return.pdf", "other.exe"] {
@@ -71,6 +74,7 @@ import Testing
     /// An installer in a folder of its own gets that whole folder: data files under any name and subfolders.
     @Test func anInstallersOwnFolderComesAlong() throws {
         let b = try bottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let base = b.root.deletingLastPathComponent()
         let media = base.appending(path: "Thing Disc")
         try fm.createDirectory(at: media.appending(path: "Redist"), withIntermediateDirectories: true)
@@ -116,6 +120,7 @@ import Testing
     /// then a separator or a number. A document that merely starts the same way stays on the Mac.
     @Test func onlyNamedPartsComeAlongFromASharedPlace() throws {
         let b = try bottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let base = b.root.deletingLastPathComponent()
         defer { try? fm.removeItem(at: base) }
         let downloads = base.appending(path: "Downloads")
@@ -151,6 +156,7 @@ import Testing
     /// An installer found inside a folder the user dropped gets that folder, at the same layout (#60).
     @Test func aDroppedFolderComesAlongAroundAnInstallerInItsSubfolder() throws {
         let b = try bottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let base = b.root.deletingLastPathComponent()
         defer { try? fm.removeItem(at: base) }
         let disc = base.appending(path: "Thing Disc"), setup = disc.appending(path: "Setup/setup.exe")
@@ -180,6 +186,7 @@ import Testing
     /// An installer's folder on another disk isn't copied: it is drive D: for the install and gone afterwards.
     @Test func aFolderOnAnotherDiskBecomesDriveDForTheInstall() throws {
         let b = try bottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let media = b.root.deletingLastPathComponent().appending(path: "Thing Disc")
         try fm.createDirectory(at: media, withIntermediateDirectories: true)
         for name in ["setup.exe", "setup.msi", "data-01.bin"] { try Data(name.utf8).write(to: media.appending(path: name)) }

@@ -52,6 +52,7 @@ import Testing
 
     @Test func aNewerListIsStagedWithoutTouchingWhatRunsThenSwitchedTo() async throws {
         let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
         let inst = try installer(try serve([("wine", "2", "wine v2"), ("d3dmetal", "1", "d3d v1")], sequence: 200, in: root), installed: installed)
         let manifest = try await inst.fetchManifest()
         #expect(inst.decision(for: manifest, appBuild: 10) == .available([manifest.components[0]]))
@@ -77,6 +78,7 @@ import Testing
 
     @Test func aDownloadThatStoppedPartWayIsntSwitchedToAndContinuesLater() async throws {
         let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
         defer { try? fm.removeItem(at: root) }
         let list = try serve([("wine", "2", "wine v2"), ("d3dmetal", "2", "d3d v2")], sequence: 200, in: root)
         let inst = try installer(list, installed: installed)
@@ -108,6 +110,7 @@ import Testing
     @Test func anInterruptedUnpackIsClearedAway() async throws {
         let (root, installed) = try await installedV1()
         defer { try? fm.removeItem(at: root) }
+        defer { try? fm.removeItem(at: root) }
         let leftover = installed.appending(path: ".staging-\(UUID().uuidString)/bin")
         try fm.createDirectory(at: leftover, withIntermediateDirectories: true)
         try Data("half".utf8).write(to: leftover.appending(path: "wine"))
@@ -119,6 +122,7 @@ import Testing
     /// What an earlier list left staged isn't installed along with a later list's update.
     @Test func aSwitchInstallsOnlyTheComponentsOfTheListThatWasStaged() async throws {
         let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
         defer { try? fm.removeItem(at: root) }
         // List A stages Wine 2 and fails on D3DMetal; then Wine 2 is withdrawn.
         let listA = try serve([("wine", "2", "wine v2"), ("d3dmetal", "2", "d3d v2")], sequence: 200, in: root)
@@ -168,6 +172,7 @@ import Testing
 
     @Test func aNewRuntimeThatDoesntStartIsRolledBack() async throws {
         let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
         let inst = try installer(try serve([("wine", "2", "broken"), ("d3dmetal", "2", "d3d v2")], sequence: 200, in: root), installed: installed)
         try await inst.stage(try await inst.fetchManifest(), appBuild: nil)
         #expect(throws: RuntimeInstallError.verificationFailed) {
@@ -198,6 +203,7 @@ import Testing
     /// the switch, and again before the previous runtime is removed.
     @Test func theSwitchAsksAgainWhetherAnythingRuns() async throws {
         let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
         defer { try? fm.removeItem(at: root) }
         let inst = try installer(try serve([("wine", "2", "wine v2"), ("d3dmetal", "1", "d3d v1")], sequence: 200, in: root), installed: installed)
         try await inst.stage(try await inst.fetchManifest(), appBuild: nil)
@@ -291,6 +297,7 @@ import Testing
     @Test func aListPackagedAgainWithTheSameComponentsIsRecorded() async throws {
         let (root, installed) = try await installedV1()
         defer { try? fm.removeItem(at: root) }
+        defer { try? fm.removeItem(at: root) }
         let then = Date(timeIntervalSince1970: 1_700_000_000)
         try fm.setAttributes([.modificationDate: then], ofItemAtPath: installed.appending(path: ".harbor-sequence").path)
         let inst = try installer(try serve([("wine", "1", "wine v1"), ("d3dmetal", "1", "d3d v1")], sequence: 200, in: root), installed: installed)
@@ -327,6 +334,7 @@ import Testing
     @Test func knowsWhenTheInstalledRuntimeWasPutInPlace() async throws {
         let (root, installed) = try await installedV1()
         defer { try? fm.removeItem(at: root) }
+        defer { try? fm.removeItem(at: root) }
         let first = try installer(installed.appending(path: "unused.json"), installed: installed)
         let then = Date(timeIntervalSince1970: 1_700_000_000)
         try fm.setAttributes([.modificationDate: then], ofItemAtPath: installed.appending(path: ".harbor-sequence").path)
@@ -346,6 +354,7 @@ import Testing
 
     @Test func theInstallDateIsWhenAnUpdateWasSwitchedToNotWhenItWasDownloaded() async throws {
         let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
         defer { try? fm.removeItem(at: root) }
         let inst = try installer(try serve([("wine", "2", "wine v2"), ("d3dmetal", "1", "d3d v1")], sequence: 200, in: root), installed: installed)
         try await inst.stage(try await inst.fetchManifest(), appBuild: nil)
@@ -414,6 +423,7 @@ import Testing
 
     @Test func anOlderSignedListCantDowngrade() async throws {
         let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
         // Correctly signed, but older than what's installed; and one without any sequence.
         for sequence in [50, nil] as [Int?] {
             let inst = try installer(try serve([("wine", "0", "wine v0")], sequence: sequence, in: root), installed: installed)
@@ -427,6 +437,7 @@ import Testing
 
     @Test func componentsThatNeedANewerHarborWait() async throws {
         let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
         let inst = try installer(try serve([("wine", "2", "wine v2")], sequence: 200, minimumAppBuild: 80, in: root), installed: installed)
         let manifest = try await inst.fetchManifest()
         #expect(inst.decision(for: manifest, appBuild: 79) == .needsNewerApp(80))
@@ -450,6 +461,7 @@ import Testing
     /// which build on), a new enough one takes the components it knows.
     @Test func aComponentThisHarborDoesntKnowIsLeftToANewerOne() async throws {
         let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
         defer { try? fm.removeItem(at: root) }
         let added = try installer(try serve([("wine", "1", "wine v1"), ("d3dmetal", "1", "d3d v1"), ("future", "1", "new")],
                                             sequence: 200, minimumAppBuild: 80, in: root), installed: installed)
@@ -516,6 +528,7 @@ import Testing
     /// Installations from before sequences existed accept the first sequenced list.
     @Test func anInstallationWithoutASequenceAcceptsTheFirstSequencedList() async throws {
         let root = fm.temporaryDirectory.appending(path: "harbor-upd-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
         let installed = root.appending(path: "installed")
         let old = try installer(try serve([("wine", "1", "wine v1")], sequence: nil, in: root), installed: installed)
         try await old.installPending(try await old.fetchManifest())

@@ -42,6 +42,7 @@ import Testing
 
     @Test func followsTheLoaderLinkFoldersSymlinkOnDisk() throws {
         let root = fm.temporaryDirectory.appending(path: "harbor-wineapps-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
         let unix = root.appending(path: "Runtimes/d3dmetal-1/lib/wine/x86_64-unix")
         let links = root.appending(path: "T/winetemp-1-2-3-4"), foreign = root.appending(path: "T/winetemp-5-6-7-8")
         for dir in [unix, links, foreign, root.appending(path: "Elsewhere")] { try fm.createDirectory(at: dir, withIntermediateDirectories: true) }
@@ -69,7 +70,8 @@ import Testing
     }
 }
 
-@Suite struct ShortcutSyncTests {
+// A sync that never reports back fails its test after a minute instead of holding up the run.
+@Suite(.timeLimit(.minutes(1))) struct ShortcutSyncTests {
     let fm = FileManager.default
 
     func names(in dir: URL) -> [String] {
@@ -78,6 +80,7 @@ import Testing
 
     @Test func overlappingSyncsLeaveOneShortcutPerProgram() async {
         let dir = fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: dir) }
         let shortcuts = AppShortcuts(directory: dir)
         let programs = ["Alpha", "Beta", "Gamma"].map { Program(name: $0, windowsPath: #"C:\p.exe"#) }
         // Two reloads in quick succession: the second sync is asked for while the first is still signing.
@@ -90,6 +93,7 @@ import Testing
 
     @Test func scheduledSyncsRunInTheOrderAskedFor() async {
         let dir = fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: dir) }
         let shortcuts = AppShortcuts(directory: dir)
         let a = Program(name: "Alpha", windowsPath: #"C:\a.exe"#), b = Program(name: "Beta", windowsPath: #"C:\b.exe"#)
         await withCheckedContinuation { finished in
@@ -102,6 +106,7 @@ import Testing
 
     @Test func syncRemovesDuplicateShortcutsOfOneProgram() throws {
         let dir = fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: dir) }
         let shortcuts = AppShortcuts(directory: dir)
         let game = Program(name: "Game 3", windowsPath: #"C:\g.exe"#), twin = Program(name: "Game 3", windowsPath: #"C:\h.exe"#)
         // What overlapping syncs used to leave behind: two shortcuts carrying the same program ID.
@@ -116,6 +121,7 @@ import Testing
 
     @Test func removeDeletesEveryShortcutOfTheProgram() throws {
         let dir = fm.temporaryDirectory.appending(path: "harbor-apps-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: dir) }
         let shortcuts = AppShortcuts(directory: dir)
         let game = Program(name: "Game", windowsPath: #"C:\g.exe"#), other = Program(name: "Other", windowsPath: #"C:\o.exe"#)
         try shortcuts.create(for: game, iconPNG: nil)
@@ -156,6 +162,7 @@ import Testing
 
     @Test func aSteamBottleKeepsItsEpicGames() throws {
         let (b, _, _) = try mixedBottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let entries = Library.scan([b], salt: salt)
         #expect(Set(entries.map(\.program.name)) == ["Steam", "Portal 2", "Alan Wake"])
         #expect(Set(entries.filter(\.managedByStore).map(\.program.name)) == ["Portal 2", "Alan Wake"])
@@ -164,6 +171,7 @@ import Testing
 
     @Test func storeGamesKeepTheirDateAcrossScans() throws {
         let (b, steamManifest, epicManifest) = try mixedBottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         // Installed a while ago: the manifests are older than the program the user added just now.
         let installed = Date(timeIntervalSince1970: 1_700_000_000)
         try fm.setAttributes([.creationDate: installed], ofItemAtPath: steamManifest.path)

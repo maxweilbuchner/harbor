@@ -115,6 +115,7 @@ import Testing
 
     @Test func steamGamesStartThroughSteamAndSoftwareByItsOwnProgram() throws {
         let (b, steam) = try steamBottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let games = SteamLibrary.games(in: b)
         #expect(games.map(\.name) == ["Editor", "Maze"])
         let editor = try #require(SteamLibrary.program(for: games[0], steam: steam, in: b, salt: "s"))
@@ -134,6 +135,7 @@ import Testing
 
     @Test func theUsersChoiceWinsOverTheStoresRecordAndSurvivesRescans() throws {
         let (b, steam) = try steamBottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let games = SteamLibrary.games(in: b)
         try b.setStoreTitle("steam:10", isGame: false)        // "Maze" is software after all
         try b.setStoreTitle("steam:20", isGame: true)         // and "Editor" a game

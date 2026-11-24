@@ -39,6 +39,7 @@ import Testing
 
     @Test func aLogThatIsNotUTF8IsStillDiagnosed() throws {
         let b = try bottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         let log = b.logsDirectory.appending(path: "20261119-100000-Quest.log")
         try (Data("Gr".utf8) + Data([0xFC, 0xDF, 0x65, 0x0A]) + Data(missing.utf8) + Data([0x0A, 0xFF])).write(to: log)
         #expect(throws: (any Error).self) { try String(contentsOf: log, encoding: .utf8) }
@@ -50,6 +51,7 @@ import Testing
 
     @Test func aProgramsLogIsNotMistakenForItsNumberedSiblings() throws {
         let b = try bottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         for name in ["20261119-100000-Foo.log", "20261119-110000-Foo-2.log", "20261119-120000-Foo-2-3.log"] {
             try Data().write(to: b.logsDirectory.appending(path: name))
         }
@@ -64,6 +66,7 @@ import Testing
 
     @Test func runsInTheSameSecondGetLogsThatStayWithTheirProgram() throws {
         let b = try bottle()
+        defer { try? fm.removeItem(at: b.root.deletingLastPathComponent()) }
         for (label, text) in [("Foo", "first"), ("Foo 2", "sibling"), ("Foo", "second"), ("Foo 2", "sibling again")] {
             let handle = try b.newLog(label: label).handle
             try handle.write(contentsOf: Data(text.utf8))
@@ -113,12 +116,14 @@ import Testing
     @Test func anAlreadyInstalledRuntimeIsNotAFailureAndBothArchitecturesRun() async throws {
         // What VC_redist does when a newer version is present (1638) and when it wants a restart (3010).
         let f = try fixture(exits: "*vc_x64.exe*) exit 102;; *vc_x86.exe*) exit 194;;")
+        defer { try? fm.removeItem(at: f.cache.deletingLastPathComponent()) }
         try await f.launcher.install(f.recipe, in: f.bottle, cache: f.cache)
         #expect(try installersRun(f.calls) == ["x64", "x86"])
     }
 
     @Test func aFailedInstallerStillLetsTheOtherArchitectureRunAndIsReported() async throws {
         let f = try fixture(exits: "*vc_x64.exe*) exit 99;;")
+        defer { try? fm.removeItem(at: f.cache.deletingLastPathComponent()) }
         await #expect(throws: WineExitError.self) { try await f.launcher.install(f.recipe, in: f.bottle, cache: f.cache) }
         #expect(try installersRun(f.calls) == ["x64", "x86"])
     }
@@ -128,6 +133,7 @@ extension RecipeInstallTests {
     /// A package that only unpacks (DirectX) gets its follow-up command run next, and its unpack folder removed.
     @Test func unpackThenSetUpThenCleanUp() async throws {
         let f = try fixture(exits: "")
+        defer { try? fm.removeItem(at: f.cache.deletingLastPathComponent()) }
         var download = f.recipe.downloads[0]
         download.followUp = [#"C:\windows\temp\harbor-unpack\SETUP.exe"#, "/silent"]
         var recipe = Recipe(id: "dxtest", name: "Test", downloads: [download], overrides: ["d3dx9_43"], marker: "d3dx9_43.dll")
@@ -170,6 +176,7 @@ extension RecipeInstallTests {
     /// version comes back at the end. Wine Mono goes first.
     @Test func presentsOlderWindowsToInstallersAndRestoresTheBottlesVersion() async throws {
         let f = try fixture(exits: "")
+        defer { try? fm.removeItem(at: f.cache.deletingLastPathComponent()) }
         var first = f.recipe.downloads[0], second = f.recipe.downloads[1]
         first.windowsVersion = "winxp64"
         second.windowsVersion = "win7"
@@ -196,6 +203,7 @@ extension RecipeInstallTests {
         // The first installer takes the second one's download away, as a purged cache would.
         let f = try fixture(exits: #"*vc_x64.exe*) rm "$(dirname "$0")"/../../cache/*-vc_x86.exe;;"#)
         defer { try? fm.removeItem(at: f.cache.deletingLastPathComponent()) }
+        defer { try? fm.removeItem(at: f.cache.deletingLastPathComponent()) }
         var first = f.recipe.downloads[0], second = f.recipe.downloads[1]
         first.windowsVersion = "winxp64"
         second.windowsVersion = "win7"
@@ -210,6 +218,7 @@ extension RecipeInstallTests {
     /// says what the bottle is left with, and the Windows version is the bottle's again.
     @Test func aFailedDotNetInstallSaysTheBottleHasNoDotNetNow() async throws {
         let f = try fixture(exits: "*vc_x86.exe*) exit 99;;")
+        defer { try? fm.removeItem(at: f.cache.deletingLastPathComponent()) }
         defer { try? fm.removeItem(at: f.cache.deletingLastPathComponent()) }
         var first = f.recipe.downloads[0], second = f.recipe.downloads[1]
         first.windowsVersion = "winxp64"
@@ -253,6 +262,7 @@ extension RecipeInstallTests {
 
     @Test func collectsNothingWhileWindowsIsRunningInABottle() throws {
         let f = try fixture()
+        defer { try? fm.removeItem(at: f.runtimes.deletingLastPathComponent()) }
         // What `ps` shows while Steam runs from the old derived runtime: Wine's processes under their Windows titles.
         let visible = ["/usr/sbin/cfprefsd", #"C:\Program Files (x86)\Steam\steam.exe"#]
         #expect(Maintenance.collectGarbage(launcher: f.launcher, runtimesDirectory: f.runtimes, templatesDirectory: f.templates,
@@ -266,6 +276,7 @@ extension RecipeInstallTests {
 
     @Test func collectsNothingWhenRunningProcessesAreUnknown() throws {
         let f = try fixture()
+        defer { try? fm.removeItem(at: f.runtimes.deletingLastPathComponent()) }
         #expect(Maintenance.runningExecutables(ps: "/nonexistent/ps") == nil)
         #expect(Maintenance.runningExecutables(ps: "/usr/bin/false") == nil)
         #expect(Maintenance.runningExecutables()?.isEmpty == false)

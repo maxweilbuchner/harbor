@@ -7,6 +7,7 @@ import Testing
     @Test func replacesTheLinkToTheMacDesktopInsideTheWindowsDesktop() throws {
         let fm = FileManager.default
         let base = fm.temporaryDirectory.appending(path: "harbor-desktop-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: base) }
         let mac = base.appending(path: "mac/Desktop")
         try fm.createDirectory(at: mac, withIntermediateDirectories: true)
         try "keep".write(to: mac.appending(path: "Notes.txt"), atomically: true, encoding: .utf8)
