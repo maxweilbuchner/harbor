@@ -99,7 +99,7 @@ public struct WineLauncher: Sendable {
     /// Launches a library program and returns the Wine process, which lives as long as the program.
     @discardableResult
     public func launch(_ program: Program, in bottle: Bottle,
-                       onExit: (@Sendable (Int32) -> Void)? = nil) throws -> Process {
+                       onExit: (@Sendable (WineExit) -> Void)? = nil) throws -> Process {
         guard let exe = bottle.unixPath(forWindowsPath: program.windowsPath) else {
             throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: program.windowsPath])
         }
@@ -212,7 +212,7 @@ public struct WineLauncher: Sendable {
     /// `withFolder`: an installer whose own folder comes along (see `importForRunning`).
     @discardableResult
     public func open(_ file: URL, in bottle: Bottle, withFolder: Bool = false,
-                     onExit: (@Sendable (Int32) -> Void)? = nil) throws -> Process {
+                     onExit: (@Sendable (WineExit) -> Void)? = nil) throws -> Process {
         // Wine can't start a file by its Mac path once drive Z: is gone: run a copy inside the bottle.
         let local = try bottle.importForRunning(file, withFolder: withFolder)
         return try run(bottle, arguments: Self.arguments(toOpen: local, windowsPath: bottle.windowsPath(for: local)),
@@ -224,7 +224,7 @@ public struct WineLauncher: Sendable {
         let status: Int32 = try await withCheckedThrowingContinuation { continuation in
             do {
                 // The handler is installed before the process starts, so it fires exactly once.
-                try run(bottle, arguments: arguments, label: label, output: output) { continuation.resume(returning: $0) }
+                try run(bottle, arguments: arguments, label: label, output: output) { continuation.resume(returning: $0.status) }
             } catch {
                 continuation.resume(throwing: error)
             }
@@ -232,10 +232,11 @@ public struct WineLauncher: Sendable {
         if status != 0 { throw WineExitError(status: status) }
     }
 
-    /// Starts Wine. Output goes to `output`, or to a new log file in the bottle's `logs/` folder.
+    /// Starts Wine. Output goes to `output`, or to a new log file in the bottle's `logs/` folder. `onExit` learns
+    /// how the process ended, and which log it wrote.
     @discardableResult
     public func run(_ bottle: Bottle, arguments: [String], label: String = "run", output: FileHandle? = nil,
-                    runtime chosen: WineRuntime? = nil, onExit: (@Sendable (Int32) -> Void)? = nil) throws -> Process {
+                    runtime chosen: WineRuntime? = nil, onExit: (@Sendable (WineExit) -> Void)? = nil) throws -> Process {
         let process = Process()
         let runtime = try chosen ?? runtime(for: bottle)
         // Older bottles still link their Documents etc. to the Mac's; replace those links before Windows starts.
@@ -248,13 +249,24 @@ public struct WineLauncher: Sendable {
         process.arguments = arguments
         process.environment = environment(for: bottle, runtime: runtime)
         process.currentDirectoryURL = FileManager.default.fileExists(atPath: bottle.driveC.path) ? bottle.driveC : bottle.root
-        let handle = try output ?? bottle.newLog(label: label)
+        let created = try output == nil ? bottle.newLog(label: label) : nil
+        let handle = output ?? created!.handle
         process.standardOutput = handle
         process.standardError = handle
-        if let onExit {
-            process.terminationHandler = { onExit($0.terminationStatus) }
+        // The log is this run's until it ends: kept through rotation, and handed to `onExit`, so a diagnosis
+        // reads what this launch wrote and not the newest log of the same name.
+        let log = created?.file, inUse = created?.file.resolvingSymlinksInPath().path
+        let started = Date()
+        if let inUse { Bottle.logsInUse.withLock { _ = $0.insert(inUse) } }
+        process.terminationHandler = {
+            if let inUse { Bottle.logsInUse.withLock { _ = $0.remove(inUse) } }
+            onExit?(WineExit(status: $0.terminationStatus, signalled: $0.terminationReason == .uncaughtSignal,
+                             duration: Date().timeIntervalSince(started), log: log))
         }
-        try process.run()
+        do { try process.run() } catch {
+            if let inUse { Bottle.logsInUse.withLock { _ = $0.remove(inUse) } }
+            throw error
+        }
         return process
     }
 
@@ -266,6 +278,50 @@ public struct WineLauncher: Sendable {
         process.arguments = ["-k"]
         process.environment = environment(for: bottle, runtime: runtime)
         try process.runAndWait()
+    }
+}
+
+/// How a Wine process started by `run` ended.
+public struct WineExit: Sendable, Equatable {
+    /// The exit status (for a program started with `start /wait`, the Windows program's own exit code, low
+    /// byte), or the signal's number when `signalled`.
+    public let status: Int32
+    /// Ended by a signal (killed, as by `wineserver -k`, or crashed) rather than by exiting.
+    public let signalled: Bool
+    /// Seconds from start to end.
+    public let duration: TimeInterval
+    /// The log this run wrote; nil when its output went elsewhere.
+    public let log: URL?
+
+    public init(status: Int32, signalled: Bool = false, duration: TimeInterval = 0, log: URL? = nil) {
+        self.status = status
+        self.signalled = signalled
+        self.duration = duration
+        self.log = log
+    }
+
+    /// What to tell the user about a library program that ended this way.
+    public enum Report: Equatable, Sendable {
+        case nothing
+        /// An alert that explains the cause.
+        case cause(Diagnosis)
+        /// Only that it ended, with its status.
+        case unexplained
+    }
+
+    /// A program that ends within this many seconds of starting, other than cleanly, didn't work. Later than
+    /// that the exit status says nothing: many Windows programs return a non-zero code from an ordinary quit.
+    public static let quickExit: TimeInterval = 10
+
+    /// `diagnosis`: what this run's log says. `stoppedByHarbor`: Harbor itself ended the bottle's programs (the
+    /// program was removed), so however this one died is no news.
+    /// After `quickExit` only a cause that names the launched program is reported: a crash or .NET line in the
+    /// log may be a helper's from any time in the session, and the program may have been quit normally.
+    public func report(diagnosis: Diagnosis?, stoppedByHarbor: Bool) -> Report {
+        if stoppedByHarbor || (status == 0 && !signalled) { return .nothing }
+        let quick = duration < Self.quickExit
+        if let diagnosis, quick || diagnosis.namesProgram { return .cause(diagnosis) }
+        return quick ? .unexplained : .nothing
     }
 }
 

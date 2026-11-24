@@ -65,7 +65,7 @@ import Testing
     @Test func runsInTheSameSecondGetLogsThatStayWithTheirProgram() throws {
         let b = try bottle()
         for (label, text) in [("Foo", "first"), ("Foo 2", "sibling"), ("Foo", "second"), ("Foo 2", "sibling again")] {
-            let handle = try b.newLog(label: label)
+            let handle = try b.newLog(label: label).handle
             try handle.write(contentsOf: Data(text.utf8))
             try handle.close()
         }

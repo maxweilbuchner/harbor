@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// The graphics translation layer a bottle uses for Direct3D.
 public enum GraphicsBackend: String, Codable, Sendable, CaseIterable {
@@ -82,16 +83,26 @@ public struct Bottle: Sendable, Equatable, Identifiable {
     /// Log files, newest first.
     public func logs() -> [URL] {
         let files = (try? FileManager.default.contentsOfDirectory(at: logsDirectory, includingPropertiesForKeys: nil)) ?? []
-        return files.filter { $0.pathExtension == "log" }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+        return files.filter { $0.pathExtension == "log" }.sorted { Self.logOrder($0) > Self.logOrder($1) }
     }
 
-    /// Creates `logs/<timestamp>-<label>.log` for one run and keeps only the newest `keep` logs. A second run in
+    /// What a log sorts by: its timestamp, then its counter within that second as a number (as text ".10" would
+    /// come before ".2"; the first run has none), then its name.
+    private static func logOrder(_ log: URL) -> (String, Int, String) {
+        let name = log.lastPathComponent
+        let rest = name.dropFirst(15)
+        return (String(name.prefix(15)), rest.hasPrefix(".") ? Int(rest.dropFirst().prefix(while: \.isNumber)) ?? 1 : 1, name)
+    }
+
+    /// Creates `logs/<timestamp>-<label>.log` for one run and keeps only the newest `keep` logs (and any older
+    /// one a program that is still running writes to). A second run in
     /// the same second gets `<timestamp>.2-<label>.log`: the counter can't be mistaken for part of a label (a
     /// program called "Quest 2" logs as `…-Quest-2.log`) and sorts after the first run's log.
-    func newLog(label: String, keep: Int = 20) throws -> FileHandle {
+    func newLog(label: String, keep: Int = 20) throws -> (handle: FileHandle, file: URL) {
         let fm = FileManager.default
         try fm.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
-        for old in logs().dropFirst(keep - 1) { try? fm.removeItem(at: old) }
+        let inUse = Self.logsInUse.withLock { $0 }
+        for old in logs().dropFirst(keep - 1) where !inUse.contains(old.resolvingSymlinksInPath().path) { try? fm.removeItem(at: old) }
         let stamp = Self.logStamp.string(from: Date())
         let safeLabel = Self.logLabel(label)
         var url = logsDirectory.appending(path: "\(stamp)-\(safeLabel).log")
@@ -101,8 +112,11 @@ public struct Bottle: Sendable, Equatable, Identifiable {
             n += 1
         }
         fm.createFile(atPath: url.path, contents: nil)
-        return try FileHandle(forWritingTo: url)
+        return (try FileHandle(forWritingTo: url), url)
     }
+
+    /// Logs of launches that are still going (those started by this process), by resolved path. Rotation leaves them alone.
+    static let logsInUse = Mutex<Set<String>>([])
 
     /// The label part of a log's file name.
     static func logLabel(_ label: String) -> String {

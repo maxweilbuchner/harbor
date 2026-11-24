@@ -604,24 +604,40 @@ final class AppModel {
         launchNow(item, with: launcher)
     }
 
+    /// How many launches of each program are still going: a program can be opened twice, and is running until
+    /// the last of them has ended.
+    private var launches: [LibraryItem.ID: Int] = [:]
+    /// Bottles Harbor stopped itself (their program was removed); how their programs end is no failure.
+    private var stoppedBottles: Set<Bottle.ID> = []
+
+    private func launchEnded(_ id: LibraryItem.ID) {
+        launches[id] = (launches[id] ?? 1) - 1
+        if launches[id] == 0 {
+            launches[id] = nil
+            running.remove(id)
+        }
+    }
+
     private func launchNow(_ item: LibraryItem, with launcher: WineLauncher) {
         let started = Date()
         running.insert(item.id)
+        launches[item.id, default: 0] += 1
+        stoppedBottles.remove(item.bottle.id)
         let id = item.id
         // The first launch of a game clones the D3DMetal runtime; keep that off the main actor.
         Task.detached {
             do {
-                try launcher.launch(item.program, in: item.bottle) { exitStatus in
+                try launcher.launch(item.program, in: item.bottle) { exit in
                     Task { @MainActor in
-                        self.running.remove(id)
-                        if exitStatus != 0 { self.explainFailure(of: item, exitStatus: exitStatus) }
+                        self.launchEnded(id)
+                        if exit.status != 0 { self.explainFailure(of: item, exit: exit) }
                         self.checkForRuntimeUpdate()
                     }
                 }
                 await MainActor.run { self.bringWineToFront(since: started) }
             } catch {
                 await MainActor.run {
-                    self.running.remove(id)
+                    self.launchEnded(id)
                     self.status = "Couldn’t open \(item.program.name): \(error)"
                 }
             }
@@ -655,18 +671,24 @@ final class AppModel {
     }
     var failure: Failure?
 
-    /// Reads the run's log; a recognised cause gets an alert with what to do, anything else the exit code.
-    func explainFailure(of item: LibraryItem, exitStatus: Int32) {
+    /// Reads the run's own log; a recognised cause gets an alert with what to do, a program that ended right
+    /// after starting its exit code, and anything else nothing (`WineExit.report`).
+    func explainFailure(of item: LibraryItem, exit: WineExit) {
         // Reading the log (lossily: logs aren't always UTF-8) stays off the main actor.
         // A title started through its store: the exit status is the launcher's handover, not the game's, and the
         // log is the whole store session's. Nothing reliable can be said, so nothing is.
         if item.managedByStore && item.program.arguments != nil { return }
         let (bottle, name, path) = (item.bottle, item.program.name, item.program.windowsPath)
+        let stopped = stoppedBottles.contains(bottle.id)
         Task {
-            if let found = await Task.detached(operation: { bottle.diagnosis(forLatestRunOf: name, program: path) }).value {
-                failure = Failure(item: item, diagnosis: found.diagnosis, log: found.log)
-            } else {
-                status = "\(name) quit unexpectedly (\(exitStatus))"
+            let diagnosis = await Task.detached(operation: { exit.log.flatMap { bottle.diagnosis(ofLog: $0, program: path) } }).value
+            switch exit.report(diagnosis: diagnosis, stoppedByHarbor: stopped) {
+            case .nothing:
+                break
+            case .cause(let diagnosis):
+                if let log = exit.log { failure = Failure(item: item, diagnosis: diagnosis, log: log) }
+            case .unexplained:
+                status = exit.signalled ? "\(name) was stopped unexpectedly" : "\(name) quit unexpectedly (\(exit.status))"
             }
         }
     }
@@ -706,6 +728,7 @@ final class AppModel {
     func remove(_ item: LibraryItem) {
         AppShortcuts().remove(item.id)
         if removesBottle(item) {
+            stoppedBottles.insert(item.bottle.id)
             try? launcher?.shutdown(item.bottle)
             // To the Trash, not deleted: a removal must be undoable (Finder's Put Back).
             do { try store.moveToTrash(item.bottle) } catch { status = "Couldn’t move \(item.program.name) to the Trash: \(error.localizedDescription)" }

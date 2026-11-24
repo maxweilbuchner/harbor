@@ -37,6 +37,12 @@ public struct Diagnosis: Equatable, Sendable {
         return nil
     }
 
+    /// Whether the cause was read from lines that name the launched program (given to `analyze`), not from
+    /// anything in the session's log: only a library the program itself couldn't load is.
+    public var namesProgram: Bool {
+        if case .missingLibrary = cause { true } else { false }
+    }
+
     /// Reads a Wine log. The first recognised cause wins, most specific first.
     ///
     /// `program` is the Windows path of the program that was launched. A log covers everything that ran in the
@@ -137,12 +143,16 @@ extension Bottle {
         }
     }
 
-    /// What went wrong in the last run labelled `label`, and the log that says so. Reads the log (its start and
-    /// end, if it is large) and which components the bottle has, so call it off the main actor.
+    /// What went wrong in the last run labelled `label`, and the log that says so. For a run whose own log is
+    /// known (`WineExit.log`) use `diagnosis(ofLog:)`: the newest log by label can be another launch's.
     public func diagnosis(forLatestRunOf label: String, program: String? = nil) -> (diagnosis: Diagnosis, log: URL)? {
-        guard let log = latestLog(label: label),
-              let diagnosis = Diagnosis.analyze(Diagnosis.text(ofLog: log), program: program,
-                                                installed: { $0.isInstalled(in: self) }) else { return nil }
+        guard let log = latestLog(label: label), let diagnosis = diagnosis(ofLog: log, program: program) else { return nil }
         return (diagnosis, log)
+    }
+
+    /// What went wrong in the run that wrote `log`. Reads the log (its start and end, if it is large) and which
+    /// components the bottle has, so call it off the main actor.
+    public func diagnosis(ofLog log: URL, program: String? = nil) -> Diagnosis? {
+        Diagnosis.analyze(Diagnosis.text(ofLog: log), program: program, installed: { $0.isInstalled(in: self) })
     }
 }
