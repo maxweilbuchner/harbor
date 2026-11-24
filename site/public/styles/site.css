@@ -46,6 +46,7 @@ a { text-decoration-color: var(--color-accent-2); text-decoration-thickness: var
 .screen__shot > img { filter: none; }
 .screen__shot--library { aspect-ratio: 225 / 118; }
 .screen__shot--program { aspect-ratio: 563 / 313; max-width: 1126px; margin-inline: auto; }
+.screen__shot--game { aspect-ratio: 2560 / 1494; max-width: 1280px; margin-inline: auto; }
 .screen__shot--settings { aspect-ratio: 16 / 15; max-width: 480px; margin-inline: auto; }
 
 /* Hero: Counter. One line of capitals, then the download beside the screen. */
@@ -76,6 +77,7 @@ a { text-decoration-color: var(--color-accent-2); text-decoration-thickness: var
 .stack__head { position: sticky; top: var(--space-2xl); }
 .stack__head .lead { margin-top: var(--space-lg); }
 .rows { margin: 0; }
+.stack .screen { margin-top: var(--space-2xl); }
 .rows > div { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 5fr); gap: var(--gap-columns); align-items: baseline; padding-block: var(--space-lg); border-top: var(--rule-bar) solid var(--color-rule); }
 .rows > div:last-child { border-bottom: var(--rule-bar) solid var(--color-rule); }
 .rows dt { font: 800 var(--text-2xl)/1 var(--font-display); letter-spacing: var(--tracking-display); text-transform: uppercase; }

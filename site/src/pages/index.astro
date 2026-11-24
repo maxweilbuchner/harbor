@@ -60,19 +60,20 @@ const recent = all.slice(0, 3).map((r) => ({ ...r, first: r.items[0]?.match(/^(?
       </div>
       <figure class="screen">
         <div
-          class="screen__shot screen__shot--program"
-          data-slot="program"
+          class="screen__shot screen__shot--game"
+          data-slot="game"
           data-kind="product"
-          data-alt="A Windows program running on the Mac through Harbor, in its own window"
+          data-alt="A DirectX 12 game rendering a 3D world on the Mac through Harbor, in its own window"
         >
           <img
-            src={withBase("shots/winrar-running.png")}
-            width="2252"
-            height="1252"
-            alt="WinRAR for Windows running in a Mac window, listing the files in C:\Program Files\WinRAR"
+            src={withBase("shots/veloren-running.webp")}
+            width="2560"
+            height="1494"
+            alt="The Windows game Veloren in a Mac window: a character on a rooftop above a village of block-built houses, a windmill tower, forest and misty mountains beyond"
             loading="lazy"
           />
         </div>
+        <figcaption>Veloren, an open-source game, running on DirectX 12 through D3DMetal.</figcaption>
       </figure>
     </div>
   </section>
@@ -102,24 +103,42 @@ const recent = all.slice(0, 3).map((r) => ({ ...r, first: r.items[0]?.match(/^(?
         <h2>Steam, Epic and DirectX 12.</h2>
         <p class="lead">An early release. Some programs don’t run yet.</p>
       </div>
-      <dl class="rows">
-        <div>
-          <dt>Installers</dt>
-          <dd>What they install appears in your library.</dd>
-        </div>
-        <div>
-          <dt>Steam and Epic</dt>
-          <dd>One click each. Their games show up beside your programs.</dd>
-        </div>
-        <div>
-          <dt>DirectX 11 and 12</dt>
-          <dd>Games render through Apple’s D3DMetal, windowed or fullscreen.</dd>
-        </div>
-        <div>
-          <dt>Everyday apps</dt>
-          <dd>Direct3D 10 and 11 programs run on Metal through DXMT.</dd>
-        </div>
-      </dl>
+      <div>
+        <dl class="rows">
+          <div>
+            <dt>Installers</dt>
+            <dd>What they install appears in your library.</dd>
+          </div>
+          <div>
+            <dt>Steam and Epic</dt>
+            <dd>One click each. Their games show up beside your programs.</dd>
+          </div>
+          <div>
+            <dt>DirectX 11 and 12</dt>
+            <dd>Games render through Apple’s D3DMetal, windowed or fullscreen.</dd>
+          </div>
+          <div>
+            <dt>Everyday apps</dt>
+            <dd>Direct3D 10 and 11 programs run on Metal through DXMT.</dd>
+          </div>
+        </dl>
+        <figure class="screen">
+          <div
+            class="screen__shot screen__shot--program"
+            data-slot="program"
+            data-kind="product"
+            data-alt="A Windows program running on the Mac through Harbor, in its own window"
+          >
+            <img
+              src={withBase("shots/winrar-running.png")}
+              width="2252"
+              height="1252"
+              alt="WinRAR for Windows running in a Mac window, listing the files in C:\Program Files\WinRAR"
+              loading="lazy"
+            />
+          </div>
+        </figure>
+      </div>
     </div>
   </section>
 
