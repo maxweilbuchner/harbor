@@ -258,12 +258,15 @@ public struct RuntimeInstaller: Sendable {
     /// `decision(for:appBuild:)` doesn't allow.
     public func stage(_ manifest: RuntimeManifest, appBuild: Int?,
                       progress: (@Sendable (Double) -> Void)? = nil) async throws {
-        let todo: [RuntimeManifest.Component]
-        switch decision(for: manifest, appBuild: appBuild) {
+        let decision = decision(for: manifest, appBuild: appBuild)
+        var todo: [RuntimeManifest.Component] = []
+        if case .available(let components) = decision { todo = components }
+        try discardStaged(except: todo)
+        switch decision {
         case .upToDate, .failedBefore: return
         case .refusedOlder: throw RuntimeInstallError.olderThanInstalled
         case .needsNewerApp(let build): throw RuntimeInstallError.needsNewerApp(build)
-        case .available(let components): todo = components
+        case .available: break
         }
         let fm = FileManager.default
         let total = Double(max(todo.reduce(0) { $0 + $1.size }, 1))
@@ -290,6 +293,24 @@ public struct RuntimeInstaller: Sendable {
         }
         try Data().write(to: installedDirectory.appending(path: Self.stagedMarker))
         progress?(1)
+    }
+
+    /// Before a list is staged: what an earlier `stage` left only counts as far as this list wants it. The marker
+    /// and the sequence go (they are written again at the end), and so does every staged component that isn't
+    /// one of `wanted` in that version. `activateStaged` installs whatever is staged once the marker is there, so
+    /// a component of another list would be switched to along with this one's.
+    private func discardStaged(except wanted: [RuntimeManifest.Component]) throws {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: installedDirectory.path) else { return }
+        try withLock(installedDirectory.appending(path: ".lock")) {
+            try? fm.removeItem(at: installedDirectory.appending(path: Self.stagedMarker))
+            try? fm.removeItem(at: installedDirectory.appending(path: Self.readyPrefix + "sequence"))
+            for id in Self.allowedIDs {
+                let ready = installedDirectory.appending(path: Self.readyPrefix + id)
+                let version = try? String(contentsOf: ready.appending(path: Self.versionFile), encoding: .utf8)
+                if !wanted.contains(where: { $0.id == id && $0.version == version }) { try? fm.removeItem(at: ready) }
+            }
+        }
     }
 
     /// Switches to the staged components. Call only when no Windows program is running. `verify` gets the installed
@@ -426,11 +447,17 @@ public struct RuntimeInstaller: Sendable {
         }
     }
 
-    /// Removes versions that were moved aside by earlier updates. Call when no Wine process is running.
+    /// Removes versions that were moved aside by earlier updates. Call when no Wine process is running. Also
+    /// removes what an unpack left that was interrupted (Harbor quit meanwhile): every unpack holds the lock, so a
+    /// `.staging-*` folder seen under it belongs to none that is still going.
     public func removeOldVersions() {
         let fm = FileManager.default
-        for name in (try? fm.contentsOfDirectory(atPath: installedDirectory.path)) ?? [] where name.hasPrefix(".old-") {
-            try? fm.removeItem(at: installedDirectory.appending(path: name))
+        guard fm.fileExists(atPath: installedDirectory.path) else { return }
+        try? withLock(installedDirectory.appending(path: ".lock")) {
+            for name in (try? fm.contentsOfDirectory(atPath: installedDirectory.path)) ?? []
+            where name.hasPrefix(".old-") || name.hasPrefix(".staging-") {
+                try? fm.removeItem(at: installedDirectory.appending(path: name))
+            }
         }
     }
 

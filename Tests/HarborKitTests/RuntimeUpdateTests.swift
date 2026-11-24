@@ -104,6 +104,68 @@ import Testing
         #expect(!inst.hasStagedUpdate)
     }
 
+    /// Harbor quit while `tar` unpacked: the half-unpacked folder goes with the next clean-up.
+    @Test func anInterruptedUnpackIsClearedAway() async throws {
+        let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
+        let leftover = installed.appending(path: ".staging-\(UUID().uuidString)/bin")
+        try fm.createDirectory(at: leftover, withIntermediateDirectories: true)
+        try Data("half".utf8).write(to: leftover.appending(path: "wine"))
+        try installer(installed.appending(path: "unused.json"), installed: installed).removeOldVersions()
+        #expect(!(try fm.contentsOfDirectory(atPath: installed.path)).contains { $0.hasPrefix(".staging-") })
+        #expect(marker("wine", in: installed) == "wine v1")
+    }
+
+    /// What an earlier list left staged isn't installed along with a later list's update.
+    @Test func aSwitchInstallsOnlyTheComponentsOfTheListThatWasStaged() async throws {
+        let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
+        // List A stages Wine 2 and fails on D3DMetal; then Wine 2 is withdrawn.
+        let listA = try serve([("wine", "2", "wine v2"), ("d3dmetal", "2", "d3d v2")], sequence: 200, in: root)
+        try Data("damaged".utf8).write(to: listA.deletingLastPathComponent().appending(path: "d3dmetal-2.tar.xz"))
+        let a = try installer(listA, installed: installed)
+        await #expect(throws: RuntimeInstallError.checksumMismatch(component: "d3dmetal")) {
+            try await a.stage(try await a.fetchManifest(), appBuild: nil)
+        }
+        #expect(fm.fileExists(atPath: installed.appending(path: ".ready-wine").path))
+        let b = try installer(try serve([("wine", "1", "wine v1"), ("d3dmetal", "3", "d3d v3")], sequence: 300, in: root), installed: installed)
+        try await b.stage(try await b.fetchManifest(), appBuild: nil)
+        #expect(!fm.fileExists(atPath: installed.appending(path: ".ready-wine").path))
+        try b.activateStaged()
+        #expect(marker("wine", in: installed) == "wine v1" && marker("d3dmetal", in: installed) == "d3d v3")
+        #expect(b.installedVersion(of: "wine") == "1" && b.installedSequence == 300)
+    }
+
+    /// Staging again over a finished download (`harbor-cli update-runtime`): nothing of the first one is left
+    /// marked complete, neither when the second fails nor in its sequence.
+    @Test func stagingAgainStartsFromWhatTheNewListWants() async throws {
+        let root = fm.temporaryDirectory.appending(path: "harbor-upd-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let installed = root.appending(path: "installed")
+        let old = try installer(try serve([("wine", "1", "wine v1")], sequence: nil, in: root), installed: installed)
+        try await old.installPending(try await old.fetchManifest())
+        let a = try installer(try serve([("wine", "2", "wine v2")], sequence: 200, in: root), installed: installed)
+        try await a.stage(try await a.fetchManifest(), appBuild: nil)
+        #expect(a.hasStagedUpdate)
+
+        let listB = try serve([("wine", "3", "wine v3")], sequence: nil, in: root)
+        let b = try installer(listB, installed: installed)
+        let manifest = try await b.fetchManifest()
+        let archive = listB.deletingLastPathComponent().appending(path: "wine-3.tar.xz")
+        let good = try Data(contentsOf: archive)
+        try Data("damaged".utf8).write(to: archive)
+        await #expect(throws: RuntimeInstallError.checksumMismatch(component: "wine")) { try await b.stage(manifest, appBuild: nil) }
+        #expect(!b.hasStagedUpdate)
+        try b.activateStaged()
+        #expect(marker("wine", in: installed) == "wine v1")
+
+        try good.write(to: archive)
+        try await b.stage(manifest, appBuild: nil)
+        try b.activateStaged()
+        #expect(marker("wine", in: installed) == "wine v3")
+        #expect(b.installedSequence == nil)                               // not list A's 200
+    }
+
     @Test func aNewRuntimeThatDoesntStartIsRolledBack() async throws {
         let (root, installed) = try await installedV1()
         let inst = try installer(try serve([("wine", "2", "broken"), ("d3dmetal", "2", "d3d v2")], sequence: 200, in: root), installed: installed)
