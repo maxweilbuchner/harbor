@@ -103,8 +103,10 @@ public struct WineLauncher: Sendable {
         guard let exe = bottle.unixPath(forWindowsPath: program.windowsPath) else {
             throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: program.windowsPath])
         }
-        // What an install left behind if Harbor quit in its middle: the installer's copy, its drive D:.
-        if !bottle.isRunning() { bottle.clearImports() }
+        // What an install left behind if Harbor quit in its middle: the installer's copy, its drive D:. Not what
+        // came in within the last minute: an install in this bottle (a component's) may have brought its
+        // installer in and not started it yet, so the bottle doesn't count as running.
+        if !bottle.isRunning(), !bottle.imported(since: Date().addingTimeInterval(-60)) { bottle.clearImports() }
         let graphics = effectiveGraphics(for: program, executable: exe)
         if graphics == .dxmt { try dxmt?.prepare(bottle) }
         var arguments = ["start", "/wait"]
@@ -168,11 +170,15 @@ public struct WineLauncher: Sendable {
         // captures the displays, which shuts out Mission Control. Games, on the D3DMetal runtime, keep the
         // display's real modes; emulation offers nothing above the desktop's current size.
         env["HARBOR_EMULATE_MODESET"] = D3DMetalRedist.isRuntime(runtime ?? self.runtime) ? nil : "1"
-        // User variables may add to, but not replace, what Harbor depends on.
+        // User variables may add to, but not replace, what Harbor depends on: the prefix, the server and loader
+        // that go with the runtime, and the two lists above. WINEDEBUG and HARBOR_EMULATE_MODESET are theirs to
+        // set: those are choices about one bottle, and nothing stops working.
         for (key, value) in bottle.settings.environment {
             switch key {
-            case "WINEPREFIX":
+            case "WINEPREFIX", "WINESERVER", "WINELOADER":
                 continue
+            case "DYLD_FALLBACK_LIBRARY_PATH":
+                env[key] = [env[key], value].compactMap { $0 }.joined(separator: ":")
             case "WINEDLLOVERRIDES":
                 env[key] = [env[key], value].compactMap { $0 }.joined(separator: ";")
             default:
@@ -278,6 +284,17 @@ public struct WineLauncher: Sendable {
         process.arguments = ["-k"]
         process.environment = environment(for: bottle, runtime: runtime)
         try process.runAndWait()
+    }
+}
+
+extension Bottle {
+    /// Whether something was brought in to be run (`importForRunning`: a copy, or drive D:) after `date`.
+    func imported(since date: Date) -> Bool {
+        [importsDirectory, mediaDrive].contains { place in
+            // Of the folder or the link itself; a new copy in the folder changes the folder's date.
+            let changed = (try? FileManager.default.attributesOfItem(atPath: place.path))?[.modificationDate] as? Date
+            return changed.map { $0 > date } ?? false
+        }
     }
 }
 

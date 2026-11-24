@@ -137,6 +137,50 @@ import Testing
         #expect(try String(contentsOf: base.wineserver.appendingPathExtension("args"), encoding: .utf8) == "-k\n")
     }
 
+    // MARK: Launcher nits (#66)
+
+    /// A bottle's own variables add to the library path Wine's fonts and Vulkan are found through, and can't
+    /// point Wine at another server or loader. What is meant to be changed per bottle (WINEDEBUG) still is.
+    @Test func aBottlesVariablesCantTakeAwayWhatWineIsStartedWith() throws {
+        let (base, root) = try DXMTTests().runtime(withDXMT: false)
+        defer { try? fm.removeItem(at: root) }
+        var bottle = try BottleStore(directory: root.appending(path: "bottles")).create(name: "B")
+        bottle.settings.environment = ["DYLD_FALLBACK_LIBRARY_PATH": "/opt/extra/lib", "WINESERVER": "/elsewhere/wineserver",
+                                       "WINELOADER": "/elsewhere/wine", "WINEDEBUG": "+loaddll", "MY_VARIABLE": "1"]
+        let env = WineLauncher(runtime: base).environment(for: bottle, base: [:])
+        #expect(env["DYLD_FALLBACK_LIBRARY_PATH"] == "\(base.root.path)/lib:/usr/local/lib:/usr/lib:/opt/extra/lib")
+        #expect(env["WINESERVER"] == nil && env["WINELOADER"] == nil)
+        #expect(env["WINEDEBUG"] == "+loaddll" && env["MY_VARIABLE"] == "1")
+    }
+
+    /// A launch tidies up what an interrupted install left in the bottle, but not what was brought in a moment
+    /// ago: an install in the same bottle may be between importing its installer and starting it.
+    @Test func aLaunchLeavesFreshImportsAlone() async throws {
+        let (base, root) = try DXMTTests().runtime(withDXMT: false)      // its "wine" exits at once
+        defer { try? fm.removeItem(at: root) }
+        let bottle = try BottleStore(directory: root.appending(path: "bottles")).create(name: "B")
+        let launcher = WineLauncher(runtime: base, runtimesDirectory: root.appending(path: "runtimes"))
+        let program = Program(name: "Game", windowsPath: #"C:\game.exe"#)
+        try fm.createDirectory(at: bottle.driveC, withIntermediateDirectories: true)
+        try Data("MZ".utf8).write(to: bottle.driveC.appending(path: "game.exe"))
+        func launch() async throws {
+            let _: WineExit = try await withCheckedThrowingContinuation { done in
+                do { try launcher.launch(program, in: bottle) { done.resume(returning: $0) } } catch { done.resume(throwing: error) }
+            }
+        }
+        let installer = root.appending(path: "VC_redist.x64.exe")
+        try Data("MZ".utf8).write(to: installer)
+        let imported = try bottle.importForRunning(installer)
+        #expect(bottle.imported(since: Date().addingTimeInterval(-60)))
+        try await launch()
+        #expect(fm.fileExists(atPath: imported.path))
+        // The same import, as it looks an hour later.
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: bottle.importsDirectory.path)
+        #expect(!bottle.imported(since: Date().addingTimeInterval(-60)))
+        try await launch()
+        #expect(!fm.fileExists(atPath: imported.path))
+    }
+
     /// Backslashes escape a quote the way CommandLineToArgvW reads them, and are literal everywhere else.
     @Test func splitsArgumentsWithEscapedQuotes() {
         #expect(WineLauncher.splitArguments(#"-name \"Max\" -x"#) == ["-name", #""Max""#, "-x"])

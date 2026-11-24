@@ -729,9 +729,22 @@ final class AppModel {
         AppShortcuts().remove(item.id)
         if removesBottle(item) {
             stoppedBottles.insert(item.bottle.id)
-            try? launcher?.shutdown(item.bottle)
-            // To the Trash, not deleted: a removal must be undoable (Finder's Put Back).
-            do { try store.moveToTrash(item.bottle) } catch { status = "Couldn’t move \(item.program.name) to the Trash: \(error.localizedDescription)" }
+            // Stopping the bottle waits for wineserver to end its programs: off the main actor, with the
+            // bottle's programs out of the library meanwhile (the reload brings them back if it stays).
+            library.removeAll { $0.bottle == item.bottle }
+            let (launcher, store) = (launcher, store)
+            Task {
+                let problem = await Task.detached { () -> String? in
+                    try? launcher?.shutdown(item.bottle)
+                    // To the Trash, not deleted: a removal must be undoable (Finder's Put Back).
+                    do { try store.moveToTrash(item.bottle) } catch { return error.localizedDescription }
+                    return nil
+                }.value
+                if let problem { status = "Couldn’t move \(item.program.name) to the Trash: \(problem)" }
+                reload()
+            }
+            pendingRemoval = nil
+            return
         } else {
             try? item.bottle.savePrograms(item.bottle.programs().filter { $0.id != item.id })
         }
