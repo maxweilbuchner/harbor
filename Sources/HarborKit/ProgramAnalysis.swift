@@ -57,7 +57,7 @@ public struct ProgramAnalysis: Sendable, Equatable {
     /// Analyses `file`. MSI packages are recognised by their compound-document signature; anything else must be
     /// a PE executable.
     public static func analyze(_ file: URL) throws -> ProgramAnalysis {
-        let data = try Data(contentsOf: file, options: .mappedIfSafe)
+        let data = try contents(of: file)
         if data.starts(with: [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) {
             return ProgramAnalysis(architecture: .unknown, isGUI: true, imports: [], installer: .msi)
         }
@@ -84,10 +84,21 @@ public struct ProgramAnalysis: Sendable, Equatable {
             guard budget >= 0 else { break }
             guard ["exe", "dll"].contains(file.pathExtension.lowercased()) else { continue }
             if file.lastPathComponent.lowercased() == "d3d12.dll" { return true }
-            if let data = try? Data(contentsOf: file, options: .mappedIfSafe),
+            if let data = try? contents(of: file),
                PEFile(data)?.importedDLLs().contains("d3d12.dll") == true { return true }
         }
         return false
+    }
+
+    /// A file's bytes for the reader. Up to `mapAbove` bytes they are read: a mapped file that another process
+    /// cuts short meanwhile (a store updating a game inside a bottle) ends Harbor with SIGBUS at the next byte
+    /// touched, and no bounds check helps. Larger files are mapped rather than held in memory. Those are
+    /// installers and game executables of hundreds of megabytes; an installer the user dropped isn't being
+    /// rewritten while it is looked at, and for a large file in a bottle the window is the few milliseconds of
+    /// one analysis, which costs less than reading gigabytes at every launch.
+    static func contents(of file: URL, mapAbove: Int = 64 << 20) throws -> Data {
+        let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        return try Data(contentsOf: file, options: size > mapAbove ? .mappedIfSafe : [])
     }
 
     init(architecture: Architecture, isGUI: Bool, imports: Set<String>, installer: Installer? = nil) {
@@ -235,8 +246,10 @@ struct PEFile {
         return result
     }
 
-    func resourceData(rva: Int, size: Int) -> Data? {
-        guard let off = offset(ofRVA: rva) else { return nil }
+    /// A resource's bytes, copied out of the file; nil if it declares more than `limit`. Version and icon-group
+    /// resources are a few kilobytes: a megabyte is a crafted file asking for a large copy to be searched.
+    func resourceData(rva: Int, size: Int, limit: Int = 1 << 20) -> Data? {
+        guard size <= limit, let off = offset(ofRVA: rva) else { return nil }
         return data.slice(off, size)
     }
 
@@ -286,7 +299,7 @@ struct PEFile {
             // image 64 times.
             guard let entry = dir.slice(e, 12), let id = dir.u16(e + 12), used.insert(id).inserted,
                   let icon = icons[UInt32(id)], icon.size <= 2 << 20, total + icon.size <= 8 << 20,
-                  let payload = resourceData(rva: icon.rva, size: icon.size) else { continue }
+                  let payload = resourceData(rva: icon.rva, size: icon.size, limit: 2 << 20) else { continue }
             total += payload.count
             images.append((entry, payload))
         }
@@ -304,7 +317,9 @@ struct PEFile {
         return Self.pngFromICO(ico)
     }
 
-    /// The largest image of an .ico file, as PNG.
+    /// The largest image of an .ico file, as PNG. Images that declare more than 1024 pixels a side are passed
+    /// over before anything is decoded (the properties come from the image's header): no icon is that large,
+    /// and 2 MB of PNG can declare dimensions that take gigabytes to decode.
     static func pngFromICO(_ ico: Data) -> Data? {
         guard let source = CGImageSourceCreateWithData(ico as CFData, nil) else { return nil }
         var best: (index: Int, pixels: Int)?
@@ -312,7 +327,7 @@ struct PEFile {
             let props = CGImageSourceCopyPropertiesAtIndex(source, i, nil) as? [CFString: Any]
             let w = props?[kCGImagePropertyPixelWidth] as? Int ?? 0
             let h = props?[kCGImagePropertyPixelHeight] as? Int ?? 0
-            if w * h > (best?.pixels ?? 0) { best = (i, w * h) }
+            if w <= 1024, h <= 1024, w * h > (best?.pixels ?? 0) { best = (i, w * h) }
         }
         guard let best, let image = CGImageSourceCreateImageAtIndex(source, best.index, nil) else { return nil }
         let png = NSMutableData()
