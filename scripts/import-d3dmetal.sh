@@ -7,6 +7,8 @@
 #
 # The image must be exactly the pinned one (SHA-256 in versions.env), which is what covers the unsigned Windows
 # DLLs; the Mach-O files must carry Apple's signature. Nothing is modified: the files are copied as they are.
+# What was copied is listed beside it (.harbor-files.sha256: the image's SHA-256, then every file's), and
+# scripts/package-runtime.sh packs the folder only while it still matches that list.
 set -eu
 DMG="${1:?usage: import-d3dmetal.sh <Game_Porting_Toolkit .dmg>}"
 cd "$(dirname "$0")/.."
@@ -33,4 +35,6 @@ cp -R "$INNER/redist/lib" "$DEST/lib"
 cp "$INNER/License.rtf" "$INNER/Acknowledgements.rtf" "$DEST/"
 xattr -cr "$DEST"
 scripts/verify-d3dmetal.sh "$DEST/lib"
+files=$(scripts/d3dmetal-files.sh "$DEST")
+printf 'image %s\n%s\n' "$D3DMETAL_DMG_SHA256" "$files" > "$DEST/.harbor-files.sha256"
 echo "import-d3dmetal: $DEST (D3DMetal $D3DMETAL_VERSION from Apple's image)"

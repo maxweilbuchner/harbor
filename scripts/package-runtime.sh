@@ -5,7 +5,8 @@
 #   scripts/package-runtime.sh <wine-dir> <d3dmetal-dir> [out-dir]
 #     wine-dir:     signed (scripts/sign-runtime.sh) and notarized (scripts/notarize.sh) runtime, with the
 #                   .harbor-source record scripts/build-wine.sh writes (which Harbor commit it was built from)
-#     d3dmetal-dir: folder containing lib/ (Apple's /redist/lib) plus License.rtf and Acknowledgements.rtf
+#     d3dmetal-dir: what scripts/import-d3dmetal.sh made (Runtime/d3dmetal-<version>): lib/ (Apple's
+#                   /redist/lib), License.rtf, Acknowledgements.rtf and the list of them, .harbor-files.sha256
 #   ALLOW_DIRTY_RUNTIME=1 packs a runtime built with uncommitted changes in scripts/ (refused otherwise).
 #   WINE_RUNTIME_VERSION overrides the Wine component version (default <Wine sources version>-<RUNTIME_REVISION>).
 set -eu
@@ -27,11 +28,23 @@ for f in wine wineserver; do
 done
 # Apple's files must still be Apple's when they ship.
 scripts/verify-d3dmetal.sh "$D3D/lib"
+# The Windows DLLs in it carry no signature. They and everything else in the folder must be what
+# scripts/import-d3dmetal.sh took from the pinned image: the list it left beside them (the image's SHA-256, then
+# every file's) against the folder as it is now. A missing list, a file changed, added or gone, or a list from
+# another image refuses. (That is a file changed since the import, by accident or in passing; somebody who
+# rewrites the list as well is stopped only by importing again from the image.)
+LIST="$D3D/.harbor-files.sha256"
+[ -s "$LIST" ] || { echo "package-runtime: $D3D has no list of its files ($LIST); import it again with scripts/import-d3dmetal.sh" >&2; exit 1; }
+files=$(scripts/d3dmetal-files.sh "$D3D") || exit 1
+printf 'image %s\n%s\n' "$D3DMETAL_DMG_SHA256" "$files" | cmp -s - "$LIST" || {
+  echo "package-runtime: $D3D isn't what scripts/import-d3dmetal.sh took from the pinned image (< as imported, > now); import it again:" >&2
+  printf 'image %s\n%s\n' "$D3DMETAL_DMG_SHA256" "$files" | diff "$LIST" - | grep '^[<>]' >&2; exit 1; }
 rm -rf "$OUT" && mkdir -p "$OUT"
 
 pack() { # $1 = archive name, $2 = source dir
   # No extended attributes: they would carry quarantine flags (and Finder metadata) into the archive.
-  tar --no-xattrs --no-mac-metadata --exclude .harbor-version --options xz:threads=0 -cJf "$OUT/$1" -C "$2" .
+  # Nor D3DMetal's file list: the archive holds Apple's files and nothing of Harbor's.
+  tar --no-xattrs --no-mac-metadata --exclude .harbor-version --exclude .harbor-files.sha256 --options xz:threads=0 -cJf "$OUT/$1" -C "$2" .
   echo "  $1 $(du -h "$OUT/$1" | cut -f1)"
 }
 echo "package-runtime: packing (xz takes a few minutes)"

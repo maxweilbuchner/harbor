@@ -22,7 +22,9 @@ matches two: set `SIGN_IDENTITY` to the SHA-1 of the one to use (`security find-
    beside the runtime), `scripts/build-wine.sh`, copy `build/out/wine` to a clean folder,
    `scripts/sign-runtime.sh <folder>`, `scripts/notarize.sh --runtime-only <folder>` (no app bundle needed).
 3. D3DMetal comes from Apple's own image: `scripts/import-d3dmetal.sh <Game_Porting_Toolkit .dmg>` (pinned by
-   SHA-256 in `versions.env`).
+   SHA-256 in `versions.env`). It leaves a list of every file it took beside them (`.harbor-files.sha256`), and
+   packaging refuses a D3DMetal folder that has no list (one imported before the list existed) or that no longer
+   matches it: import again.
 4. Run the Wine tests against it (`HARBOR_WINE_ROOT=<folder>`): `WindowsTests/abi/run.sh`, `xproc/run.sh`,
    `net/run.sh`, `user/run.sh`, `appname/run.sh`, `quit/run.sh`, `graphics/run.sh "d3dmetal dxmt"`,
    `graphics/fullscreen.sh`, `graphics/modeset.sh`, `graphics/spaces.sh` (the last four open windows, some

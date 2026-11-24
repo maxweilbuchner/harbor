@@ -2,7 +2,8 @@
 # Checks that a D3DMetal folder (Apple's Game Porting Toolkit /redist/lib) is Apple's own, unmodified build:
 # every Mach-O must carry Apple's signature. `anchor apple` = signed by Apple itself, checked cryptographically
 # (authority names alone can be imitated). The Windows DLLs carry no signature; they are covered by the SHA-256
-# of Apple's disk image they were taken from (scripts/import-d3dmetal.sh).
+# of Apple's disk image they were taken from (scripts/import-d3dmetal.sh) and, from then on, by the list of
+# files that import leaves beside them (scripts/d3dmetal-files.sh, compared by scripts/package-runtime.sh).
 #
 #   scripts/verify-d3dmetal.sh <lib-dir>
 set -eu
