@@ -7,8 +7,16 @@ mkdir -p build/download build/src build/toolchain
 SRC="build/download/crossover-sources-$CROSSOVER_SOURCES_VERSION.tar.gz"
 [ -f "$SRC" ] || curl -fL -o "$SRC" "https://media.codeweavers.com/pub/crossover/source/crossover-sources-$CROSSOVER_SOURCES_VERSION.tar.gz"
 echo "$CROSSOVER_SOURCES_SHA256  $SRC" | shasum -a 256 -c -
-# Only what the build uses, to save disk; add components here as they get built.
-tar -xzf "$SRC" -C build/src sources/wine sources/gnutls
+# Only what the build uses, to save disk; add components here as they get built. Each is extracted once:
+# extracting again would put pristine files over build-wine.sh's patched ones, while wine/.harbor-patches
+# still lists the patches as applied. The folder has no version in its name, so a file beside it records it.
+CXV=build/src/sources/.crossover-version
+if [ -d build/src/sources ] && [ "$(cat "$CXV" 2>/dev/null)" != "$CROSSOVER_SOURCES_VERSION" ]; then
+  echo "fetch-sources: build/src/sources isn't recorded as CrossOver $CROSSOVER_SOURCES_VERSION; remove it and run this again" >&2
+  echo "  (if it is that version, from before the record existed: echo $CROSSOVER_SOURCES_VERSION > $CXV)" >&2; exit 1
+fi
+for c in wine gnutls; do [ -d "build/src/sources/$c" ] || tar -xzf "$SRC" -C build/src "sources/$c"; done
+echo "$CROSSOVER_SOURCES_VERSION" > "$CXV"
 TS="build/download/libtasn1-$LIBTASN1_VERSION.tar.gz"
 [ -f "$TS" ] || curl -fL -o "$TS" "https://ftp.gnu.org/gnu/libtasn1/libtasn1-$LIBTASN1_VERSION.tar.gz"
 echo "$LIBTASN1_SHA256  $TS" | shasum -a 256 -c -

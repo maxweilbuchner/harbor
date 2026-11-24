@@ -85,6 +85,25 @@ build_dep() { # $1 = name, $2 = source dir, $3... = configure args
 # it once a later patch changes the same file. A patch that changed after it was applied stops the build.
 STAMP="$SRC/wine/.harbor-patches"
 touch "$STAMP"
+# The record is checked against the tree before it is trusted (pristine files extracted over a patched tree leave
+# it behind): the recorded patches are reversed, newest first, in a scratch copy of the files they change.
+CHK=$(mktemp -d); recorded=
+for p in "$ROOT"/scripts/patches/wine/*.patch; do
+  [ -f "$p" ] || continue
+  name=$(basename "$p"); sum=$(shasum -a 256 "$p" | cut -d' ' -f1)
+  grep -qxF "$name $sum" "$STAMP" || continue
+  recorded="$name $recorded"
+  for f in $(sed -n 's|^+++ b/\([^[:space:]]*\).*|\1|p' "$p"); do
+    [ -e "$CHK/$f" ] || { mkdir -p "$CHK/$(dirname "$f")" && cp "$SRC/wine/$f" "$CHK/$f"; } || exit 1
+  done
+done
+for name in $recorded; do
+  patch -d "$CHK" -p1 -R -F0 -s -f --no-backup-if-mismatch < "$ROOT/scripts/patches/wine/$name" >/dev/null 2>&1 || {
+    rm -rf "$CHK"
+    echo "build-wine: $name is recorded as applied but isn't in the tree; remove $SRC/wine and run scripts/fetch-sources.sh" >&2; exit 1
+  }
+done
+rm -rf "$CHK"
 for p in "$ROOT"/scripts/patches/wine/*.patch; do
   [ -f "$p" ] || continue
   name=$(basename "$p"); sum=$(shasum -a 256 "$p" | cut -d' ' -f1)
@@ -92,11 +111,13 @@ for p in "$ROOT"/scripts/patches/wine/*.patch; do
   if grep -q "^$name " "$STAMP"; then
     echo "build-wine: $name changed since it was applied; remove $SRC/wine and run scripts/fetch-sources.sh" >&2; exit 1
   fi
-  if patch -d "$SRC/wine" -p1 -s -f --no-backup-if-mismatch --dry-run < "$p" >/dev/null 2>&1; then
-    patch -d "$SRC/wine" -p1 -s -f --no-backup-if-mismatch < "$p" || exit 1
+  # Reverse test first, and without fuzz (-F0): with fuzz, some patches apply a second time to a tree that has them.
+  if patch -d "$SRC/wine" -p1 -R -F0 --dry-run -s -f < "$p" >/dev/null 2>&1; then
+    :   # already in the tree: patched before the record existed, or interrupted before the record line below
+  elif patch -d "$SRC/wine" -p1 -F0 -s -f --no-backup-if-mismatch --dry-run < "$p" >/dev/null 2>&1; then
+    patch -d "$SRC/wine" -p1 -F0 -s -f --no-backup-if-mismatch < "$p" || exit 1
     echo "build-wine: applied $name"
-  elif ! patch -d "$SRC/wine" -p1 -R --dry-run -s -f < "$p" >/dev/null 2>&1; then
-    # Neither applies nor reverses: not this tree's state (trees patched before the record existed pass the reverse test).
+  else
     echo "build-wine: $name doesn't apply" >&2; exit 1
   fi
   echo "$name $sum" >> "$STAMP"
