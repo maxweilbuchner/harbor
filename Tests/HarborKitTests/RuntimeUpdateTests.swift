@@ -245,6 +245,47 @@ import Testing
         #expect(inst.decision(for: manifest, appBuild: 80) == .available(manifest.components))
     }
 
+    @Test func aFirstInstallWaitsForANewerHarborToo() async throws {
+        let root = fm.temporaryDirectory.appending(path: "harbor-upd-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let installed = root.appending(path: "installed")
+        let inst = try installer(try serve([("wine", "1", "wine v1")], sequence: 100, minimumAppBuild: 80, in: root), installed: installed)
+        let manifest = try await inst.fetchManifest()
+        await #expect(throws: RuntimeInstallError.needsNewerApp(80)) { try await inst.installPending(manifest, appBuild: 79) }
+        #expect(marker("wine", in: installed) == nil && inst.installedSequence == nil)
+        try await inst.installPending(manifest, appBuild: 80)
+        #expect(marker("wine", in: installed) == "wine v1" && inst.installedSequence == 100)
+    }
+
+    /// A list with a component this build doesn't know: an older Harbor is told to update (the list says from
+    /// which build on), a new enough one takes the components it knows.
+    @Test func aComponentThisHarborDoesntKnowIsLeftToANewerOne() async throws {
+        let (root, installed) = try await installedV1()
+        defer { try? fm.removeItem(at: root) }
+        let added = try installer(try serve([("wine", "1", "wine v1"), ("d3dmetal", "1", "d3d v1"), ("future", "1", "new")],
+                                            sequence: 200, minimumAppBuild: 80, in: root), installed: installed)
+        let onlyNew = try await added.fetchManifest()
+        #expect(added.decision(for: onlyNew, appBuild: 79) == .needsNewerApp(80))
+        #expect(added.decision(for: onlyNew, appBuild: 80) == .upToDate)
+
+        let inst = try installer(try serve([("wine", "2", "wine v2"), ("d3dmetal", "1", "d3d v1"), ("future", "1", "new")],
+                                           sequence: 300, minimumAppBuild: 80, in: root), installed: installed)
+        let manifest = try await inst.fetchManifest()
+        #expect(inst.decision(for: manifest, appBuild: 79) == .needsNewerApp(80))
+        #expect(inst.decision(for: manifest, appBuild: 80) == .available([manifest.components[0]]))
+        try await inst.stage(manifest, appBuild: 80)
+        try inst.activateStaged()
+        #expect(marker("wine", in: installed) == "wine v2" && inst.installedSequence == 300)
+        #expect(!fm.fileExists(atPath: installed.appending(path: "future").path))
+
+        // The same on a first install.
+        let fresh = try installer(inst.manifestURL, installed: root.appending(path: "fresh"))
+        await #expect(throws: RuntimeInstallError.needsNewerApp(80)) { try await fresh.installPending(manifest, appBuild: 79) }
+        try await fresh.installPending(manifest, appBuild: 80)
+        #expect(Set(try fm.contentsOfDirectory(atPath: fresh.installedDirectory.path).filter { !$0.hasPrefix(".") }) == ["wine", "d3dmetal"])
+        #expect(fresh.installedSequence == 300)
+    }
+
     /// Installations from before sequences existed accept the first sequenced list.
     @Test func anInstallationWithoutASequenceAcceptsTheFirstSequencedList() async throws {
         let root = fm.temporaryDirectory.appending(path: "harbor-upd-\(UUID().uuidString)")

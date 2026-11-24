@@ -152,9 +152,8 @@ public struct RuntimeInstaller: Sendable {
         guard manifest.schema <= RuntimeManifest.currentSchema else {
             throw RuntimeInstallError.unsupportedSchema(manifest.schema)
         }
-        for c in manifest.components where !Self.allowedIDs.contains(c.id) {
-            throw RuntimeInstallError.invalidComponent(c.id)
-        }
+        // A component this build doesn't know isn't an error here: it is left out (`pending`), and the list's
+        // `minimumAppBuild` says whether a newer Harbor is needed for it (`decision`).
         return manifest
     }
 
@@ -192,9 +191,10 @@ public struct RuntimeInstaller: Sendable {
         return nil
     }
 
-    /// Components whose installed version differs from the manifest's.
+    /// Components whose installed version differs from the manifest's. Only the ones this build knows: a list may
+    /// name others for a newer Harbor.
     public func pending(in manifest: RuntimeManifest) -> [RuntimeManifest.Component] {
-        manifest.components.filter { installedVersion(of: $0.id) != $0.version }
+        manifest.components.filter { Self.allowedIDs.contains($0.id) && installedVersion(of: $0.id) != $0.version }
     }
 
     static let versionFile = ".harbor-version"
@@ -227,10 +227,12 @@ public struct RuntimeInstaller: Sendable {
             guard let sequence = manifest.sequence, sequence >= installed else { return .refusedOlder }
         }
         let todo = pending(in: manifest)
-        if todo.isEmpty { return .upToDate }
-        if let failed = failedSequence, let sequence = manifest.sequence, sequence == failed { return .failedBefore }
+        // A component this build doesn't know is something new too, but only a newer Harbor can take it.
+        let unknown = manifest.components.contains { !Self.allowedIDs.contains($0.id) }
+        if todo.isEmpty && !unknown { return .upToDate }
+        if !todo.isEmpty, let failed = failedSequence, let sequence = manifest.sequence, sequence == failed { return .failedBefore }
         if let needed = manifest.minimumAppBuild, let appBuild, appBuild < needed { return .needsNewerApp(needed) }
-        return .available(todo)
+        return todo.isEmpty ? .upToDate : .available(todo)
     }
 
     private func recordSequence(of manifest: RuntimeManifest) {
@@ -346,8 +348,15 @@ public struct RuntimeInstaller: Sendable {
     }
 
     /// Installs every pending component. `progress` gets the fraction of all pending bytes downloaded so far.
-    public func installPending(_ manifest: RuntimeManifest,
+    /// Like `stage`, throws instead of installing a list that `decision(for:appBuild:)` doesn't allow.
+    public func installPending(_ manifest: RuntimeManifest, appBuild: Int? = nil,
                                progress: (@Sendable (Double) -> Void)? = nil) async throws {
+        switch decision(for: manifest, appBuild: appBuild) {
+        case .refusedOlder: throw RuntimeInstallError.olderThanInstalled
+        case .needsNewerApp(let build): throw RuntimeInstallError.needsNewerApp(build)
+        // Someone asked for this install, so a list that didn't start here before is tried again.
+        case .upToDate, .available, .failedBefore: break
+        }
         let todo = pending(in: manifest)
         let total = Double(max(todo.reduce(0) { $0 + $1.size }, 1))
         var done: Int64 = 0

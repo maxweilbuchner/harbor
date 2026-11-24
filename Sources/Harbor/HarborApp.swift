@@ -144,7 +144,7 @@ final class AppModel {
         runtimeDownload = .running(0)
         do {
             let manifest = try await installer.fetchManifest()
-            try await installer.installPending(manifest) { fraction in
+            try await installer.installPending(manifest, appBuild: appBuild) { fraction in
                 Task { @MainActor in self.runtimeDownload = .running(fraction) }
             }
             installer.removeOldVersions()
@@ -161,6 +161,11 @@ final class AppModel {
     /// The oldest runtime list this build works with (Info.plist, written by scripts/bundle-app.sh), if it has one.
     private var minimumRuntimeSequence: Int? {
         (Bundle.main.object(forInfoDictionaryKey: "HarborMinimumRuntimeSequence") as? NSNumber)?.intValue
+    }
+
+    /// This Harbor's build number, which a runtime list can ask a minimum of.
+    private var appBuild: Int? {
+        (Bundle.main.infoDictionary?["CFBundleVersion"] as? String).flatMap(Int.init)
     }
 
     /// Whether the installed Windows support is older than this Harbor needs.
@@ -215,7 +220,7 @@ final class AppModel {
         guard userAsked || installer.hasStagedUpdate || runtimeIsTooOld
                 || Date().timeIntervalSince(lastRuntimeCheck) > 6 * 3600 else { return }
         lastRuntimeCheck = Date()
-        let build = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String).flatMap(Int.init)
+        let build = appBuild
         let previous = runtimeUpdate
         // At once, not after the clean-up below: Settings' button is off from the first moment.
         if !installer.hasStagedUpdate { runtimeUpdate = .checking }
