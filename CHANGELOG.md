@@ -7,7 +7,7 @@ What changed in each Harbor release, newest first. The website's changelog page 
 - An installation that never finishes can be left: the progress sheet has Stop (add what was installed) and Cancel (add nothing), and a running program can be quit from its tile's menu.
 - The library works from the keyboard: Tab reaches the programs, the arrow keys move between them, Return opens one and Cmd-Delete removes it. File has Add Program… (Cmd-O), Open and Remove from Library….
 - Harbor has a single library window: File > New Window is gone, and starting a program from its Mac shortcut no longer opens another window.
-- A program whose installation was interrupted by quitting Harbor appears in the library the next time Harbor opens, and Harbor asks before quitting while an installation is running.
+- A program whose installation was cut short (Harbor was force-quit or the Mac lost power) appears in the library the next time Harbor opens.
 - Error messages for a failed download, a program that couldn't be added or opened, and a failed component install are plain sentences instead of technical error dumps.
 - The question before removing a program says when the program is running and will be quit, and how many games go to the Trash with Steam or Epic. A finished component install, a shortcut whose program is gone and a few other outcomes that showed nothing now say what happened.
 - A program whose data Harbor can't read no longer disappears silently: Harbor says so with a "Show in Finder" link, and keeps its shortcut in the Applications folder.
