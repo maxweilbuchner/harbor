@@ -128,9 +128,10 @@ known-program table. Downloads cached in `Caches/Harbor`.
 - A file to run is brought into the bottle (`Bottle.importForRunning`, a clone). An installer gets its whole
   folder when that is the installer's own (not Downloads or Desktop, not a synced or working folder), so
   multi-file installers find their data; from a shared folder only the parts named after it come along.
-- An installer's folder on another disk (a mounted disk image, an external drive) is not copied: it is linked
-  as drive `D:` for the install and unlinked afterwards. The one exception to "nothing is linked in": on a
-  writable drive the installer could write to its own folder while it runs.
+- An installer's folder on a read-only disk (a mounted disk image, a disc) is not copied: it is linked as
+  drive `D:` for the install and unlinked afterwards. On a writable other disk the folder is copied in instead,
+  so the installer can't change the files beside it. The one exception to "nothing is linked in": a folder too
+  large to copy (over 5000 files or 2 GB) on a writable drive is still linked for the install.
 - `winemenubuilder` disabled (Harbor does its own Mac integration). (Done.)
 
 ## 10. Diagnose
