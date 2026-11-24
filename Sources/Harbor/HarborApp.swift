@@ -385,6 +385,9 @@ final class AppModel {
             let message = RuntimeInstallError.message(for: error)
             runtimeUpdate = .failed(message)
             status = "Windows support couldn’t be updated: \(message)"
+            // Kept although it didn't start (there was nothing to go back to): it is what is installed now, and
+            // the sentence says so by itself.
+            if case RuntimeInstallError.unprovenUpdateKept = error { launcher = Self.makeLauncher(); status = message }
         }
     }
 

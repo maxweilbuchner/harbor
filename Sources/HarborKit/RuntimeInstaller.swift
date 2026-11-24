@@ -107,6 +107,8 @@ public enum RuntimeInstallError: Error, CustomStringConvertible, Equatable {
     case olderThanInstalled
     case needsNewerApp(Int)
     case verificationFailed
+    /// The update didn't start either, but its previous version was no longer on disk to go back to.
+    case unprovenUpdateKept
     case badURL(component: String)
 
     public var description: String {
@@ -119,6 +121,7 @@ public enum RuntimeInstallError: Error, CustomStringConvertible, Equatable {
         case .olderThanInstalled: "The runtime list is older than the installed Windows support."
         case .needsNewerApp(let b): "This Windows support needs a newer Harbor (build \(b))."
         case .verificationFailed: "The updated Windows support didn't start; the previous version was kept."
+        case .unprovenUpdateKept: "The updated Windows support didn't start when Harbor tried it, and the previous version is gone, so the update stays installed."
         case .badURL(let c): "The runtime list has no usable address for \(c)."
         }
     }
@@ -399,7 +402,8 @@ public struct RuntimeInstaller: Sendable {
     /// directory after the switch and says whether the new runtime works; if it doesn't, the previous components
     /// are put back and `verificationFailed` is thrown. The previous versions stay as `.old-*` until
     /// `removeOldVersions()`. A switch that was interrupted (Harbor quit before the new runtime was proven and its
-    /// sequence recorded) is taken up where it stopped, and ends the same two ways.
+    /// sequence recorded) is taken up where it stopped, and ends the same two ways. Only if its previous versions
+    /// are gone by then, there is nothing to put back: the new components stay and `unprovenUpdateKept` is thrown.
     public func activateStaged(verify: (URL) -> Bool = { _ in true }) throws {
         let fm = FileManager.default
         try withLock(installedDirectory.appending(path: ".lock")) {
@@ -434,6 +438,14 @@ public struct RuntimeInstaller: Sendable {
                 }
                 try? fm.removeItem(at: note)
             }
+            // Only an interrupted switch can find a previous version gone (something removed it since). Rolling
+            // back then would delete the new component, which is in place, and have nothing to put there.
+            func canRollBack() -> Bool {
+                plan.allSatisfy { id, previous in
+                    guard let previous, !fm.fileExists(atPath: installedDirectory.appending(path: Self.readyPrefix + id).path) else { return true }
+                    return fm.fileExists(atPath: installedDirectory.appending(path: previous).path)
+                }
+            }
             do {
                 for (id, previous) in plan {
                     let ready = installedDirectory.appending(path: Self.readyPrefix + id)
@@ -449,16 +461,20 @@ public struct RuntimeInstaller: Sendable {
                     try fm.moveItem(at: ready, to: target)
                 }
             } catch {
-                rollBack()
+                // Without the previous versions the note stays, and the switch is taken up again next time.
+                if canRollBack() { rollBack() }
                 throw error
             }
             let staged = installedDirectory.appending(path: Self.readyPrefix + "sequence")
             guard verify(installedDirectory) else {
-                rollBack()
+                // With a previous version missing the whole update stays in place, unproven: one runtime that
+                // may not start is more than none, and its components belong together.
+                let kept = !canRollBack()
+                if kept { try? fm.removeItem(at: note) } else { rollBack() }
                 // Remember which list this was, so it isn't downloaded and tried again every few hours.
                 try? fm.removeItem(at: installedDirectory.appending(path: Self.failedSequenceFile))
                 try? fm.moveItem(at: staged, to: installedDirectory.appending(path: Self.failedSequenceFile))
-                throw RuntimeInstallError.verificationFailed
+                throw kept ? RuntimeInstallError.unprovenUpdateKept : RuntimeInstallError.verificationFailed
             }
             if fm.fileExists(atPath: staged.path) {
                 try? fm.removeItem(at: installedDirectory.appending(path: Self.sequenceFile))
