@@ -226,7 +226,7 @@ extension RecipeInstallTests {
         var recipe = Recipe(id: "nettest", name: "Test .NET", downloads: [first, second], overrides: ["mscoree"], marker: "mscoree.dll")
         recipe.replacesWineMono = true
         let error = await #expect(throws: RecipeError.self) { try await f.launcher.install(recipe, in: f.bottle, cache: f.cache) }
-        #expect(error == .leftWithoutDotNet("Test .NET", reason: "Wine exited with status 99"))
+        #expect(error == .leftWithoutDotNet("Test .NET", reason: "status 99"))
         #expect(error?.description.contains("no .NET") == true)
         let calls = try String(contentsOf: f.calls, encoding: .utf8).split(separator: "\n").map(String.init)
         #expect(calls.last?.hasSuffix("/d win10 /f") == true, "\(calls)")

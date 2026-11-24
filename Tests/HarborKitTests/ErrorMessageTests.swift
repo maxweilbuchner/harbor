@@ -7,7 +7,7 @@ import Testing
     @Test func harborsOwnErrorsDescribeThemselves() {
         #expect(ErrorMessage.text(for: AddProgram.Failure.notAWindowsProgram) == AddProgram.Failure.notAWindowsProgram.description)
         #expect(ErrorMessage.text(for: RecipeError.bottleInUse) == RecipeError.bottleInUse.description)
-        #expect(ErrorMessage.text(for: WineExitError(status: 3)) == "Wine exited with status 3")
+        #expect(ErrorMessage.text(for: WineExitError(status: 3)) == WineExitError(status: 3).description)
     }
 
     @Test func aNetworkErrorIsASentenceNotADump() {

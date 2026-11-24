@@ -184,7 +184,9 @@ extension WineLauncher {
         } catch where monoRemoved {
             // Wine Mono isn't put back (Harbor has nothing that installs it into an existing bottle): whatever
             // went wrong after it was removed, the message says what the bottle is left with and what helps.
-            throw RecipeError.leftWithoutDotNet(recipe.name, reason: String(describing: error))
+            // (An installer's failure is its status alone: the reason stands in brackets inside a sentence.)
+            throw RecipeError.leftWithoutDotNet(recipe.name, reason: (error as? WineExitError).map { "status \($0.status)" }
+                                                ?? String(describing: error))
         }
     }
 

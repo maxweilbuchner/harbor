@@ -237,7 +237,6 @@ default:
     fail("usage: list | create <name> [--mac-files] | mac-files <bottle> on|off | open <bottle> <file> | run <bottle> <args…> | run-with <bottle> <layer> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | analyze <file> | add-steam [--store <dir>] | add-epic [--store <dir>] | components <bottle> | install-component <bottle> <id> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>] | update-runtime <url> [--into <dir>]")
 }
 } catch {
-    // Harbor's own errors describe themselves; the system's (a missing file, no network) have a localized text.
-    let text = String(reflecting: type(of: error)).hasPrefix("HarborKit.") ? String(describing: error) : error.localizedDescription
-    fail(text.split(whereSeparator: \.isNewline).joined(separator: " "))
+    // The sentence the app would show (Harbor's own errors describe themselves; the system's have a localized text).
+    fail(ErrorMessage.text(for: error).split(whereSeparator: \.isNewline).joined(separator: " "))
 }
