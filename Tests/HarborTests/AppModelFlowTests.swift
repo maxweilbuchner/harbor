@@ -229,6 +229,26 @@ import Testing
         #expect(f.shortcuts.existing()[word.id] != nil && f.trashed().isEmpty)
     }
 
+    /// One readable program beside an unreadable entry: the bottle is not treated as that program's alone, so
+    /// removing it can't move what Harbor couldn't read to the Trash.
+    @Test(.timeLimit(.minutes(1))) func theOnlyReadableProgramOfADamagedRecordDoesntTakeTheBottleAlong() async throws {
+        let f = try AppModelFixture()
+        defer { f.cleanUp() }
+        let suite = try f.bottle("Suite", programs: ["Word"]).bottle
+        var entries = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: suite.programsFile)) as? [Any])
+        entries.append(["name": 5])
+        let damaged = try JSONSerialization.data(withJSONObject: entries)
+        try damaged.write(to: suite.programsFile)
+        let model = f.model()
+        let word = try await f.item("Word", in: model)
+        await f.shortcutsSettled()
+        #expect(!model.removesBottle(word))
+
+        model.remove(word)
+        #expect(model.status?.hasPrefix("Couldn’t remove Word: ") == true)
+        #expect(try Data(contentsOf: suite.programsFile) == damaged && f.trashed().isEmpty)
+    }
+
     // MARK: Opening
 
     func runtimeInstaller(_ f: AppModelFixture) throws -> RuntimeInstaller {

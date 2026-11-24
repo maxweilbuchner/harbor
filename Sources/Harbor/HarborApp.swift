@@ -973,7 +973,11 @@ final class AppModel {
     }
 
     /// Whether removing `item` also deletes its bottle (it's the last program in it).
-    func removesBottle(_ item: LibraryItem) -> Bool { item.bottle.programs().count <= 1 }
+    /// A bottle whose record is partly unreadable may hold programs that aren't shown: it is never taken for a
+    /// bottle with one program (removing that one would move the others to the Trash with it).
+    func removesBottle(_ item: LibraryItem) -> Bool {
+        item.bottle.programs().count <= 1 && !item.bottle.hasUnreadablePrograms
+    }
 
     func remove(_ item: LibraryItem) {
         if removesBottle(item) {
