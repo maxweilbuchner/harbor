@@ -452,6 +452,44 @@ import Testing
         #expect(fresh.installedSequence == 300)
     }
 
+    @Test func aComponentWithoutAUsableAddressIsAnErrorNotACrash() async throws {
+        let root = fm.temporaryDirectory.appending(path: "harbor-upd-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let inst = try installer(try serve([("wine", "1", "wine v1")], sequence: 100, in: root), installed: root.appending(path: "installed"))
+        var component = try await inst.fetchManifest().components[0]
+        for url in ["", "http://[not a host"] {
+            component.url = url
+            await #expect(throws: RuntimeInstallError.badURL(component: "wine")) { try await inst.install(component) }
+        }
+        #expect(marker("wine", in: inst.installedDirectory) == nil)
+    }
+
+    /// A missing list or a server's error page is a failed download, not a list signed by someone else.
+    @Test func anHTTPErrorIsntTakenForAnAnswer() throws {
+        let url = try #require(URL(string: "https://example.invalid/runtime.json"))
+        for status in [404, 500, 302] {
+            let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+            #expect(throws: URLError.self) { try RuntimeInstaller.checkStatus(response) }
+        }
+        try RuntimeInstaller.checkStatus(try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        // A file has no status.
+        try RuntimeInstaller.checkStatus(URLResponse(url: URL(filePath: "/x/runtime.json"), mimeType: nil, expectedContentLength: 0, textEncodingName: nil))
+        #expect(RuntimeInstallError.message(for: URLError(.badServerResponse)).hasPrefix("The update server couldn’t be reached"))
+    }
+
+    /// Without its sequence an installation has no downgrade protection and counts as too old for any minimum.
+    @Test func aSequenceThatCantBeWrittenFailsTheInstall() async throws {
+        let root = fm.temporaryDirectory.appending(path: "harbor-upd-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let installed = root.appending(path: "installed")
+        let inst = try installer(try serve([("wine", "1", "wine v1")], sequence: 100, in: root), installed: installed)
+        // A folder where the record belongs: it can't be written.
+        try fm.createDirectory(at: installed.appending(path: ".harbor-sequence/x"), withIntermediateDirectories: true)
+        let manifest = try await inst.fetchManifest()
+        await #expect(throws: (any Error).self) { try await inst.installPending(manifest) }
+        #expect(inst.installedSequence == nil)
+    }
+
     /// Installations from before sequences existed accept the first sequenced list.
     @Test func anInstallationWithoutASequenceAcceptsTheFirstSequencedList() async throws {
         let root = fm.temporaryDirectory.appending(path: "harbor-upd-\(UUID().uuidString)")

@@ -194,7 +194,7 @@ case "update-runtime" where args.count == 2 || (args.count == 4 && args[2] == "-
     let installer = RuntimeInstaller(manifestURL: url, publicKey: publicKey, installedDirectory: into)
     let manifest = try await installer.fetchManifest()
     switch installer.decision(for: manifest, appBuild: nil) {
-    case .upToDate where !installer.hasStagedUpdate: installer.recordSequenceOfInstalled(manifest); print("up to date"); exit(0)
+    case .upToDate where !installer.hasStagedUpdate: try installer.recordSequenceOfInstalled(manifest); print("up to date"); exit(0)
     case .refusedOlder: fail("the list is older than the installed runtime")
     case .needsNewerApp(let build): fail("needs Harbor build \(build)")
     case .failedBefore: fail("this list's runtime didn't start here before; waiting for a newer one")

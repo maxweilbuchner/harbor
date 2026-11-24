@@ -107,6 +107,7 @@ public enum RuntimeInstallError: Error, CustomStringConvertible, Equatable {
     case olderThanInstalled
     case needsNewerApp(Int)
     case verificationFailed
+    case badURL(component: String)
 
     public var description: String {
         switch self {
@@ -118,6 +119,7 @@ public enum RuntimeInstallError: Error, CustomStringConvertible, Equatable {
         case .olderThanInstalled: "The runtime list is older than the installed Windows support."
         case .needsNewerApp(let b): "This Windows support needs a newer Harbor (build \(b))."
         case .verificationFailed: "The updated Windows support didn't start; the previous version was kept."
+        case .badURL(let c): "The runtime list has no usable address for \(c)."
         }
     }
 }
@@ -161,8 +163,11 @@ public struct RuntimeInstaller: Sendable {
 
     /// Fetches and verifies the manifest.
     public func fetchManifest() async throws -> RuntimeManifest {
-        let (data, _) = try await URLSession.shared.data(from: manifestURL)
-        let (sigData, _) = try await URLSession.shared.data(from: manifestURL.appendingPathExtension("sig"))
+        let (data, response) = try await URLSession.shared.data(from: manifestURL)
+        let (sigData, sigResponse) = try await URLSession.shared.data(from: manifestURL.appendingPathExtension("sig"))
+        // Before the signature: an error page isn't a list that someone else signed.
+        try Self.checkStatus(response)
+        try Self.checkStatus(sigResponse)
         guard let signature = Data(base64Encoded: String(decoding: sigData, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)),
               publicKey.isValidSignature(signature, for: data) else {
@@ -175,6 +180,14 @@ public struct RuntimeInstaller: Sendable {
         // A component this build doesn't know isn't an error here: it is left out (`pending`), and the list's
         // `minimumAppBuild` says whether a newer Harbor is needed for it (`decision`).
         return manifest
+    }
+
+    /// Throws for an HTTP answer that isn't a success (a missing file, a server error): its body is an error
+    /// page, not the list or an archive. Other kinds of URL have no status.
+    static func checkStatus(_ response: URLResponse) throws {
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw URLError(.badServerResponse)
+        }
     }
 
     public func installedVersion(of id: String) -> String? {
@@ -255,19 +268,21 @@ public struct RuntimeInstaller: Sendable {
         return todo.isEmpty ? .upToDate : .available(todo)
     }
 
-    private func recordSequence(of manifest: RuntimeManifest) {
+    /// Throws when the record can't be written: without it the installation has no protection against older
+    /// lists and counts as too old for any minimum, which nobody would notice.
+    private func recordSequence(of manifest: RuntimeManifest) throws {
         guard let sequence = manifest.sequence else { return }
-        try? Data("\(sequence)\n".utf8).write(to: installedDirectory.appending(path: Self.sequenceFile))
+        try Data("\(sequence)\n".utf8).write(to: installedDirectory.appending(path: Self.sequenceFile))
     }
 
     /// Records the sequence of a list whose components are all installed already (`decision` said `.upToDate`),
     /// if it is a newer one than the record. Every published list gets a new sequence, also one with unchanged
     /// components; with nothing pending, nothing else would bring it along, and the installation would stay older
     /// than an app's minimum (`meetsMinimum`) for good. Nothing was installed just now, so `installedDate` stays.
-    public func recordSequenceOfInstalled(_ manifest: RuntimeManifest) {
+    public func recordSequenceOfInstalled(_ manifest: RuntimeManifest) throws {
         guard let sequence = manifest.sequence, sequence > installedSequence ?? Int.min, !hasStagedUpdate else { return }
         let date = installedDate
-        recordSequence(of: manifest)
+        try recordSequence(of: manifest)
         if let date {
             try? FileManager.default.setAttributes([.modificationDate: date],
                                                    ofItemAtPath: installedDirectory.appending(path: Self.sequenceFile).path)
@@ -317,7 +332,7 @@ public struct RuntimeInstaller: Sendable {
         try discardStaged(except: todo)
         switch decision {
         case .upToDate:
-            recordSequenceOfInstalled(manifest)
+            try recordSequenceOfInstalled(manifest)
             return
         case .failedBefore: return
         case .refusedOlder: throw RuntimeInstallError.olderThanInstalled
@@ -465,7 +480,7 @@ public struct RuntimeInstaller: Sendable {
             try await install(component) { bytes in progress?(Double(base + bytes) / total) }
             done += component.size
         }
-        recordSequence(of: manifest)
+        try recordSequence(of: manifest)
         progress?(1)
     }
 
@@ -473,7 +488,10 @@ public struct RuntimeInstaller: Sendable {
     private func fetch(_ component: RuntimeManifest.Component, progress: (@Sendable (Int64) -> Void)?) async throws -> URL {
         guard Self.allowedIDs.contains(component.id) else { throw RuntimeInstallError.invalidComponent(component.id) }
         try FileManager.default.createDirectory(at: installedDirectory, withIntermediateDirectories: true)
-        let source = URL(string: component.url, relativeTo: manifestURL)!.absoluteURL
+        // A signed list can still carry an address that is empty or no URL at all.
+        guard !component.url.isEmpty, let source = URL(string: component.url, relativeTo: manifestURL)?.absoluteURL else {
+            throw RuntimeInstallError.badURL(component: component.id)
+        }
         let archive = try await download(source, progress: progress)
         guard try Self.sha256(of: archive) == component.sha256.lowercased() else {
             try? FileManager.default.removeItem(at: archive)
@@ -551,9 +569,9 @@ public struct RuntimeInstaller: Sendable {
         }
         let delegate = DownloadProgress(progress)
         let (temporary, response) = try await URLSession.shared.download(from: url, delegate: delegate)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+        do { try Self.checkStatus(response) } catch {
             try? FileManager.default.removeItem(at: temporary)
-            throw URLError(.badServerResponse)
+            throw error
         }
         try FileManager.default.moveItem(at: temporary, to: destination)
         return destination

@@ -145,7 +145,10 @@ final class AppModel {
         do {
             let manifest = try await installer.fetchManifest()
             try await installer.installPending(manifest, appBuild: appBuild) { fraction in
-                Task { @MainActor in self.runtimeDownload = .running(fraction) }
+                Task { @MainActor in
+                    // A late report must not undo "failed" (and hide Try Again) or "done".
+                    if case .running = self.runtimeDownload { self.runtimeDownload = .running(fraction) }
+                }
             }
             installer.removeOldVersions()
             launcher = Self.makeLauncher()
@@ -241,7 +244,10 @@ final class AppModel {
                 case .upToDate:
                     // The same components under a newer list: only the record changes (it is what
                     // `runtimeIsTooOld` goes by).
-                    installer.recordSequenceOfInstalled(manifest)
+                    do { try installer.recordSequenceOfInstalled(manifest) } catch {
+                        runtimeUpdate = .afterFailedCheck(error, previous: previous, userAsked: runtimeCheckWasAsked)
+                        return
+                    }
                     runtimeUpdate = .idle
                     return
                 case .refusedOlder:

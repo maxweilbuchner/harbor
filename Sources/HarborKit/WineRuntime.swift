@@ -44,8 +44,8 @@ public struct WineRuntime: Sendable, Equatable {
         return fm.isExecutableFile(atPath: wine.path) && fm.isExecutableFile(atPath: wineserver.path)
     }
 
-    /// Looks for a runtime in, in order: `$HARBOR_WINE_ROOT`, the app bundle's `Resources/wine`, Harbor's installed
-    /// runtime (`installedDirectory/wine`), the development
+    /// Looks for a runtime in, in order: `$HARBOR_WINE_ROOT` (development builds only), the app bundle's
+    /// `Resources/wine`, Harbor's installed runtime (`installedDirectory/wine`), the development
     /// checkout's own Wine build (`build/out/wine`, from `scripts/build-wine.sh`), and its `Runtime/` folder
     /// (filled by `scripts/fetch-runtime.sh`).
     public static func locate(
@@ -55,9 +55,12 @@ public struct WineRuntime: Sendable, Equatable {
         devRoot: URL? = nil
     ) -> WineRuntime? {
         var candidates: [URL] = []
+        #if DEBUG
+        // Development only: nothing in a user's environment may point a shipped app at another Wine.
         if let override = environment["HARBOR_WINE_ROOT"] {
             candidates.append(URL(filePath: override))
         }
+        #endif
         if let resources = bundle.resourceURL {
             candidates.append(resources.appending(path: "wine"))
         }
