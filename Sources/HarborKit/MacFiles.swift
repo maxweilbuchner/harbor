@@ -45,7 +45,9 @@ extension Bottle {
         let fm = FileManager.default
         let source = file.standardizedFileURL.resolvingSymlinksInPath()
         if source.path.hasPrefix(driveC.standardizedFileURL.resolvingSymlinksInPath().path + "/") { return file }
-        if !isRunning() { clearImports() }     // copies from earlier runs, now that nothing can be using them
+        // Copies from earlier runs, now that nothing can be using them. Not what came in within the last minute:
+        // another install in this bottle may have brought its installer in and not started it yet (as in `launch`).
+        if !isRunning(), !imported(since: Date().addingTimeInterval(-60)) { clearImports() }
         if withFolder, let media = droppedFolder(mediaRoot, holding: source) ?? installerFolder(of: source) {
             let readOnly = (try? media.resourceValues(forKeys: [.volumeIsReadOnlyKey]).volumeIsReadOnly) == true
             let asDrive = Self.runsFromItsDisk(media, onBottlesDisk: isOnBottlesDisk(media), readOnly: readOnly)

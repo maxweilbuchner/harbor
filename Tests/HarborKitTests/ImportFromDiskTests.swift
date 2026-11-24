@@ -34,6 +34,12 @@ import Testing
         try fm.createDirectory(at: disk.appending(path: "Thing Disc/Data"), withIntermediateDirectories: true)
         for name in ["setup.exe", "data-01.bin", "Data/data1.cab"] { try Data(name.utf8).write(to: disk.appending(path: "Thing Disc/\(name)")) }
         let drive = b.prefix.appending(path: "dosdevices/d:")
+        /// Makes what an import left look an hour old: the next import clears it only then, and leaves what
+        /// came in within the last minute alone (#66). Sets the link's own date, not that of the disk behind it.
+        func age(_ place: URL) {
+            let hourAgo = timespec(tv_sec: time(nil) - 3600, tv_nsec: 0)
+            #expect(utimensat(AT_FDCWD, place.path, [hourAgo, hourAgo], AT_SYMLINK_NOFOLLOW) == 0)
+        }
 
         // Writable: a copy in the bottle, as from the bottles' own disk; the installer can't change the original.
         let copy = try b.importForRunning(setup, withFolder: true)
@@ -45,6 +51,7 @@ import Testing
         // The same disk, read-only: nothing is copied, the folder is drive D: and the installer runs from there.
         try #require(try hdiutil(["detach", disk.path, "-force"]))
         try #require(try hdiutil(mount + ["-readonly"]))
+        age(b.importsDirectory)
         let linked = try b.importForRunning(setup, withFolder: true)
         #expect(b.windowsPath(for: linked) == #"D:\setup.exe"#)
         #expect(!fm.fileExists(atPath: b.importsDirectory.path))                       // the earlier copy went, none was made
@@ -54,6 +61,7 @@ import Testing
         #expect(WineLauncher.arguments(toOpen: linked, windowsPath: b.windowsPath(for: linked)) == ["start", "/wait", "/unix", linked.path])
         // Without its folder (a file to run that isn't an installer) the disk isn't linked: the file is copied,
         // and the link of the import before goes like its copies would.
+        age(drive)
         let alone = try b.importForRunning(setup)
         #expect(b.windowsPath(for: alone)?.hasPrefix(#"C:\windows\temp\harbor-import\"#) == true)
         #expect(try fm.contentsOfDirectory(atPath: alone.deletingLastPathComponent().path) == ["setup.exe"])
