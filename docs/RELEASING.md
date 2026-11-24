@@ -37,6 +37,13 @@ matches two: set `SIGN_IDENTITY` to the SHA-1 of the one to use (`security find-
 
 Installed copies pick it up within six hours of use and switch when no Windows program is running.
 
+`runtime.json` and `runtime.json.sig` are two files on GitHub, which can't replace a pair at once:
+`publish-runtime.sh` replaces both side by side as its last upload, and for the moment that takes one of them is
+missing or the two don't belong together. An installation that checks right then gets "not signed by Harbor" (or
+not found); nothing changes on that Mac, and the check is repeated: once right away when the signature didn't
+match, and again at the next regular check. A failed check during a publication is therefore expected, not a
+sign of a bad list.
+
 ## App only
 
 0. In `CHANGELOG.md`, turn `## Unreleased` into `## <version> (<date>)`. The website builds its changelog and its

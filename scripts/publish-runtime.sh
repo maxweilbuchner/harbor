@@ -70,6 +70,14 @@ for f in $ARCHIVES $SOURCES; do
   if echo "$present" | grep -qxF "$(basename "$f") sha256:$sum"; then echo "unchanged: $(basename "$f")"; continue; fi
   gh release upload "$TAG" -R "$REPO" --clobber "$f"
 done
+# The list and its signature are two assets. GitHub replaces neither a pair at once nor one asset in place:
+# --clobber deletes each and uploads it again under its name. Both go in this one call on purpose: gh replaces
+# them side by side, so the time in which one is missing or the two don't belong together is what one small
+# upload takes. Replacing them one after the other, in either order, would make that time about twice as long
+# and help nobody: the app fetches the list, then the signature, and between the two replacements it gets a pair
+# that doesn't verify whichever of them is new first. A check in that time fails ("not signed by Harbor", or not
+# found) and changes nothing on that Mac, since the signature covers the list's exact bytes; the app tries again
+# (docs/RELEASING.md).
 gh release upload "$TAG" -R "$REPO" --clobber "$DIST/runtime.json" "$DIST/runtime.json.sig"
 keep=$(for f in $ARCHIVES $SOURCES; do basename "$f"; done; echo runtime.json; echo runtime.json.sig)
 gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name' | while read -r name; do
