@@ -1,5 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
+import Note from "../components/Note.astro";
 import { REPO, formatDate, latestDownload, releases } from "../lib/release";
 
 const all = releases();
@@ -41,7 +42,7 @@ const latest = all.find((r) => r.version === download.version);
           </div>
           <ul>
             {r.items.map((item) => (
-              <li><span>{item}</span></li>
+              <li><span><Note text={item} /></span></li>
             ))}
           </ul>
         </section>

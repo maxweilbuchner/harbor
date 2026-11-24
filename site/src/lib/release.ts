@@ -30,18 +30,33 @@ export function latestDownload(): Download {
   return { version, url, megabytes: (Number(length) / 1_000_000).toFixed(1) };
 }
 
-/** Sections of CHANGELOG.md: "## 0.1.4 (2026-11-23)" followed by "- " bullets. Apostrophes are set curly for the page;
- *  a heading without a date ("## Unreleased") and its bullets are skipped. */
+/** Sections of CHANGELOG.md: "## 0.1.4 (2026-11-23)" followed by "- " bullets, as written (see `inline`). A bullet
+ *  may run over several lines. A heading without a date ("## Unreleased") and its bullets are skipped, wherever
+ *  it stands. */
 export function releases(): Release[] {
   const text = readFileSync(resolve(root, "CHANGELOG.md"), "utf8");
   const out: Release[] = [];
+  let items: string[] | null = null; // the section being read; null under a heading that isn't a release
+  let open = false; // the line before belonged to a bullet, so a line of text continues it
   for (const line of text.split("\n")) {
     const head = line.match(/^## (\S+) \((\d{4}-\d{2}-\d{2})\)\s*$/);
-    if (head) out.push({ version: head[1], date: head[2], items: [] });
-    else if (line.startsWith("- ") && out.length) out[out.length - 1].items.push(line.slice(2).trim().replace(/'/g, "’"));
+    if (head) out.push({ version: head[1], date: head[2], items: (items = []) });
+    else if (line.startsWith("## ")) items = null;
+    else if (items && line.startsWith("- ")) items.push(line.slice(2).trim());
+    else if (items && open && line.trim() && !line.startsWith("#")) items[items.length - 1] += ` ${line.trim()}`;
+    open = !!items && line.trim() !== "" && !line.startsWith("#") && (open || line.startsWith("- "));
   }
   if (!out.length) throw new Error("CHANGELOG.md: no releases found");
   return out;
+}
+
+/** A note as pieces of text and of `inline code`, the one piece of Markdown the changelog uses. Apostrophes are set
+ *  curly for the page, in the text only. Rendered by components/Note.astro. */
+export function inline(note: string): { code: boolean; text: string }[] {
+  return note
+    .split(/`([^`]+)`/)
+    .map((text, i) => (i % 2 ? { code: true, text } : { code: false, text: text.replace(/'/g, "’") }))
+    .filter((piece) => piece.text);
 }
 
 const dateFormat = new Intl.DateTimeFormat("en-GB", { dateStyle: "long", timeZone: "UTC" });

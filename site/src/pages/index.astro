@@ -1,5 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
+import Note from "../components/Note.astro";
 import { formatDate, latestDownload, releases, withBase } from "../lib/release";
 
 const download = latestDownload();
@@ -7,7 +8,7 @@ const download = latestDownload();
 const all = releases();
 // The oldest release’s day, without the year, for the index head.
 const sinceDay = formatDate(all[all.length - 1].date).replace(/ \d{4}$/, "");
-const recent = all.slice(0, 3).map((r) => ({ ...r, first: r.items[0]?.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? r.items[0] }));
+const recent = all.slice(0, 3).map((r) => ({ ...r, first: r.items[0]?.match(/^(?:`[^`]*`|[^`])*?[.!?](?=\s|$)/)?.[0] ?? r.items[0] }));
 ---
 
 <Base
@@ -143,7 +144,7 @@ const recent = all.slice(0, 3).map((r) => ({ ...r, first: r.items[0]?.match(/^.*
             src={withBase("shots/settings-dark.png")}
             width="960"
             height="900"
-            alt="Harbor Settings: version 0.1.4, Windows support up to date, D3DMetal and DXMT versions"
+            alt="Harbor Settings: Harbor’s version, Windows support up to date, D3DMetal and DXMT versions"
             loading="lazy"
           />
         </div>
@@ -169,7 +170,7 @@ const recent = all.slice(0, 3).map((r) => ({ ...r, first: r.items[0]?.match(/^.*
             <li>
               <b>{r.version}</b>
               <time datetime={r.date}>{formatDate(r.date)}</time>
-              <p>{r.first}</p>
+              <p><Note text={r.first} /></p>
             </li>
           ))
         }

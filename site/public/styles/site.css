@@ -145,6 +145,9 @@ a { text-decoration-color: var(--color-accent-2); text-decoration-thickness: var
 .release li:first-child { padding-top: 0; }
 .release li + li { border-top: var(--rule-hair) solid var(--color-muted); }
 .release li > span { display: block; max-width: 52ch; }
+.release code, .index code { font: 0.9em ui-monospace, "SF Mono", Menlo, monospace; }
+/* The 404 page: the banner alone, with the two ways back under its line. */
+.banner .lead + .actions { margin-top: var(--space-lg); }
 
 @media (max-width: 60rem) {
   .nav__links .nav__more, .nav__links:first-child { display: none; }

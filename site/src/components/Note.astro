@@ -1,0 +1,11 @@
+---
+// One changelog note: its text, with `inline code` as code.
+import { inline } from "../lib/release";
+
+interface Props {
+  text: string;
+}
+const { text } = Astro.props;
+---
+
+{inline(text).map((piece) => (piece.code ? <code>{piece.text}</code> : piece.text))}

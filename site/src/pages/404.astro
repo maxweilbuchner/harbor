@@ -1,0 +1,23 @@
+---
+import Base from "../layouts/Base.astro";
+import { withBase } from "../lib/release";
+---
+
+<Base
+  title="Page not found: Harbor"
+  description="There is no page at this address on Harbor’s website."
+  unlisted
+>
+  <section class="banner">
+    <div class="container banner__in">
+      <div>
+        <h1>Nothing docks here.</h1>
+        <p class="lead">There is no page at this address.</p>
+        <div class="actions">
+          <a class="btn btn--primary" href={withBase("/")}>Go to Harbor</a>
+          <a class="btn" href={withBase("changelog/")}>Changelog</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</Base>
