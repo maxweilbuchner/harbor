@@ -118,7 +118,26 @@ for p in "$ROOT"/scripts/patches/wine/*.patch; do
     patch -d "$SRC/wine" -p1 -F0 -s -f --no-backup-if-mismatch < "$p" || exit 1
     echo "build-wine: applied $name"
   else
-    echo "build-wine: $name doesn't apply" >&2; exit 1
+    # Neither in the tree as the patch wrote it nor applicable. One cause can be told apart: later patches that
+    # are in the tree although the record doesn't list them (they still reverse). Then the record was lost, or is
+    # older than the tree, and a later patch has changed this one's lines since, so it can't be recognised any
+    # more. That is only said: which patches a tree without its record holds can't be proven, so nothing is repaired.
+    later=; seen=
+    for q in "$ROOT"/scripts/patches/wine/*.patch; do
+      [ -n "$seen" ] || { [ "$q" != "$p" ] || seen=yes; continue; }
+      grep -q "^$(basename "$q") " "$STAMP" && continue
+      ! patch -d "$SRC/wine" -p1 -R -F0 --dry-run -s -f < "$q" >/dev/null 2>&1 || later="$later $(basename "$q")"
+    done
+    if [ -n "$later" ]; then
+      echo "build-wine: $name doesn't apply, and the tree holds later patches that its record ($STAMP) doesn't list:$later" >&2
+      echo "  The record was lost or is older than the tree: $name is most likely in the tree too, and can't be recognised" >&2
+      echo "  because a later patch changed the same lines. This script doesn't try to repair that. Either remove" >&2
+      echo "  $SRC/wine and run scripts/fetch-sources.sh (a pristine tree, which this script patches again), or put the" >&2
+      echo "  record back if you have a copy (one line per patch in the tree: <file name> <SHA-256 of the patch file>)." >&2
+    else
+      echo "build-wine: $name doesn't apply" >&2
+    fi
+    exit 1
   fi
   echo "$name $sum" >> "$STAMP"
 done
