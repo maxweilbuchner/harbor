@@ -18,16 +18,25 @@ struct HarborApp: App {
         case "light": NSApplication.shared.appearance = NSAppearance(named: .aqua)
         default: break
         }
+        // One library window: without tabs there is no tab bar whose "+" would open a second.
+        NSWindow.allowsAutomaticWindowTabbing = false
         _ = Updates.shared
     }
 
     var body: some Scene {
+        // A window group, not `Window`: an app whose main scene is a `Window` quits when that window is closed,
+        // and Harbor stays (a download goes on, running programs are watched, the Dock icon brings the window back).
         WindowGroup("Harbor") {
             ContentView()
                 .environment(model)
                 .frame(minWidth: 640, minHeight: 420)
+                // A `harbor://` link from a Mac shortcut goes to the window that is open instead of opening
+                // another one. With the window closed, the group opens it for the link as before.
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         }
         .commands {
+            // No File > New Window: a second window would show the same sheets and alerts as the first.
+            CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { Updates.shared.checkForUpdates() }
                     .disabled(!Updates.shared.isAvailable)
