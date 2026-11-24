@@ -155,6 +155,13 @@ extension Program {
     }
 }
 
+/// A bottle's programs.json can't be changed because part of it can't be read.
+public struct UnreadableProgramsError: Error, CustomStringConvertible, Equatable {
+    public var description: String {
+        "Harbor can’t read part of what it has recorded for this program, and saving would lose that part. Nothing was changed."
+    }
+}
+
 extension Bottle {
     var programsFile: URL { root.appending(path: "programs.json") }
     var iconsDirectory: URL { root.appending(path: "icons") }
@@ -173,10 +180,27 @@ extension Bottle {
         return (try? JSONDecoder().decode([Lossy<Program>].self, from: data)) == nil
     }
 
+    /// True if programs.json holds something `programs()` doesn't return: the file can't be read at all, or
+    /// some of its entries can't. The library doesn't show those, and saving the rest would drop them for good.
+    public var hasUnreadablePrograms: Bool {
+        guard let data = try? Data(contentsOf: programsFile) else { return false }
+        guard let entries = try? JSONDecoder().decode([Lossy<Program>].self, from: data) else { return true }
+        return entries.contains { $0.value == nil }
+    }
+
     public func savePrograms(_ programs: [Program]) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(programs).write(to: programsFile, options: .atomic)
+    }
+
+    /// Changes the library entries and saves them. Refuses, without writing, when the file holds entries that
+    /// can't be read (`hasUnreadablePrograms`): what `programs()` returns isn't all of it then.
+    public func changePrograms(_ change: (inout [Program]) -> Void) throws {
+        if hasUnreadablePrograms { throw UnreadableProgramsError() }
+        var programs = programs()
+        change(&programs)
+        try savePrograms(programs)
     }
 
     public func iconFile(for program: Program) -> URL { iconsDirectory.appending(path: "\(program.id.uuidString).png") }

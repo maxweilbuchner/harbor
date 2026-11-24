@@ -396,6 +396,9 @@ final class AppModel {
     }
 
     var bottles: [Bottle] = []
+    /// Bottle folders the library can't show (all of, or some of) the programs of: their settings or their list
+    /// of programs can't be read. Said in the status line for as long as it is so, never dropped silently.
+    var damaged: [URL] = []
     /// Every program in every bottle, newest first.
     var library: [LibraryItem] = []
     /// Programs whose Wine process is running.
@@ -569,13 +572,16 @@ final class AppModel {
         return task
     }
 
-    private nonisolated static func scan(_ store: BottleStore) -> ([Bottle], [(LibraryEntry, NSImage?)]) {
-        let bottles = store.list()
-        return (bottles, Library.scan(bottles, salt: LaunchSalt()).map { ($0, $0.iconFile.flatMap(NSImage.init(contentsOf:))) })
+    private nonisolated static func scan(_ store: BottleStore) -> ([Bottle], [(LibraryEntry, NSImage?)], [URL]) {
+        let (bottles, unreadable) = store.scan()
+        let damaged = unreadable.map(\.folder) + bottles.filter(\.hasUnreadablePrograms).map(\.root)
+        return (bottles, Library.scan(bottles, salt: LaunchSalt()).map { ($0, $0.iconFile.flatMap(NSImage.init(contentsOf:))) },
+                damaged.sorted { $0.path < $1.path })
     }
 
-    private func show(_ scan: ([Bottle], [(LibraryEntry, NSImage?)])) {
+    private func show(_ scan: ([Bottle], [(LibraryEntry, NSImage?)], [URL])) {
         bottles = scan.0
+        damaged = scan.2
         library = scan.1.map { entry, icon in
             LibraryItem(program: entry.program, bottle: entry.bottle, icon: icon,
                         managedByStore: entry.managedByStore, iconFile: entry.iconFile, storeTitleKey: entry.storeTitleKey)
@@ -588,7 +594,8 @@ final class AppModel {
     private func syncShortcuts() {
         let items = library.map { ($0.program, $0.iconFile ?? $0.bottle.iconFile(for: $0.program)) }
         let icons = Dictionary(items.map { ($0.0.id, $0.1) }, uniquingKeysWith: { a, _ in a })
-        AppShortcuts().scheduleSync(items.map(\.0)) { program in
+        // With a bottle that can't be read, a shortcut without a program in the library isn't a leftover.
+        AppShortcuts().scheduleSync(items.map(\.0), keepingOthers: !damaged.isEmpty) { program in
             icons[program.id].flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
         }
     }
@@ -883,10 +890,13 @@ final class AppModel {
     }
 
     private func update(_ item: LibraryItem, _ change: (inout Program) -> Void) {
-        var programs = item.bottle.programs()
-        guard let i = programs.firstIndex(where: { $0.id == item.id }) else { return }
-        change(&programs[i])
-        try? item.bottle.savePrograms(programs)
+        do {
+            try item.bottle.changePrograms { programs in
+                if let i = programs.firstIndex(where: { $0.id == item.id }) { change(&programs[i]) }
+            }
+        } catch {
+            status = "Couldn’t save the setting: \(ErrorMessage.text(for: error))"
+        }
         reload()
     }
 
@@ -896,8 +906,8 @@ final class AppModel {
     func removesBottle(_ item: LibraryItem) -> Bool { item.bottle.programs().count <= 1 }
 
     func remove(_ item: LibraryItem) {
-        AppShortcuts().remove(item.id)
         if removesBottle(item) {
+            AppShortcuts().remove(item.id)
             stoppedBottles.insert(item.bottle.id)
             // Stopping the bottle waits for wineserver to end its programs: off the main actor, with the
             // bottle's programs out of the library meanwhile (the reload brings them back if it stays).
@@ -916,7 +926,12 @@ final class AppModel {
             pendingRemoval = nil
             return
         } else {
-            try? item.bottle.savePrograms(item.bottle.programs().filter { $0.id != item.id })
+            do {
+                try item.bottle.changePrograms { $0.removeAll { $0.id == item.id } }
+                AppShortcuts().remove(item.id)
+            } catch {
+                status = "Couldn’t remove \(item.program.name): \(ErrorMessage.text(for: error))"
+            }
         }
         pendingRemoval = nil
         reload()
@@ -945,7 +960,7 @@ struct StatusLine: View {
     @State private var showingAll = false
 
     var body: some View {
-        if model.status != nil || model.runtimeUpdate == .ready {
+        if model.status != nil || model.runtimeUpdate == .ready || !model.damaged.isEmpty {
             VStack(alignment: alignment, spacing: 4) {
                 if let status = model.status {
                     // Statuses name programs and quote errors, and the sidebar is narrow: a long one is cut after
@@ -962,6 +977,15 @@ struct StatusLine: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(width: 300, alignment: .leading).padding()
                     }
+                }
+                if !model.damaged.isEmpty {
+                    // Not through `status`, which the next message replaces: this is said for as long as it is so.
+                    Text(model.damaged.count == 1 ? "1 program’s data couldn’t be read."
+                                                  : "\(model.damaged.count) programs’ data couldn’t be read.")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(alignment == .center ? .center : .leading)
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting(model.damaged) }
+                        .buttonStyle(.link)
                 }
                 if model.runtimeUpdate == .ready {
                     // Short enough for one line in the narrowest sidebar.

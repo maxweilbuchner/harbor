@@ -41,7 +41,9 @@ public struct AppShortcuts: Sendable {
 
     /// Makes every program have exactly one shortcut, and removes Harbor shortcuts whose program is gone.
     /// `icon` gives each program's PNG icon file, if it has one. Not for overlapping calls: see `scheduleSync`.
-    public func sync(_ programs: [Program], icon: (Program) -> URL?) {
+    /// `keepingOthers`: `programs` isn't everything there is (a bottle couldn't be read), so a shortcut whose
+    /// program isn't among them stays; its program is most likely still there, only not readable right now.
+    public func sync(_ programs: [Program], keepingOthers: Bool = false, icon: (Program) -> URL?) {
         var existing = all()
         for program in programs {
             // "Name.app" or a numbered twin "Name 2.app" (two programs with the same name) both match.
@@ -55,6 +57,7 @@ public struct AppShortcuts: Sendable {
             for app in apps { try? FileManager.default.removeItem(at: app) }   // renamed (recreated under the new name), or a duplicate
             if kept == nil { _ = try? create(for: program, iconPNG: icon(program)) }
         }
+        if keepingOthers { return }
         for app in existing.values.joined() { try? FileManager.default.removeItem(at: app) }
     }
 
@@ -63,10 +66,10 @@ public struct AppShortcuts: Sendable {
     private static let queue = DispatchQueue(label: "io.github.maxweilbuchner.harbor.shortcuts", qos: .utility)
 
     /// `sync` in the background, after every sync scheduled before it. `done` runs when it has finished.
-    public func scheduleSync(_ programs: [Program], icon: @escaping @Sendable (Program) -> URL?,
+    public func scheduleSync(_ programs: [Program], keepingOthers: Bool = false, icon: @escaping @Sendable (Program) -> URL?,
                              done: (@Sendable () -> Void)? = nil) {
         Self.queue.async {
-            sync(programs, icon: icon)
+            sync(programs, keepingOthers: keepingOthers, icon: icon)
             done?()
         }
     }
