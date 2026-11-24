@@ -44,6 +44,9 @@ func bottle(_ name: String) -> Bottle {
     return found
 }
 
+// Every command runs inside this `do`: an error it throws ends as one line on stderr and status 1 instead of
+// "Fatal error: Error raised at top level", a trap and a crash report. (The commands keep their indentation.)
+do {
 switch args.first {
 case "list":
     let scan = store.scan()
@@ -134,7 +137,8 @@ case "install-component" where args.count == 3:
     let b = bottle(args[1])
     guard let recipe = Recipe.named(args[2]) else { fail("unknown component \(args[2]); see `components <bottle>`") }
     try await launcher().install(recipe, in: b)
-    print("\(recipe.name) installed in \(b.settings.name): \(recipe.isInstalled(in: b) ? "verified" : "NOT FOUND")")
+    if !recipe.isInstalled(in: b) { fail("\(recipe.name) installed in \(b.settings.name): NOT FOUND (no \(recipe.marker) of Microsoft's)") }
+    print("\(recipe.name) installed in \(b.settings.name): verified")
 // The condition is repeated: a `where` after several patterns applies to the last one only.
 case "add-steam" where args.count == 1 || (args.count == 3 && args[1] == "--store"),
      "add-epic" where args.count == 1 || (args.count == 3 && args[1] == "--store"):
@@ -167,12 +171,17 @@ case "launch" where args.count == 3:
 case "logs" where args.count == 2:
     for log in bottle(args[1]).logs() { print(log.path) }
 case "stop" where args.count == 2:
-    try launcher().shutdown(bottle(args[1]))
+    // Judged by the outcome, not by wineserver's status: `wineserver -k` exits 1 when nothing was running.
+    let b = bottle(args[1])
+    try launcher().shutdown(b)
+    if b.isRunning() { fail("\(b.settings.name) is still running") }
 case "gen-runtime-key" where args.count == 1:
     if FileManager.default.fileExists(atPath: signingKeyFile.path) { fail("\(signingKeyFile.path) already exists") }
     try FileManager.default.createDirectory(at: signingKeyFile.deletingLastPathComponent(), withIntermediateDirectories: true)
     let key = RuntimeSigning.newPrivateKey()
-    FileManager.default.createFile(atPath: signingKeyFile.path, contents: Data(key.utf8), attributes: [.posixPermissions: 0o600])
+    guard FileManager.default.createFile(atPath: signingKeyFile.path, contents: Data(key.utf8), attributes: [.posixPermissions: 0o600]) else {
+        fail("couldn't write \(signingKeyFile.path)")
+    }
     print(try RuntimeSigning.publicKey(forPrivate: key))
 case "sign-manifest" where args.count == 2:
     let manifest = URL(filePath: args[1])
@@ -226,4 +235,9 @@ case "install-runtime" where args.count == 2 || (args.count == 4 && args[2] == "
     print("installed")
 default:
     fail("usage: list | create <name> [--mac-files] | mac-files <bottle> on|off | open <bottle> <file> | run <bottle> <args…> | run-with <bottle> <layer> <args…> | programs <bottle> | launch <bottle> <name> | add <file> | prepare-template | analyze <file> | add-steam [--store <dir>] | add-epic [--store <dir>] | components <bottle> | install-component <bottle> <id> | logs <bottle> | stop <bottle> | gen-runtime-key | sign-manifest <file> | install-runtime <url> [--into <dir>] | update-runtime <url> [--into <dir>]")
+}
+} catch {
+    // Harbor's own errors describe themselves; the system's (a missing file, no network) have a localized text.
+    let text = String(reflecting: type(of: error)).hasPrefix("HarborKit.") ? String(describing: error) : error.localizedDescription
+    fail(text.split(whereSeparator: \.isNewline).joined(separator: " "))
 }
