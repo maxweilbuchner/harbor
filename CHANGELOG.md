@@ -2,7 +2,7 @@
 
 What changed in each Harbor release, newest first. The website's changelog page is built from this file.
 
-## Unreleased
+## 0.1.7 (2026-11-24)
 
 - The progress bar moves while Windows support is downloading; it used to stay at 0% until the download was complete, which looked frozen.
 
