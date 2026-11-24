@@ -8,11 +8,13 @@ the app and the runtime with the "Developer ID Application" certificate, the ins
 "Developer ID Installer" certificate (a separate one: Xcode > Settings > Accounts > Manage Certificates > + ,
 or developer.apple.com > Certificates); notarization uses the `harbor-notary` keychain profile. None of these are in the repository.
 
-The "Developer ID Application" certificate **expires 2027-02-01**. What is signed and timestamped before then
-stays valid; nothing new can be signed after it, so renew it earlier (an Apple Developer account action). While
-the renewed certificate and the old one are both in the keychain the scripts refuse to sign, because the name
-matches two: set `SIGN_IDENTITY` to the SHA-1 of the one to use (`security find-identity -v -p codesigning`), and
-`INSTALLER_IDENTITY` likewise for the installer certificate.
+The "Developer ID Application" certificate was renewed on 2026-11-24: the new one **expires 2027-12-24**, the
+previous one on 2027-02-01. What is signed and timestamped before a certificate expires stays valid; nothing new
+can be signed with it afterwards, so renew earlier (an Apple Developer account action; the request file comes
+from `openssl req -new -newkey rsa:2048` or Keychain Access). While both certificates are in the keychain the
+scripts refuse to sign, because the name matches two: set `SIGN_IDENTITY` to the SHA-1 of the new one
+(`security find-identity -v -p codesigning`; `F38A49201551AA9021F89173E2535CD8EA3CBC3B`) until the old one has
+been deleted from the keychain, and `INSTALLER_IDENTITY` likewise if the installer certificate is ever doubled.
 
 ## Runtime only (a Wine patch, a new D3DMetal or DXMT)
 
