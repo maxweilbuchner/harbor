@@ -31,6 +31,13 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     }
 }
 
+extension FocusedValues {
+    /// Shows the file chooser of the library window (File > Add Program…).
+    @Entry var addProgram: (() -> Void)?
+    /// The selected tile while the keyboard is in the grid (File > Open and Remove from Library…).
+    @Entry var selectedProgram: LibraryItem?
+}
+
 /// The main window's content once Windows support is installed.
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
@@ -40,6 +47,8 @@ struct LibraryView: View {
     @State private var choosingFile = false
     @State private var dropTargeted = false
     @State private var columns = NavigationSplitViewVisibility.automatic
+    @FocusState private var gridFocused: Bool
+    @State private var gridWidth: CGFloat = 0
 
     var body: some View {
         // Sidebar + grid, like Music and Photos: one place to filter, room for more sections later.
@@ -79,6 +88,7 @@ struct LibraryView: View {
                 .help("Add a Windows program or installer")
             }
         }
+        .focusedSceneValue(\.addProgram) { choosingFile = true }
         .fileImporter(isPresented: $choosingFile, allowedContentTypes: [.exe, UTType(filenameExtension: "msi") ?? .data, .folder], allowsMultipleSelection: false) { result in
             if case .success(let urls) = result, let url = urls.first { Task { await model.add(url) } }
         }
@@ -120,19 +130,67 @@ struct LibraryView: View {
                 ContentUnavailableView.search(text: search)
             }
         } else {
-            ScrollView { grid(visible).padding(24) }
+            let items = visible
+            let selected = items.first { selection.contains($0.id) }
+            ScrollViewReader { proxy in
+                ScrollView { grid(items).padding(24) }
+                    // One stop for Tab, like Finder's icon view: the arrow keys move the selection inside it, and
+                    // the selection's colour (not a ring around the whole grid) shows that the keyboard is here.
+                    .focusable()
+                    .focused($gridFocused)
+                    .focusEffectDisabled()
+                    .focusedValue(\.selectedProgram, selected)
+                    .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+                        let current = items.firstIndex { selection.contains($0.id) }
+                        let next = Self.tileIndex(after: current, pressing: press.key, count: items.count, columns: columnCount)
+                        selection = [items[next].id]
+                        proxy.scrollTo(items[next].id)
+                        return .handled
+                    }
+                    .onKeyPress(.return, phases: .down) { _ in
+                        guard let selected else { return .ignored }
+                        model.open(selected)
+                        return .handled
+                    }
+            }
         }
     }
 
+    private static let tileMinimum: CGFloat = 120
+    private static let tileSpacing: CGFloat = 16
+
+    /// How many tiles the grid puts in a row: as many of the narrowest as fit, which is how an adaptive grid
+    /// fills its width.
+    private var columnCount: Int {
+        max(1, Int((gridWidth + Self.tileSpacing) / (Self.tileMinimum + Self.tileSpacing)))
+    }
+
+    /// The tile an arrow key leads to from the one at `current`, in a grid of `count` tiles (at least one) in
+    /// rows of `columns`: left and right go on into the neighbouring row, up and down stay in their column, and
+    /// an arrow that leads nowhere stays where it is. Without a selection every arrow selects the first tile.
+    static func tileIndex(after current: Int?, pressing key: KeyEquivalent, count: Int, columns: Int) -> Int {
+        guard let current else { return 0 }
+        let target = switch key {
+        case .leftArrow: current - 1
+        case .rightArrow: current + 1
+        case .upArrow: current - columns
+        default: current + columns
+        }
+        // Down above a shorter last row has no tile below it: the row's last one is the nearest.
+        if key == .downArrow, target >= count, current / columns < (count - 1) / columns { return count - 1 }
+        return (0..<count).contains(target) ? target : current
+    }
+
     private func grid(_ items: [LibraryItem]) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16, alignment: .top)],
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileMinimum, maximum: 150), spacing: Self.tileSpacing, alignment: .top)],
                   alignment: .leading, spacing: 20) {
             ForEach(items) { item in
-                ProgramTile(item: item, selected: selection.contains(item.id), running: model.running.contains(item.id))
+                ProgramTile(item: item, selected: selection.contains(item.id), emphasized: gridFocused,
+                            running: model.running.contains(item.id))
                     .onTapGesture(count: 2) { model.open(item) }
                     // Simultaneous, not a second onTapGesture: behind a double-click handler a plain tap is held back
                     // for the system's double-click interval, and selecting felt laggy.
-                    .simultaneousGesture(TapGesture().onEnded { selection = [item.id] })
+                    .simultaneousGesture(TapGesture().onEnded { selection = [item.id]; gridFocused = true })
                     .contextMenu { ProgramMenu(item: item) }
                     .accessibilityAction { model.open(item) }
                     // The context menu's main actions, without a right-click (VoiceOver's Actions rotor).
@@ -142,6 +200,7 @@ struct LibraryView: View {
                     }
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gridWidth = $0 }
     }
 }
 
@@ -149,13 +208,15 @@ struct LibraryView: View {
 struct ProgramTile: View {
     let item: LibraryItem
     let selected: Bool
+    /// The keyboard is in the grid: the selection has the accent colour, and is grey while it is elsewhere.
+    let emphasized: Bool
     let running: Bool
 
     var body: some View {
         VStack(spacing: 8) {
             ProgramIcon(icon: item.icon, size: 72)
                 .padding(10)
-                .background(selected ? Color.accentColor.opacity(0.18) : .clear, in: .rect(cornerRadius: 14))
+                .background(selected ? (emphasized ? Color.accentColor : .secondary).opacity(0.18) : .clear, in: .rect(cornerRadius: 14))
             Text(item.program.name)
                 .font(.callout)
                 .multilineTextAlignment(.center)

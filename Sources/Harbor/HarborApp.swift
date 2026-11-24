@@ -35,8 +35,8 @@ struct HarborApp: App {
                 .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         }
         .commands {
-            // No File > New Window: a second window would show the same sheets and alerts as the first.
-            CommandGroup(replacing: .newItem) {}
+            // In place of File > New Window: a second window would show the same sheets and alerts as the first.
+            CommandGroup(replacing: .newItem) { LibraryCommands(model: model) }
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { Updates.shared.checkForUpdates() }
                     .disabled(!Updates.shared.isAvailable)
@@ -46,6 +46,29 @@ struct HarborApp: App {
             SettingsView()
                 .environment(model)
         }
+    }
+}
+
+/// The File menu: what the toolbar's "+" and a tile's context menu do, for the keyboard. Both values come from
+/// the library window (`LibraryView`), so the items are off while it is closed or shows something else.
+struct LibraryCommands: View {
+    let model: AppModel
+    @FocusedValue(\.addProgram) private var addProgram
+    @FocusedValue(\.selectedProgram) private var selected
+
+    var body: some View {
+        Button("Add Program…") { addProgram?() }
+            .keyboardShortcut("o")
+            .disabled(addProgram == nil)
+        Divider()
+        // Without a key here: Return as a menu key would be taken from the search field and from every dialog's
+        // default button. The grid opens the selected program on Return itself.
+        Button("Open") { if let selected { model.open(selected) } }
+            .disabled(selected == nil)
+        // Programs a store installed are removed in the store, as in the context menu.
+        Button("Remove from Library…") { if let selected { model.confirmRemoval(selected) } }
+            .keyboardShortcut(.delete)
+            .disabled(selected.map(\.managedByStore) ?? true)
     }
 }
 
