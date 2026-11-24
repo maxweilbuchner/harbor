@@ -2,7 +2,7 @@
 
 What changed in each Harbor release, newest first. The website's changelog page is built from this file.
 
-## Unreleased
+## 0.1.6 (2026-11-24)
 
 - A program that couldn't run can be reported from its message: Report Problem shows the whole report (versions, the cause and the end of the log, without your user name or your Mac's name) and opens it as a new issue on GitHub in your browser. Help > Report a Problem… does the same for problems with Harbor itself.
 - An installation that never finishes can be left: the progress sheet has Stop (add what was installed) and Cancel (add nothing), and a running program can be quit from its tile's menu.
