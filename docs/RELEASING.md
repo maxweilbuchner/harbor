@@ -24,7 +24,9 @@ matches two: set `SIGN_IDENTITY` to the SHA-1 of the one to use (`security find-
 3. D3DMetal comes from Apple's own image: `scripts/import-d3dmetal.sh <Game_Porting_Toolkit .dmg>` (pinned by
    SHA-256 in `versions.env`).
 4. Run the Wine tests against it (`HARBOR_WINE_ROOT=<folder>`): `WindowsTests/abi/run.sh`, `xproc/run.sh`,
-   `net/run.sh`, `user/run.sh`, `graphics/run.sh "d3dmetal dxmt"`.
+   `net/run.sh`, `user/run.sh`, `appname/run.sh`, `quit/run.sh`, `graphics/run.sh "d3dmetal dxmt"`,
+   `graphics/fullscreen.sh`, `graphics/modeset.sh`, `graphics/spaces.sh` (the last four open windows, some
+   fullscreen: leave the Mac alone while they run).
 5. `scripts/package-runtime.sh <wine folder> <d3dmetal folder>` then `scripts/publish-runtime.sh`. Packaging
    refuses a runtime that was built with uncommitted changes in `scripts/` or that Apple doesn't know as
    notarized (sign, then notarize, and don't sign again). The list gets a new `sequence`; installations refuse
