@@ -641,8 +641,10 @@ final class DownloadProgress: NSObject, URLSessionTaskDelegate, @unchecked Senda
 
     func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
         guard let onProgress else { return }
-        observation = task.progress.observe(\.completedUnitCount) { progress, _ in
-            onProgress(progress.completedUnitCount)
+        // The task's own byte count, not `task.progress`: for a download made with async/await that one stays at
+        // nothing until the file is complete (seen with the 400 MB runtime: 0 % all the way, then done).
+        observation = task.observe(\.countOfBytesReceived) { task, _ in
+            onProgress(task.countOfBytesReceived)
         }
     }
 }

@@ -2,6 +2,10 @@
 
 What changed in each Harbor release, newest first. The website's changelog page is built from this file.
 
+## Unreleased
+
+- The progress bar moves while Windows support is downloading; it used to stay at 0% until the download was complete, which looked frozen.
+
 ## 0.1.6 (2026-11-24)
 
 - With Windows support 26.3.0 (9), which installs itself: Quit (Cmd-Q) asks a Windows program's windows to close, so a program with unsaved work shows its own "save?" question instead of being ended. Overlay windows such as screenshot pickers and screen dimmers stay on the Desktop instead of moving into a fullscreen Space of their own.
