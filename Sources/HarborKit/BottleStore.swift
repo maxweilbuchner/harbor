@@ -40,7 +40,7 @@ public struct BottleStore: Sendable {
     }
 
     /// Creates a bottle and runs `setUp` on it (normally `WineLauncher.initialize`); if that fails, the half-made
-    /// bottle is removed again.
+    /// bottle is removed again. Its folder is this call's alone (see below), so that never removes another's.
     public func create(name: String, setUp: (Bottle) async throws -> Void) async throws -> Bottle {
         let bottle = try create(name: name)
         do {
@@ -54,14 +54,28 @@ public struct BottleStore: Sendable {
 
     /// Creates the bottle folder and settings. The Wine prefix itself is created by `WineLauncher.initialize`.
     public func create(name: String) throws -> Bottle {
+        let fm = FileManager.default
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
         var slug = Self.slug(for: name)
         var n = 2
-        while FileManager.default.fileExists(atPath: directory.appending(path: slug).path) {
-            slug = "\(Self.slug(for: name))-\(n)"
-            n += 1
+        // Creating the folder is the claim. Looking first and saving afterwards let two creates of one name at
+        // the same moment share a folder, and the one whose setup failed then removed the other's bottle.
+        while true {
+            do {
+                try fm.createDirectory(at: directory.appending(path: slug), withIntermediateDirectories: false)
+                break
+            } catch CocoaError.fileWriteFileExists {
+                slug = "\(Self.slug(for: name))-\(n)"
+                n += 1
+            }
         }
         let bottle = Bottle(root: directory.appending(path: slug), settings: BottleSettings(name: name))
-        try bottle.save()
+        do {
+            try bottle.save()
+        } catch {
+            try? fm.removeItem(at: bottle.root)
+            throw error
+        }
         return bottle
     }
 
