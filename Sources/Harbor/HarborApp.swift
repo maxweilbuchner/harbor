@@ -138,10 +138,15 @@ final class Updates: NSObject, SPUUpdaterDelegate {
 
 @MainActor @Observable
 final class AppModel {
-    let store = BottleStore.default
-    private(set) var launcher = AppModel.makeLauncher() {
+    let store: BottleStore
+    private(set) var launcher: WineLauncher? {
         didSet { runtimeVersions = Self.versions(of: launcher) }
     }
+    /// The Mac shortcuts' folder, the secret in the store games' IDs and the pre-made Windows environments'
+    /// folder: the user's own, except in tests.
+    private let shortcuts: AppShortcuts
+    private let salt: LaunchSalt
+    private let templates: URL
     /// Download of Windows support (the Wine runtime); nil when idle.
     var runtimeDownload: RuntimeDownload?
     /// Total download size offered on the empty state, once the manifest has been read.
@@ -158,7 +163,9 @@ final class AppModel {
 
     /// Where Windows support is downloaded from, and the key its list must be signed with (Info.plist; development
     /// builds may override both by environment).
-    private var runtimeInstaller: RuntimeInstaller? {
+    private let runtimeInstaller: RuntimeInstaller?
+
+    private static var bundledRuntimeInstaller: RuntimeInstaller? {
         let env = ProcessInfo.processInfo.environment
         let info = Bundle.main.infoDictionary ?? [:]
         guard let url = (debugOverride(env["HARBOR_RUNTIME_MANIFEST_URL"]) ?? info["HarborRuntimeManifestURL"] as? String)
@@ -198,7 +205,9 @@ final class AppModel {
     // MARK: Updating installed Windows support
 
     /// The oldest runtime list this build works with (Info.plist, written by scripts/bundle-app.sh), if it has one.
-    private var minimumRuntimeSequence: Int? {
+    private let minimumRuntimeSequence: Int?
+
+    private static var bundledMinimumRuntimeSequence: Int? {
         (Bundle.main.object(forInfoDictionaryKey: "HarborMinimumRuntimeSequence") as? NSNumber)?.intValue
     }
 
@@ -437,13 +446,31 @@ final class AppModel {
         Task.detached { try? launcher.shutdown(bottle) }
     }
 
-    init() {
+    convenience init() {
+        self.init(store: .default, launcher: Self.makeLauncher(), runtimeInstaller: Self.bundledRuntimeInstaller,
+                  minimumRuntimeSequence: Self.bundledMinimumRuntimeSequence)
+    }
+
+    /// What `init()` takes from this Mac and from the app's bundle, given instead: tests bring a library, a Wine
+    /// and folders of their own. `background: false` starts nothing by itself: no pre-made Windows environment,
+    /// no check for newer Windows support, none of the development modes below.
+    init(store: BottleStore, launcher: WineLauncher?, runtimeInstaller: RuntimeInstaller? = nil,
+         minimumRuntimeSequence: Int? = nil, shortcuts: URL = AppShortcuts.defaultDirectory, salt: LaunchSalt = LaunchSalt(),
+         templates: URL = PrefixTemplate.defaultDirectory, background: Bool = true) {
+        self.store = store
+        self.launcher = launcher
+        self.runtimeInstaller = runtimeInstaller
+        self.minimumRuntimeSequence = minimumRuntimeSequence
+        self.shortcuts = AppShortcuts(directory: shortcuts)
+        self.salt = salt
+        self.templates = templates
         // The first scan happens before the window exists, so the library never flashes its empty state.
-        show(Self.scan(store))
+        show(Self.scan(store, salt: salt))
         runtimeVersions = Self.versions(of: launcher)
-        prepareTemplate()
+        if background { prepareTemplate() }
         // An install that never reached the library is looked for off the main actor; it shows a moment later.
         reload()
+        guard background else { return }
         // Distribution checks: `open --env HARBOR_SMOKE_TEST=/path/result.txt Harbor.app` makes the real, signed
         // app (launched through LaunchServices, as Gatekeeper sees it) set up a bottle, run a Windows command,
         // write the outcome and quit.
@@ -517,10 +544,11 @@ final class AppModel {
     /// within seconds instead of after a ~25 s setup.
     private func prepareTemplate() {
         guard let launcher else { return }
+        let templates = templates
         Task.detached(priority: .utility) {
             // Old derived runtimes and templates (from earlier Wine builds) go first; in-use ones stay.
             Maintenance.collectGarbage(launcher: launcher)
-            try? await PrefixTemplate(launcher: launcher).prepare()
+            try? await PrefixTemplate(launcher: launcher, directory: templates).prepare()
         }
     }
 
@@ -530,12 +558,12 @@ final class AppModel {
     /// another; the returned task finishes once `library` shows this one's result.
     @discardableResult
     func reload() -> Task<Void, Never> {
-        let (store, previous) = (store, reloading)
+        let (store, salt, previous) = (store, salt, reloading)
         let task = Task {
             await previous?.value
             let (found, scan) = await Task.detached {
                 // Installs that never reached the library (Harbor quit while the installer ran) come in first.
-                (AddProgram.recoverUnrecorded(in: store).adopted, Self.scan(store))
+                (AddProgram.recoverUnrecorded(in: store).adopted, Self.scan(store, salt: salt))
             }.value
             show(scan)
             if let first = found.first {
@@ -547,10 +575,10 @@ final class AppModel {
         return task
     }
 
-    private nonisolated static func scan(_ store: BottleStore) -> ([Bottle], [(LibraryEntry, NSImage?)], [URL]) {
+    private nonisolated static func scan(_ store: BottleStore, salt: LaunchSalt) -> ([Bottle], [(LibraryEntry, NSImage?)], [URL]) {
         let (bottles, unreadable) = store.scan()
         let damaged = unreadable.map(\.folder) + bottles.filter(\.hasUnreadablePrograms).map(\.root)
-        return (bottles, Library.scan(bottles, salt: LaunchSalt()).map { ($0, $0.iconFile.flatMap(NSImage.init(contentsOf:))) },
+        return (bottles, Library.scan(bottles, salt: salt).map { ($0, $0.iconFile.flatMap(NSImage.init(contentsOf:))) },
                 damaged.sorted { $0.path < $1.path })
     }
 
@@ -570,7 +598,7 @@ final class AppModel {
         let items = library.map { ($0.program, $0.iconFile ?? $0.bottle.iconFile(for: $0.program)) }
         let icons = Dictionary(items.map { ($0.0.id, $0.1) }, uniquingKeysWith: { a, _ in a })
         // With a bottle that can't be read, a shortcut without a program in the library isn't a leftover.
-        AppShortcuts().scheduleSync(items.map(\.0), keepingOthers: !damaged.isEmpty) { program in
+        shortcuts.scheduleSync(items.map(\.0), keepingOthers: !damaged.isEmpty) { program in
             icons[program.id].flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
         }
     }
@@ -621,7 +649,7 @@ final class AppModel {
             pendingDuplicate = (file, existing, name)
             return
         }
-        let flow = AddProgram(store: store, launcher: launcher)
+        let flow = AddProgram(store: store, launcher: launcher, template: PrefixTemplate(launcher: launcher, directory: templates))
         // In a task of its own, so that Cancel can end it.
         let task = Task {
             try await flow.add(file, progress: { step in
@@ -949,7 +977,7 @@ final class AppModel {
 
     func remove(_ item: LibraryItem) {
         if removesBottle(item) {
-            AppShortcuts().remove(item.id)
+            shortcuts.remove(item.id)
             stoppedBottles.insert(item.bottle.id)
             // Stopping the bottle waits for wineserver to end its programs: off the main actor, with the
             // bottle's programs out of the library meanwhile (the reload brings them back if it stays).
@@ -970,7 +998,7 @@ final class AppModel {
         } else {
             do {
                 try item.bottle.changePrograms { $0.removeAll { $0.id == item.id } }
-                AppShortcuts().remove(item.id)
+                shortcuts.remove(item.id)
             } catch {
                 status = "Couldn’t remove \(item.program.name): \(ErrorMessage.text(for: error))"
             }
