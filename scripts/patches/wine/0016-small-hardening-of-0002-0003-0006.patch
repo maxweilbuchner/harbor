@@ -1,0 +1,82 @@
+Harbor: three small corrections to earlier patches, and three limits of them written down (#83).
+
+Fixed here:
+
+- 0002 (byte-sized syscall arguments): NtCreateEvent's BOOLEAN "state" was the one narrow by-value argument
+  without SYSCALL_NARROW_ARG; it was missed because the function's name is wrapped in GPT_IMPORT(). The current
+  build happened to be right (clang emits movzbl before the store), another compiler needn't be.
+  Test: WindowsTests/abi/run.sh ("NtCreateEvent with dirty upper bits").
+
+- 0003 (UDP connect to port 0): the retry on port 9 also ran for the unspecified address. Windows takes a
+  datagram connect to 0.0.0.0:0 or [::]:0 as "disconnect"; macOS connects 0.0.0.0:9 to this Mac's own port 9,
+  after which the socket drops datagrams from every other sender. The unspecified address is no longer retried:
+  the call fails with WSAEADDRNOTAVAIL as in Wine on macOS without 0003, and the socket stays as it was. (It
+  is not turned into a real disconnect: a socket that was connected before stays connected.)
+  Test: WindowsTests/net/run.sh ("UDP still receives after connect to 0.0.0.0:0").
+
+- 0006/0008 (program names): 0008 kept ".", ".." and "ntdll.so" out of usable_app_name(), but the fallback
+  that names the loader link after the program's file, extract_exe_name(), took them: "ntdll.so.exe" was started
+  through the link directory's own ntdll.so link, and "..exe" through the directory itself, i.e. not at all.
+  Names that start with a dot and "ntdll.so" (any case) now get no link; the program runs as "wine".
+  Test: WindowsTests/appname/run.sh.
+
+Known limits, not changed:
+
+- 0001 (drawing into another process's window): a process has 8 surfaces for such windows, replaced in turn.
+  If it holds DCs for more than 8 windows of other processes at once, the DC whose surface was replaced is not
+  flushed by its ReleaseDC (release_dc looks the surface up by window and no longer finds it); what was drawn
+  through it never reaches the screen. Using more than 8 such windows one after the other is fine. No program is
+  known to do this; a fix needs the surface to be found from the DC rather than from a fixed table.
+
+- 0006 (program names): pe_file_app_name() reads the executable's version resource through mmap in the process
+  that calls CreateProcess. A file that is truncated by someone else between the fstat and the read raises
+  SIGBUS in that process. All offsets are checked against the size at open, so only truncation during these few
+  reads is affected. Reading with pread instead would mean reading the headers, the section table and the
+  resource tree piecewise; not done.
+
+- 0014 (user name "harbor"): advapi32 decides between "crossover" and "harbor" by looking at
+  C:\users\crossover, while shell32 builds the same path from the registry's ProfilesDirectory. The two agree
+  as long as the profiles folder is C:\users, which is what every Harbor bottle has; in a bottle whose
+  ProfilesDirectory was changed, GetUserName and %USERPROFILE% can name different users.
+
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -552,6 +552,12 @@
+         exe_name_len = p - exe_name;
+     else
+         exe_name_len = strlen(exe_name);
++
++    /* HARBOR HACK: the name becomes a link beside the "ntdll.so" link in the loader link directory. Never
++     * ".", ".." or that one ("ntdll.so.exe" would be started through the ntdll.so link, i.e. not at all): the
++     * same names usable_app_name() in process.c refuses. Such a program runs under the loader's own name. */
++    if (exe_name[0] == '.' || (exe_name_len == 8 && !strncasecmp(exe_name, "ntdll.so", 8)))
++        exe_name_len = 0;
+ 
+     if (exe_name_len)
+         ret = strndup(exe_name, exe_name_len);  /* HARBOR HACK: without the extension, as the comment above says */
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -1184,6 +1184,7 @@
+ NTSTATUS WINAPI GPT_IMPORT(NtCreateEvent)( HANDLE *handle, ACCESS_MASK access, const OBJECT_ATTRIBUTES *attr,
+                                            EVENT_TYPE type, BOOLEAN state )
+ {
++    SYSCALL_NARROW_ARG( state ); /* HARBOR HACK: a byte, see 0002 (missed there: the name is in GPT_IMPORT()) */
+     unsigned int ret;
+     data_size_t len;
+     struct object_attributes *objattr;
+--- a/server/sock.c
++++ b/server/sock.c
+@@ -2782,8 +2782,11 @@
+         /* HARBOR HACK: macOS refuses to connect a datagram socket to port 0 (EADDRNOTAVAIL); Windows and
+          * Linux allow it. Steam does that (UDP connect to 8.8.8.8:0, then getsockname) to find the local
+          * address, and never contacts its login servers when it fails. No packet is sent by connecting a
+-         * datagram socket, so use an arbitrary port; the peer address reported back keeps port 0. */
+-        if (ret < 0 && errno == EADDRNOTAVAIL && sock->state == SOCK_CONNECTIONLESS)
++         * datagram socket, so use an arbitrary port; the peer address reported back keeps port 0.
++         * Not for the unspecified address (0.0.0.0:0, [::]:0), which Windows takes as "disconnect": macOS
++         * would connect that to this Mac's own port 9, and the socket would then drop every datagram that
++         * comes from anywhere else. That request keeps failing, as in Wine on macOS without this hack. */
++        if (ret < 0 && errno == EADDRNOTAVAIL && sock->state == SOCK_CONNECTIONLESS && !is_any_addr( &unix_addr ))
+         {
+             if (unix_addr.addr.sa_family == AF_INET && !unix_addr.in.sin_port)
+             {

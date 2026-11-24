@@ -21,6 +21,6 @@ printf '%s\n' "$out"
 status=0
 printf '%s\n' "$out" | grep -q '^FAIL' && status=1
 passed=$(printf '%s\n' "$out" | grep -c '^PASS')
-[ "$passed" -eq 3 ] || { echo "FAIL: $passed of 3 checks passed"; status=1; }
+[ "$passed" -eq 4 ] || { echo "FAIL: $passed of 4 checks passed"; status=1; }
 [ $rc -eq 0 ] || { echo "FAIL: narrowargs.exe ended with status $rc"; status=1; }
 exit $status

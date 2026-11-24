@@ -63,11 +63,28 @@ static DWORD WINAPI delete_dirty_atom(void *arg)
     return 0;
 }
 
+/* NtCreateEvent's initial state is a BOOLEAN, its fifth argument (on the stack): FALSE with garbage above its
+ * byte must still give an event that isn't set. Result 1 if so, 0 if not, -1 if the event could not be created. */
+static DWORD WINAPI create_dirty_event(void *arg)
+{
+    typedef LONG (WINAPI *create_fn)(HANDLE *, ULONG, void *, ULONG, ULONG_PTR);
+    create_fn create = (create_fn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtCreateEvent");
+    HANDLE event = NULL;
+    if (!create || create(&event, EVENT_ALL_ACCESS, NULL, 0 /* NotificationEvent */, (ULONG_PTR)0xdeadbe00) || !event) {
+        *(int *)arg = -1;
+        return 0;
+    }
+    *(int *)arg = WaitForSingleObject(event, 0) == WAIT_TIMEOUT;
+    CloseHandle(event);
+    return 0;
+}
+
 int main(void)
 {
     int failures = check("QueryDosDeviceW(NULL) entries", query_dos_devices, 1);
     failures += check("GetLogicalDrives mask", logical_drives, 1);
     failures += check("NtDeleteAtom with dirty upper bits", delete_dirty_atom, 1);
+    failures += check("NtCreateEvent with dirty upper bits", create_dirty_event, 1);
     fflush(stdout);
     ExitProcess(failures ? 1 : 0);
 }
