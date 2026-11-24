@@ -530,19 +530,30 @@ final class AppModel {
         }
     }
 
+    /// Said when a second program is dropped while one is being added, or several at once.
+    static let oneAtATime = "Add one program at a time."
+
     /// Adds a dropped program or installer: a new bottle, the installer's own window if it has one, then the
     /// programs it installed.
     func add(_ file: URL, allowDuplicate: Bool = false) async {
-        guard let launcher, addState == nil else { return }
+        guard let launcher else { return }
+        guard addState == nil else {
+            status = Self.oneAtATime
+            return
+        }
+        if waitsForRuntimeSwitch() { return }
+        // Before the first suspension: reading the file can take a while (a network share, a file iCloud has to
+        // fetch), and a second add that got past the check above meanwhile would run beside this one. From here
+        // on no switch of Windows support begins either (`activateRuntimeUpdateIfIdle`).
+        addState = AddState(fileName: file.lastPathComponent, phase: .working(.analyzing))
         // Reading the file happens off the main actor, so a slow or hostile file can't freeze the window.
         let suggested = await Task.detached { AddProgram.suggestedName(for: file) }.value
         if !allowDuplicate, let name = suggested,
            let existing = library.first(where: { $0.bottle.settings.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            addState = nil
             pendingDuplicate = (file, existing, name)
             return
         }
-        if waitsForRuntimeSwitch() { return }
-        addState = AddState(fileName: file.lastPathComponent, phase: .working(.analyzing))
         let flow = AddProgram(store: store, launcher: launcher)
         do {
             let (_, programs) = try await flow.add(file) { step in

@@ -95,6 +95,12 @@ struct LibraryView: View {
         .dropDestination(for: URL.self) { urls, _ in
             // Local files only: a dropped web link ending in .exe would otherwise be downloaded synchronously.
             guard let url = urls.first, url.isFileURL else { return false }
+            // Each program gets its own Windows environment and its installer's window: several at once would be
+            // a guess at which one was meant.
+            guard urls.count == 1 else {
+                model.status = AppModel.oneAtATime
+                return false
+            }
             Task { await model.add(url) }
             return true
         } isTargeted: { dropTargeted = $0 }
