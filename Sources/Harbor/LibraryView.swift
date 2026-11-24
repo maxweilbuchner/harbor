@@ -264,7 +264,7 @@ struct ProgramMenu: View {
     var body: some View {
         Button("Open") { model.open(item) }
         // Also for what runs without Harbor having started it this time (left from before Harbor was reopened).
-        if model.running.contains(item.id) || item.bottle.isRunning() { Button("Quit") { model.quit(item) } }
+        if model.isRunning(item) { Button("Quit") { model.quit(item) } }
         Button("Show in Finder") { model.showInFinder(item) }
         if !item.managedByStore { ownMenu } else if item.storeTitleKey != nil {
             // Stores sell software too, and Apple's D3DMetal is for games only. Harbor follows the store's own

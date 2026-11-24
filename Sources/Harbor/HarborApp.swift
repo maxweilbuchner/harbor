@@ -602,11 +602,19 @@ final class AppModel {
 
     /// `harbor://launch/<program id>`, sent by the Mac app shortcuts.
     func handle(_ url: URL) {
-        guard url.scheme == "harbor", url.host() == "launch",
-              let id = UUID(uuidString: url.lastPathComponent) else { return }
+        guard url.scheme == "harbor" else { return }
+        let id = url.host() == "launch" ? UUID(uuidString: url.lastPathComponent) : nil
         Task {
             await reloading?.value   // a program added a moment ago is in the library once its reload is done
-            if let item = library.first(where: { $0.id == id }) { open(item) }
+            guard let item = library.first(where: { $0.id == id }) else {
+                // A shortcut that outlived its program (kept in the Dock, copied elsewhere), or a link Harbor
+                // doesn't know.
+                status = "That shortcut’s program isn’t in Harbor any more."
+                return
+            }
+            // The window shows the download then; say why nothing opened.
+            if launcher == nil { status = "Download Windows support to open \(item.program.name)." }
+            open(item)
         }
     }
 
@@ -684,7 +692,12 @@ final class AppModel {
 
     /// Installs a Windows component (Visual C++ runtime) into the program's bottle, showing progress.
     func install(_ recipe: Recipe, for item: LibraryItem) async {
-        guard let launcher, addState == nil else { return }
+        guard let launcher else { return }
+        // Offered by the alert about a program that couldn't run, which can come up over a sheet.
+        guard addState == nil else {
+            status = "\(recipe.name) wasn’t installed because Harbor is busy. Try again when it’s done."
+            return
+        }
         if waitsForRuntimeSwitch() { return }
         showSheet(AddState(fileName: recipe.name, phase: .component(item.program.name)), bottle: item.bottle)
         let task = Task { try await launcher.install(recipe, in: item.bottle) }
@@ -692,6 +705,7 @@ final class AppModel {
         do {
             try await task.value
             addState = nil
+            status = "Installed \(recipe.name) for \(item.program.name)."
         } catch {
             // Stopped by the user: how the installer ended is no news then. What the stop left the program's
             // Windows environment without (`RecipeError`) is.
@@ -707,7 +721,11 @@ final class AppModel {
     /// One click: downloads the store's installer, installs it into its own bottle, adds it and starts it. If the
     /// store is already set up, just opens it.
     func addStore(_ which: GameStores.Store) async {
-        guard let launcher, addState == nil else { return }
+        guard let launcher else { return }
+        guard addState == nil else {
+            status = Self.oneAtATime
+            return
+        }
         if waitsForRuntimeSwitch() { return }
         let stores = GameStores(store: store, launcher: launcher)
         if let bottle = stores.existingBottle(for: which),
@@ -753,10 +771,15 @@ final class AppModel {
         if item.bottle.needsWindowsUpdate(for: launcher.runtime), !item.bottle.isRunning(), addState == nil {
             showSheet(AddState(fileName: item.program.name, phase: .updating), bottle: item.bottle)
             let task = Task {
-                try? await launcher.updateWindows(item.bottle)
+                var problem: String?
+                do { try await launcher.updateWindows(item.bottle) } catch { problem = ErrorMessage.text(for: error) }
                 addState = nil
                 // Cancelled: the program isn't wanted any more. (Windows is updated when it is next started.)
-                if !Task.isCancelled { launchNow(item, with: launcher) }
+                if Task.isCancelled { return }
+                // The program is started all the same: Windows tries the update again by itself then, and the
+                // program may well run. But what went wrong here is said.
+                if let problem { status = "Opening \(item.program.name) although Windows couldn’t be updated for it: \(problem)" }
+                launchNow(item, with: launcher)
             }
             endAddTask = { task.cancel() }
             return
@@ -902,6 +925,18 @@ final class AppModel {
 
     func confirmRemoval(_ item: LibraryItem) { pendingRemoval = item }
 
+    /// Whether the program runs, or anything else in its bottle (also what Harbor didn't start itself this time:
+    /// left from before Harbor was reopened).
+    func isRunning(_ item: LibraryItem) -> Bool { running.contains(item.id) || item.bottle.isRunning() }
+
+    /// What the dialog asks before `item` goes to the Trash with its bottle: it names the store games that go
+    /// with Steam or Epic, and says when something is running that the removal ends.
+    func removalQuestion(_ item: LibraryItem) -> (title: String, message: String) {
+        Library.removalQuestion(name: item.program.name,
+                                games: library.count { $0.bottle == item.bottle && $0.managedByStore },
+                                running: isRunning(item))
+    }
+
     /// Whether removing `item` also deletes its bottle (it's the last program in it).
     func removesBottle(_ item: LibraryItem) -> Bool { item.bottle.programs().count <= 1 }
 
@@ -937,12 +972,19 @@ final class AppModel {
         reload()
     }
 
+    /// Rosetta's installer is running (its administrator prompt may be up); the button is off meanwhile, or a
+    /// second click would bring a second prompt.
+    private(set) var rosettaInstalling = false
+
     func installRosetta() {
+        guard !rosettaInstalling else { return }
+        rosettaInstalling = true
         status = "Installing Rosetta…"
         Task.detached {
             // The system's administrator prompt; softwareupdate needs root to install Rosetta.
             let failure = Rosetta.install()
             await MainActor.run {
+                self.rosettaInstalling = false
                 self.rosettaAvailable = Rosetta.isAvailable
                 self.status = self.rosettaAvailable ? nil : "Rosetta wasn’t installed\(failure.map { ": \($0)" } ?? ".")"
             }
@@ -1011,6 +1053,7 @@ struct ContentView: View {
                 } actions: {
                     Button("Install Rosetta") { model.installRosetta() }
                         .buttonStyle(.borderedProminent)
+                        .disabled(model.rosettaInstalling)
                 }
             } else if model.launcher == nil {
                 RuntimeDownloadView()
@@ -1063,7 +1106,7 @@ struct ContentView: View {
             }
         } message: { item in
             if model.removesBottle(item) {
-                Text("Everything installed for \(item.program.name), including its saved data, goes to the Trash. You can put it back from there until you empty it.")
+                Text(model.removalQuestion(item).message)
             } else {
                 Text("Other programs installed alongside it stay in your library.")
             }
@@ -1071,7 +1114,8 @@ struct ContentView: View {
     }
 
     private var removalTitle: String {
-        model.pendingRemoval.map { "Remove \($0.program.name)?" } ?? ""
+        guard let item = model.pendingRemoval else { return "" }
+        return model.removesBottle(item) ? model.removalQuestion(item).title : "Remove \(item.program.name)?"
     }
 }
 
