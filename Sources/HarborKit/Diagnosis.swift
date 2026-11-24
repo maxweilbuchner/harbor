@@ -43,22 +43,27 @@ public struct Diagnosis: Equatable, Sendable {
     /// session, helper programs included (Steam's `gldriverquery.exe` fails to find SDL2.dll at every start, and
     /// nothing is wrong): a missing library is only reported when the launched program itself couldn't be loaded.
     /// Without `program`, any module's failure counts.
-    public static func analyze(_ log: String, program: String? = nil) -> Diagnosis? {
+    /// `installed`: whether a component is already in the bottle. One that is isn't named as the fix again.
+    public static func analyze(_ log: String, program: String? = nil, installed: (Recipe) -> Bool = { _ in false }) -> Diagnosis? {
         let lines = log.split(whereSeparator: \.isNewline)
         // err:module:import_dll Library HarborMissing.dll (which is needed by L"…") not found
         // err:module:loader_init Importing dlls for L"C:\\…\\program.exe" failed, status c0000135
         var failedToLoad = true
+        var missing = lines.filter { $0.contains("err:module:import_dll Library ") && $0.hasSuffix(" not found") }
         if let program {
-            let quoted = ("L\"" + program.replacingOccurrences(of: "\\", with: "\\\\") + "\"").lowercased()
-            failedToLoad = lines.contains { $0.contains("err:module:loader_init Importing dlls for ") && $0.lowercased().contains(quoted) }
+            let quoted = wineDebugString(program).lowercased()
+            failedToLoad = lines.contains { $0.contains("err:module:loader_init Importing dlls for ") && $0.lowercased().contains(quoted + " failed") }
+            // The library the program itself asks for, not one a helper missed earlier in the session. When no
+            // line names the program (one of its own libraries needs something), the first one stays the guess.
+            let own = missing.filter { $0.lowercased().contains(" (which is needed by " + quoted + ")") }
+            if !own.isEmpty { missing = own }
         }
-        if failedToLoad,
-           let line = lines.first(where: { $0.contains("err:module:import_dll Library ") && $0.hasSuffix(" not found") }),
+        if failedToLoad, let line = missing.first,
            let start = line.range(of: "import_dll Library ")?.upperBound,
            let end = line[start...].range(of: " (which is needed by ")?.lowerBound {
             let dll = String(line[start..<end])     // may contain spaces
             let base = dll.lowercased().replacingOccurrences(of: ".dll", with: "")
-            return Diagnosis(cause: .missingLibrary(dll, recipe: Recipe.all.first { $0.overrides.contains(base) }?.id))
+            return Diagnosis(cause: .missingLibrary(dll, recipe: Recipe.all.first { $0.overrides.contains(base) && !installed($0) }?.id))
         }
         let lower = log.lowercased()
         // Only where Wine loads a module or driver, and never by the bare word "vanguard": any other line may just
@@ -70,7 +75,9 @@ public struct Diagnosis: Equatable, Sendable {
         where loads.contains(where: { $0.contains(needle) }) {
             return Diagnosis(cause: .antiCheat(name))
         }
-        if lower.contains("fatal unhandled exception: system.") || lines.contains(where: { $0.contains("err:mscoree:") }) {
+        // Not in a bottle that has Microsoft's .NET already: the advice would be to install what is there.
+        if !installed(.dotnet48),
+           lower.contains("fatal unhandled exception: system.") || lines.contains(where: { $0.contains("err:mscoree:") }) {
             return Diagnosis(cause: .dotNet)
         }
         // wine: Unhandled page fault on read access to … / wine: Unhandled exception 0x… in thread …
@@ -78,6 +85,43 @@ public struct Diagnosis: Equatable, Sendable {
             return Diagnosis(cause: .crashed)
         }
         return nil
+    }
+
+    /// `text` as Wine's log prints a string (`wine_dbgstr_wn` in Wine's include/wine/debug.h): in `L"…"`, with
+    /// backslash, quote, newline, return and tab escaped, every other character outside printable ASCII as a
+    /// backslash and its four hex digits (per UTF-16 unit), and cut with `...` once about 290 characters are out.
+    static func wineDebugString(_ text: String) -> String {
+        var out = "L\""
+        var left = text.utf16.count
+        for unit in text.utf16 {
+            // Wine counts the character it stops at as written: one left over is dropped without the dots.
+            left -= 1
+            guard out.utf8.count <= 290 else { break }
+            switch unit {
+            case 0x0a: out += "\\n"
+            case 0x0d: out += "\\r"
+            case 0x09: out += "\\t"
+            case 0x22: out += "\\\""
+            case 0x5c: out += "\\\\"
+            case 0x20..<0x7f: out.unicodeScalars.append(Unicode.Scalar(UInt8(unit)))
+            default: out += "\\" + String(format: "%04x", unit)
+            }
+        }
+        return out + "\"" + (left > 0 ? "..." : "")
+    }
+
+    /// A log's text for `analyze`, read lossily (Windows programs print in their own code pages). Of a log larger
+    /// than two `portion`s only the first and the last one are read: a program that can't load says so at its
+    /// start and a crash is the last thing in the log, while a game that prints an error per frame for hours
+    /// writes gigabytes in between. A megabyte each is thousands of lines.
+    static func text(ofLog log: URL, portion: Int = 1 << 20) -> String {
+        guard let handle = try? FileHandle(forReadingFrom: log) else { return "" }
+        defer { try? handle.close() }
+        let head = (try? handle.read(upToCount: 2 * portion)) ?? Data()
+        guard head.count == 2 * portion, let size = try? handle.seekToEnd(), size > UInt64(2 * portion),
+              (try? handle.seek(toOffset: size - UInt64(portion))) != nil else { return String(decoding: head, as: UTF8.self) }
+        let tail = (try? handle.readToEnd()) ?? Data()
+        return String(decoding: head.prefix(portion), as: UTF8.self) + "\n" + String(decoding: tail, as: UTF8.self)
     }
 }
 
@@ -93,11 +137,12 @@ extension Bottle {
         }
     }
 
-    /// What went wrong in the last run labelled `label`, and the log that says so. Reads the log lossily (Windows
-    /// programs print in their own code pages) and touches nothing else, so call it off the main actor.
+    /// What went wrong in the last run labelled `label`, and the log that says so. Reads the log (its start and
+    /// end, if it is large) and which components the bottle has, so call it off the main actor.
     public func diagnosis(forLatestRunOf label: String, program: String? = nil) -> (diagnosis: Diagnosis, log: URL)? {
-        guard let log = latestLog(label: label), let data = try? Data(contentsOf: log),
-              let diagnosis = Diagnosis.analyze(String(decoding: data, as: UTF8.self), program: program) else { return nil }
+        guard let log = latestLog(label: label),
+              let diagnosis = Diagnosis.analyze(Diagnosis.text(ofLog: log), program: program,
+                                                installed: { $0.isInstalled(in: self) }) else { return nil }
         return (diagnosis, log)
     }
 }
