@@ -1134,7 +1134,7 @@ struct ContentView: View {
                 Button("Install \(recipe.name)") { Task { await model.install(recipe, for: failure.item) } }
             }
             Button("Show Log") { NSWorkspace.shared.activateFileViewerSelecting([failure.log]) }
-            Button("Report a Problem…") { model.reportProblem(failure) }
+            Button("Report Problem") { model.reportProblem(failure) }
             Button("OK", role: .cancel) {}
         } message: { failure in
             Text(failure.diagnosis.message(for: failure.item.program.name))
