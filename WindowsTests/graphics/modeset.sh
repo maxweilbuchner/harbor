@@ -11,6 +11,9 @@ WindowsTests/graphics/build.sh >/dev/null || exit 1
 CLI="$(swift build --build-system native --show-bin-path 2>/dev/null)/harbor-cli"
 EXE="$PWD/build/WindowsTests/graphics/modeset.exe"
 BOTTLE="modeset-test-$$"
+# The throwaway bottle goes however the run ends, an interruption included.
+cleanup() { "$CLI" stop "$BOTTLE" 2>/dev/null; rm -rf "$HOME/Library/Application Support/Harbor/Bottles/$BOTTLE"; }
+trap cleanup EXIT; trap 'exit 130' INT TERM HUP
 "$CLI" create "$BOTTLE" --mac-files >/dev/null || exit 1
 # Never without emulation: these steps would change the Mac's real display mode.
 "$CLI" run "$BOTTLE" reg add 'HKCU\Software\Wine\X11 Driver' /v EmulateModeset /d y /f >/dev/null 2>&1
@@ -23,8 +26,6 @@ out=$(run all); echo "$out"
 run set
 "$CLI" stop "$BOTTLE"
 later=$(run get); echo "$later"
-"$CLI" stop "$BOTTLE"
-rm -rf "$HOME/Library/Application Support/Harbor/Bottles/$BOTTLE"
 native=$(mode start); status=0
 [ -n "$native" ] || { echo "FAIL: no result"; exit 1; }
 check() { if [ "$2" = "$3" ]; then echo "PASS $1: $2"; else echo "FAIL $1: $2, expected $3"; status=1; fi; }

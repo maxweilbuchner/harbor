@@ -19,6 +19,9 @@ check() { # $1 = label, $2 = expected user
   if [ "$out" = "$want" ]; then printf '%s\n' "PASS: $1: $out"; else printf '%s\n' "FAIL: $1: got '$out', expected '$want'"; rc=1; fi
   "$CLI" stop "$BOTTLE"
 }
+# The throwaway bottle goes however the run ends, an interruption included.
+cleanup() { "$CLI" stop "$BOTTLE" 2>/dev/null; rm -rf "$HOME/Library/Application Support/Harbor/Bottles/$BOTTLE"; }
+trap cleanup EXIT; trap 'exit 130' INT TERM HUP
 "$CLI" create "$BOTTLE" --mac-files >/dev/null || exit 1
 check "new bottle" harbor
 [ -d "$USERS/harbor" ] && [ ! -e "$USERS/crossover" ] || { echo "FAIL: new bottle: users/ holds $(ls "$USERS" | tr '\n' ' ')"; rc=1; }
@@ -26,5 +29,4 @@ check "new bottle" harbor
 [ -d "$USERS/harbor" ] && mv "$USERS/harbor" "$USERS/crossover"
 check "bottle with a crossover profile" crossover
 [ ! -e "$USERS/harbor" ] || { echo "FAIL: bottle with a crossover profile: a second profile users/harbor appeared"; rc=1; }
-rm -rf "$HOME/Library/Application Support/Harbor/Bottles/$BOTTLE"
 exit $rc
