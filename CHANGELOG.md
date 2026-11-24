@@ -2,6 +2,19 @@
 
 What changed in each Harbor release, newest first. The website's changelog page is built from this file.
 
+## Unreleased
+
+- Cancelling an installer no longer leaves an invisible Windows environment behind; it is moved to the Trash.
+- Programs whose name contains a word like "Help", "Manual" or "Support" are no longer skipped when adding, and a program such as `SetupDiag.exe` isn't mistaken for an installer.
+- Dropping a folder whose installer sits in a subfolder (a disc with `Setup\setup.exe` and its data beside it) gives the installer the whole folder.
+- An installer started from an external drive or USB stick can no longer change the files beside it, and unrelated files in Downloads that merely share the start of an installer's name stay out of the bottle.
+- Quitting a program that returns an error code on exit, or removing a program while it runs, no longer shows a failure message. A program opened twice stays marked "Running" until both are closed.
+- A program in a folder with accents or other non-English characters that is missing Visual C++ gets the offer to install it, and a component that is already installed isn't offered again.
+- A Windows component whose installation fails no longer leaves the program's Windows version changed, and a failed .NET Framework install says that .NET is missing until it is installed again.
+- An update to Windows support that was interrupted (Harbor quit, or the Mac lost power) is finished at the next start instead of leaving programs unable to start, and no longer leaves hundreds of megabytes behind. When a program has to wait for newer Windows support, Harbor says why.
+- A program started at the very moment Windows support is being updated no longer fails to open; Harbor asks to try again in a moment.
+- When the update server answers with an error, Settings says the server couldn't be reached instead of "The runtime list isn't signed by Harbor."
+
 ## 0.1.5 (2026-11-23)
 
 - Harbor comes as an installer: open it and Harbor is in Applications; macOS then offers to move the installer to the Trash.
