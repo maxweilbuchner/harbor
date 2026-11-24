@@ -14,7 +14,7 @@ struct SettingsView: View {
                     Button("Check Now") { Updates.shared.checkForUpdates() }
                         .disabled(!Updates.shared.isAvailable)
                 } label: {
-                    Text("Version \(appVersion)")
+                    Text("Version \(Bundle.main.harborVersion)")
                     if !Updates.shared.isAvailable {
                         Text("This development build doesn’t update itself.")
                     }
@@ -52,12 +52,6 @@ struct SettingsView: View {
         .scrollDisabled(true)
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private var appVersion: String {
-        let info = Bundle.main.infoDictionary ?? [:]
-        guard let version = info["CFBundleShortVersionString"] as? String else { return "(development)" }
-        return (info["CFBundleVersion"] as? String).map { "\(version) (\($0))" } ?? version
     }
 
     /// The same call does all three: it checks, or retries, or switches to a downloaded update if nothing runs.

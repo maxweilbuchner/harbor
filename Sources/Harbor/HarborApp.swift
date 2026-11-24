@@ -41,6 +41,10 @@ struct HarborApp: App {
                 Button("Check for Updates…") { Updates.shared.checkForUpdates() }
                     .disabled(!Updates.shared.isAvailable)
             }
+            // In place of "Harbor Help", which only says that there is none.
+            CommandGroup(replacing: .help) {
+                Button("Report a Problem…") { model.reportProblem() }
+            }
         }
         Settings {
             SettingsView()
@@ -823,8 +827,40 @@ final class AppModel {
         let item: LibraryItem
         let diagnosis: Diagnosis
         let log: URL
+        let exit: WineExit
     }
     var failure: Failure?
+
+    /// A problem report that is being read before it goes to GitHub (`ReportSheet`).
+    struct ReportDraft: Identifiable {
+        let id = UUID()
+        let kind: ProblemReport.Kind
+        var title: String
+        var text: String
+    }
+    var reportDraft: ReportDraft?
+
+    /// Writes a report and shows it: about the program that failed, with the end of that launch's log, or
+    /// (from the Help menu) with the versions only. The program's name stays out; the user can add it.
+    func reportProblem(_ failure: Failure? = nil) {
+        let support = runtimeVersions.map { versions in
+            let layers = [versions.d3dmetal.map { "D3DMetal \($0)" }, versions.dxmt.map { "DXMT \($0)" }].compactMap { $0 }
+            return (versions.wine ?? "this checkout’s own build") + (layers.isEmpty ? "" : " (\(layers.joined(separator: ", ")))")
+        }
+        let report = ProblemReport(kind: failure == nil ? .harbor : .program,
+                                   versions: .onThisMac(harbor: Bundle.main.harborVersion, windowsSupport: support),
+                                   diagnosis: failure?.diagnosis, exit: failure?.exit)
+        let log = failure?.log
+        Task {
+            // Reading the log and the Mac's names stays off the main actor.
+            let text = await Task.detached(operation: {
+                var report = report
+                report.log = log.map { ProblemReport.endOfLog($0) }
+                return report.text(identity: .current)
+            }).value
+            reportDraft = ReportDraft(kind: report.kind, title: report.title, text: text)
+        }
+    }
 
     /// Reads the run's own log; a recognised cause gets an alert with what to do, a program that ended right
     /// after starting its exit code, and anything else nothing (`WineExit.report`).
@@ -841,7 +877,7 @@ final class AppModel {
             case .nothing:
                 break
             case .cause(let diagnosis):
-                if let log = exit.log { failure = Failure(item: item, diagnosis: diagnosis, log: log) }
+                if let log = exit.log { failure = Failure(item: item, diagnosis: diagnosis, log: log, exit: exit) }
             case .unexplained:
                 status = exit.signalled ? "\(name) was stopped unexpectedly" : "\(name) quit unexpectedly (\(exit.status))"
             }
@@ -1060,10 +1096,12 @@ struct ContentView: View {
                 Button("Install \(recipe.name)") { Task { await model.install(recipe, for: failure.item) } }
             }
             Button("Show Log") { NSWorkspace.shared.activateFileViewerSelecting([failure.log]) }
+            Button("Report a Problem…") { model.reportProblem(failure) }
             Button("OK", role: .cancel) {}
         } message: { failure in
             Text(failure.diagnosis.message(for: failure.item.program.name))
         }
+        .sheet(item: Binding(get: { model.reportDraft }, set: { model.reportDraft = $0 })) { ReportSheet(draft: $0) }
         // Stores install games on their own: look again whenever Harbor comes to the front.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.reload()
