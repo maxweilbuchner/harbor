@@ -14,11 +14,15 @@ set -u
 cd "$(dirname "$0")/../.."
 BACKEND="${1:-d3dmetal}"
 MODE="${2:-}"
-WindowsTests/graphics/build.sh >/dev/null
+WindowsTests/graphics/build.sh >/dev/null || exit 1   # never test an executable left from an earlier build
 CLI="$(swift build --build-system native --show-bin-path 2>/dev/null)/harbor-cli"
 OUT=build/WindowsTests/graphics/fullscreen
 BOTTLE="fullscreen-test-$$"
 mkdir -p "$OUT"
+# The program and its throwaway bottle go however the run ends, an interruption included.
+RUN=""
+cleanup() { [ -z "$RUN" ] || kill "$RUN" 2>/dev/null; "$CLI" stop "$BOTTLE" 2>/dev/null; rm -rf "$HOME/Library/Application Support/Harbor/Bottles/$BOTTLE"; }
+trap cleanup EXIT; trap 'exit 130' INT TERM HUP
 "$CLI" create "$BOTTLE" --mac-files >/dev/null || exit 1
 # OWN_SPACE=n runs with Wine's raised-window fullscreen instead of a macOS fullscreen Space (Harbor's patch 0011).
 if [ -n "${OWN_SPACE:-}" ]; then
@@ -128,11 +132,12 @@ if wait_for "PHASE 4"; then
   open -a "Mission Control"; sleep 3
   sample "$BACKEND${MODE:+-$MODE}-5-after-mission-control" 255,255,255 || status=1
 fi
-wait "$RUN"
+# The program ends by itself within 26 s of phase 4; one that hangs with its fullscreen window up (#33) is stopped.
+i=0; while kill -0 "$RUN" 2>/dev/null; do
+  sleep 1; i=$((i + 1)); [ $i -le 40 ] || { echo "FAIL: the program was still running 40 s after the last check"; status=1; break; }
+done
 grep -E '^(INFO|FAIL)' "$LOG" | sed 's/^/  /'
 # A program that never got to a phase (or wasn't found to bring to the front) must not pass with fewer checks.
 expected=7; [ "$MODE" = guided ] && expected=9
 [ "$ran" -eq "$expected" ] || { echo "FAIL: $ran of $expected checks ran"; status=1; }
-"$CLI" stop "$BOTTLE"
-rm -rf "$HOME/Library/Application Support/Harbor/Bottles/$BOTTLE"
 exit $status

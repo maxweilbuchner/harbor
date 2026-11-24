@@ -26,6 +26,11 @@ int WINAPI WinMain(HINSTANCE h, HINSTANCE p, LPSTR c, int n) {
         if (!s) break;
         *s = '\\';
     }
+    /* Which test run this was (run.txt beside the installer, if any), before anything can fail: run.sh removes
+     * only the bottle that carries its own number. */
+    snprintf(path, sizeof path, "%s\\run.txt", dir);
+    snprintf(out, sizeof out, "%s\\installed-by.txt", target);
+    CopyFileA(path, out, FALSE);
     snprintf(path, sizeof path, "%s\\data-01.bin", dir);
     snprintf(out, sizeof out, "%s\\Fixture App.exe", target);
     if (!CopyFileA(path, out, FALSE)) return 1;

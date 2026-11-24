@@ -20,6 +20,7 @@ cp Tests/HarborKitTests/Fixtures/app64.exe "$MEDIA/data-01.bin"
 printf '%s\n' "$TARGET" > "$MEDIA/target.txt"
 : > "$MEDIA/Redist/marker"
 : > "$MEDIA/Manual.pdf"      # install media ships documents too; the folder still comes along
+printf '%s' "$$" > "$MEDIA/run.txt"   # the installer leaves it in the bottle: how this run knows its own bottle
 FROM="$MEDIA"; EXPECT='C:\windows\temp\harbor-import\'
 if [ -n "$IMAGE" ]; then
   hdiutil create -quiet -srcfolder "$MEDIA" -volname "HarborFixture$$" -format UDZO "$WORK/disc-$$.dmg" || exit 1
@@ -32,13 +33,18 @@ OUT=$("$CLI" add "$FROM$ENTRY" 2>&1)
 ADDED=$(printf '%s\n' "$OUT" | grep '^added ')
 status=1
 if printf '%s\n' "$ADDED" | grep -qF "$TARGET\\Fixture App.exe"; then status=0; fi
-# The bottle this run made (a failed add can leave one too): whatever the list didn't hold before.
+# The bottle this run made (a failed add can leave one too): among what the list didn't hold before, the one
+# the fixture installer marked with this run's number. Another new bottle is somebody else's (the app, a second
+# session) and is never touched.
+INSTALLED="prefix/drive_c/$(printf '%s' "$TARGET" | sed 's/^C:\\//; s/\\/\//g')"
 "$CLI" list | awk -F'\t' '{ print $NF }' | while read -r ROOT; do
   printf '%s\n' "$BEFORE" | grep -qxF "$ROOT" && continue
+  [ "$(cat "$ROOT/$INSTALLED/installed-by.txt" 2>/dev/null)" = "$$" ] || { echo "not this run's, left alone: $ROOT" >&2; continue; }
   printf '%s\n' "$ROOT"
 done > "$WORK/new-$$"
+[ -s "$WORK/new-$$" ] || { echo "no bottle carries this run's mark"; status=1; }
 while read -r ROOT; do
-  RAN=$(cat "$ROOT/prefix/drive_c/$(printf '%s' "$TARGET" | sed 's/^C:\\//; s/\\/\//g')/installed-from.txt" 2>/dev/null)
+  RAN=$(cat "$ROOT/$INSTALLED/installed-from.txt" 2>/dev/null)
   case "$RAN" in "$EXPECT"*) ;; *) echo "ran from: ${RAN:-?} (expected $EXPECT…)"; status=1 ;; esac
   [ -e "$ROOT/prefix/dosdevices/d:" ] || [ -L "$ROOT/prefix/dosdevices/d:" ] && { echo "drive D: is still there"; status=1; }
   [ -e "$ROOT/prefix/drive_c/windows/temp/harbor-import" ] && { echo "the import area is still there"; status=1; }

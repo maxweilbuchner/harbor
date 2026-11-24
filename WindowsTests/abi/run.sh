@@ -9,11 +9,18 @@ mkdir -p build/WindowsTests/abi
 "$CC" -O2 -Wall -o build/WindowsTests/abi/narrowargs.exe WindowsTests/abi/narrowargs.c || exit 1
 CLI="$(swift build --build-system native --show-bin-path 2>/dev/null)/harbor-cli"
 BOTTLE="abi-test-$$"
+# The throwaway bottle goes however the run ends, an interruption included.
+cleanup() { "$CLI" stop "$BOTTLE" 2>/dev/null; rm -rf "$HOME/Library/Application Support/Harbor/Bottles/$BOTTLE"; }
+trap cleanup EXIT; trap 'exit 130' INT TERM HUP
 "$CLI" create "$BOTTLE" --mac-files >/dev/null || exit 1
-out=$("$CLI" run "$BOTTLE" "$PWD/build/WindowsTests/abi/narrowargs.exe" 2>/dev/null | grep -E '^(PASS|FAIL)')
-echo "$out"
-"$CLI" stop "$BOTTLE"
-rm -rf "$HOME/Library/Application Support/Harbor/Bottles/$BOTTLE"
-echo "$out" | grep -q FAIL && exit 1
-[ -n "$out" ] || { echo "FAIL: no result"; exit 1; }
-exit 0
+# The program's own exit status counts as well as its lines (a pipe into grep would report grep's): one that
+# prints PASS and then crashes has failed, and so has one that printed fewer results than it has checks.
+all=$("$CLI" run "$BOTTLE" "$PWD/build/WindowsTests/abi/narrowargs.exe" 2>/dev/null); rc=$?
+out=$(printf '%s\n' "$all" | grep -E '^(PASS|FAIL)')
+printf '%s\n' "$out"
+status=0
+printf '%s\n' "$out" | grep -q '^FAIL' && status=1
+passed=$(printf '%s\n' "$out" | grep -c '^PASS')
+[ "$passed" -eq 3 ] || { echo "FAIL: $passed of 3 checks passed"; status=1; }
+[ $rc -eq 0 ] || { echo "FAIL: narrowargs.exe ended with status $rc"; status=1; }
+exit $status
