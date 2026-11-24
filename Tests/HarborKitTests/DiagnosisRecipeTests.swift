@@ -190,6 +190,42 @@ extension RecipeInstallTests {
         #expect(again.last?.hasPrefix("reg import") == true && again.last?.contains("-after.reg") == true)
     }
 
+    /// An installer that can't even be started (its downloaded file is gone, the disk is full) ends the install,
+    /// but not with the bottle left on the older Windows that was presented to the installer before it.
+    @Test func anErrorThatIsNotAnInstallersStillRestoresTheBottlesVersion() async throws {
+        // The first installer takes the second one's download away, as a purged cache would.
+        let f = try fixture(exits: #"*vc_x64.exe*) rm "$(dirname "$0")"/../../cache/*-vc_x86.exe;;"#)
+        defer { try? fm.removeItem(at: f.cache.deletingLastPathComponent()) }
+        var first = f.recipe.downloads[0], second = f.recipe.downloads[1]
+        first.windowsVersion = "winxp64"
+        second.windowsVersion = "win7"
+        let recipe = Recipe(id: "nettest", name: "Test", downloads: [first, second], overrides: ["mscoree"], marker: "mscoree.dll")
+        await #expect(throws: CocoaError.self) { try await f.launcher.install(recipe, in: f.bottle, cache: f.cache) }
+        let calls = try String(contentsOf: f.calls, encoding: .utf8).split(separator: "\n").map(String.init)
+        #expect(calls.contains { $0.hasSuffix("/d win7 /f") })
+        #expect(calls.last?.hasSuffix("/d win10 /f") == true, "\(calls)")
+    }
+
+    /// Wine Mono is gone once Microsoft's .NET starts installing and doesn't come back when that fails: the error
+    /// says what the bottle is left with, and the Windows version is the bottle's again.
+    @Test func aFailedDotNetInstallSaysTheBottleHasNoDotNetNow() async throws {
+        let f = try fixture(exits: "*vc_x86.exe*) exit 99;;")
+        defer { try? fm.removeItem(at: f.cache.deletingLastPathComponent()) }
+        var first = f.recipe.downloads[0], second = f.recipe.downloads[1]
+        first.windowsVersion = "winxp64"
+        second.windowsVersion = "win7"
+        var recipe = Recipe(id: "nettest", name: "Test .NET", downloads: [first, second], overrides: ["mscoree"], marker: "mscoree.dll")
+        recipe.replacesWineMono = true
+        let error = await #expect(throws: RecipeError.self) { try await f.launcher.install(recipe, in: f.bottle, cache: f.cache) }
+        #expect(error == .leftWithoutDotNet("Test .NET", reason: "Wine exited with status 99"))
+        #expect(error?.description.contains("no .NET") == true)
+        let calls = try String(contentsOf: f.calls, encoding: .utf8).split(separator: "\n").map(String.init)
+        #expect(calls.last?.hasSuffix("/d win10 /f") == true, "\(calls)")
+        // The same failure of a component that doesn't replace Wine Mono stays the installer's own error.
+        recipe.replacesWineMono = false
+        await #expect(throws: WineExitError.self) { try await f.launcher.install(recipe, in: f.bottle, cache: f.cache) }
+    }
+
     @Test func theDotNetComponentKeepsWinesUpdateFromAskingMicrosoftsMscoree() {
         let reg = Recipe.dotnet48.overridesRegistryFile
         #expect(reg.contains("\"mscoree\"=\"native,builtin\"\r\n"))

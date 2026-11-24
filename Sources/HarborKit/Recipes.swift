@@ -158,9 +158,13 @@ public struct Recipe: Sendable, Identifiable, Equatable {
 public enum RecipeError: Error, CustomStringConvertible, Equatable {
     case checksumMismatch(String)
     case bottleInUse
+    /// A component that replaces Wine Mono failed after Mono was removed (the component's name, and why).
+    case leftWithoutDotNet(String, reason: String)
 
     public var description: String {
         switch self {
+        case .leftWithoutDotNet(let name, let reason):
+            "\(name) couldn’t be installed (\(reason)). Harbor’s built-in .NET was already removed to make room for it, so this program’s Windows environment has no .NET now. Install \(name) again to complete it."
         case .checksumMismatch(let file): "The download of \(file) didn’t match Microsoft’s published file. Nothing was installed."
         case .bottleInUse: "Quit this program, and any installed together with it, before installing this component."
         }
@@ -173,6 +177,17 @@ extension WineLauncher {
     /// failed); the first real failure is thrown afterwards.
     public func install(_ recipe: Recipe, in bottle: Bottle,
                         cache: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appending(path: "Harbor/Recipes")) async throws {
+        var monoRemoved = false
+        do {
+            try await install(recipe, in: bottle, cache: cache, monoRemoved: &monoRemoved)
+        } catch where monoRemoved {
+            // Wine Mono isn't put back (Harbor has nothing that installs it into an existing bottle): whatever
+            // went wrong after it was removed, the message says what the bottle is left with and what helps.
+            throw RecipeError.leftWithoutDotNet(recipe.name, reason: String(describing: error))
+        }
+    }
+
+    private func install(_ recipe: Recipe, in bottle: Bottle, cache: URL, monoRemoved: inout Bool) async throws {
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
         let files = try await withThrowingTaskGroup(of: (Int, URL).self) { group in
             for (n, download) in recipe.downloads.enumerated() { group.addTask { (n, try await Self.fetch(download, into: cache)) } }
@@ -186,6 +201,7 @@ extension WineLauncher {
             for _ in 0..<40 where bottle.isRunning() { try await Task.sleep(for: .milliseconds(500)) }
             if bottle.isRunning() { throw RecipeError.bottleInUse }
             try await removeWineMono(from: bottle)
+            monoRemoved = true
             // Microsoft's installer fails (1603) in the Wine session that removed Mono: let that session end first.
             try? await waitForShutdown(bottle)
         }
@@ -215,6 +231,12 @@ extension WineLauncher {
                 if !download.followUp.isEmpty { try await execute(bottle, arguments: download.followUp, label: recipe.id) }
             } catch let error as WineExitError {
                 if !Recipe.installerSucceeded(error.status) { failure = failure ?? error }
+            } catch {
+                // Anything but an installer's own failure ends the install here (the downloaded file is gone,
+                // Wine can't be started). The bottle's Windows version comes back all the same, or every later
+                // launch would see the older one.
+                if versionChanged { try? await present(bottle.settings.windowsVersion.rawValue) }
+                throw error
             }
         }
         if versionChanged { try await present(bottle.settings.windowsVersion.rawValue) }
