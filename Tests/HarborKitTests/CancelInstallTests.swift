@@ -8,6 +8,8 @@ import Testing
 @Suite struct CancelInstallTests {
     let fm = FileManager.default
     let installs = AddProgramInstallTests()
+    // The stand-in installers wait for a file. Each wait also ends by itself (its folder is gone, or a minute has
+    // passed), so a test that fails before writing the file leaves no shell looping behind.
 
     func wait(for file: URL, containing text: String = "") async throws {
         func there() -> Bool {
@@ -46,7 +48,7 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func cancelledWhileTheInstallerRunsTrashesTheBottle() async throws {
         let f = try installs.fixture(installer: """
             touch "$BIN/started"
-            while [ ! -f "$BIN/go" ]; do sleep 0.05; done
+            while [ ! -f "$BIN/go" ] && [ -d "$BIN" ]; do sleep 0.05; done
             mkdir -p "$C/Games/Thing"; cp "$APP" "$C/Games/Thing/Thing.exe"
             """)
         defer { try? fm.removeItem(at: f.base) }
@@ -66,7 +68,7 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func anInstallerThatWasOnlyWaitedForIsAdded() async throws {
         let f = try installs.fixture(installer: """
             touch "$BIN/started"
-            while [ ! -f "$BIN/go" ]; do sleep 0.05; done
+            while [ ! -f "$BIN/go" ] && [ -d "$BIN" ]; do sleep 0.05; done
             mkdir -p "$C/Games/Thing"; cp "$APP" "$C/Games/Thing/Thing.exe"
             """)
         defer { try? fm.removeItem(at: f.base) }
@@ -86,7 +88,7 @@ import Testing
         let recipes = RecipeInstallTests()
         let go = fm.temporaryDirectory.appending(path: "harbor-go-\(UUID().uuidString)")
         defer { try? fm.removeItem(at: go) }
-        let f = try recipes.fixture(exits: "*vc_x64.exe*) while [ ! -f '\(go.path)' ]; do sleep 0.05; done;;")
+        let f = try recipes.fixture(exits: "*vc_x64.exe*) n=0; while [ ! -f '\(go.path)' ] && [ $n -lt 1200 ]; do sleep 0.05; n=$((n+1)); done;;")
         defer { try? fm.removeItem(at: f.cache.deletingLastPathComponent()) }
         let (launcher, bottle, recipe, cache) = (f.launcher, f.bottle, f.recipe, f.cache)
         let task = Task { try await launcher.install(recipe, in: bottle, cache: cache) }

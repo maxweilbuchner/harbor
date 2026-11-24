@@ -141,7 +141,7 @@ import Testing
     /// While its program runs, a launch's log is marked as in use, and no longer once it has ended.
     @Test(.timeLimit(.minutes(1))) func aRunningLaunchKeepsItsLogThroughRotation() async throws {
         // A "program" that runs until the file it is given appears.
-        let f = try fixture(wine: #"while [ ! -e "$1" ]; do sleep 0.05; done"#)
+        let f = try fixture(wine: #"n=0; while [ ! -e "$1" ] && [ $n -lt 1200 ]; do sleep 0.05; n=$((n+1)); done"#)
         defer { try? fm.removeItem(at: f.base) }
         let go = f.base.appending(path: "go")
         let (exits, feed) = AsyncStream.makeStream(of: WineExit.self)
