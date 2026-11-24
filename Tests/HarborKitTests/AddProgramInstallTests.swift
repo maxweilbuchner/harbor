@@ -114,6 +114,29 @@ import Testing
         #expect(ProgramAnalysis.detectInstaller(data, pe: pe, file: file, description: "Thing Setup") == .other)
     }
 
+    // MARK: #60
+
+    /// A disc whose `autorun.inf` opens `Setup\setup.exe` while the data sits at the disc's top: the installer
+    /// runs below the whole dropped folder, also when that holds a dot-file.
+    @Test func anInstallerInASubfolderOfADroppedFolderSeesTheWholeFolder() async throws {
+        // `start /wait /unix <installer>`: the installer installs only if it finds its data one folder up.
+        let f = try fixture(installer: """
+            [ -f "$(dirname "$4")/../Data/data1.cab" ] || exit 0
+            mkdir -p "$C/Program Files/Thing"; cp "$APP" "$C/Program Files/Thing/Thing.exe"
+            """)
+        defer { try? fm.removeItem(at: f.base) }
+        let disc = f.base.appending(path: "Thing Disc")
+        _ = try program("Thing Disc/Setup/setup.exe", in: f.base)
+        try fm.createDirectory(at: disc.appending(path: "Data"), withIntermediateDirectories: true)
+        try Data("cab".utf8).write(to: disc.appending(path: "Data/data1.cab"))
+        try Data().write(to: disc.appending(path: ".disc-id"))
+        try "[autorun]\r\nopen=Setup\\setup.exe\r\n".write(to: disc.appending(path: "autorun.inf"), atomically: true, encoding: .utf8)
+        let (bottle, programs) = try await f.flow.add(disc)
+        #expect(programs.map(\.windowsPath) == [#"C:\Program Files\Thing\Thing.exe"#])
+        #expect(!fm.fileExists(atPath: bottle.importsDirectory.path))            // the copy went after the install
+        #expect(fm.fileExists(atPath: disc.appending(path: "Data/data1.cab").path))
+    }
+
     /// A dropped folder whose only program has such a name stands for that program.
     @Test func aDroppedFolderWithOnlyAnAuxiliaryNamedProgramIsThatProgram() throws {
         let base = fm.temporaryDirectory.appending(path: "harbor-install-\(UUID().uuidString)")

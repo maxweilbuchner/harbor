@@ -38,12 +38,15 @@ extension Bottle {
     /// folder is the installer's own; from a shared folder such as Downloads only the named parts come, as above.
     /// A folder on another disk (a mounted disk image, an external drive) isn't copied: it becomes drive D: until
     /// `clearImports`, and the installer is returned at its place on that drive.
-    public func importForRunning(_ file: URL, withFolder: Bool = false) throws -> URL {
+    /// `mediaRoot`: the folder the user dropped, when the installer was found inside it (`AddProgram.entry`).
+    /// That folder comes along instead of the installer's own, and the installer is returned at its place below
+    /// it, so `Setup\setup.exe` finds `..\Data`.
+    public func importForRunning(_ file: URL, withFolder: Bool = false, mediaRoot: URL? = nil) throws -> URL {
         let fm = FileManager.default
         let source = file.standardizedFileURL.resolvingSymlinksInPath()
         if source.path.hasPrefix(driveC.standardizedFileURL.resolvingSymlinksInPath().path + "/") { return file }
         if !isRunning() { clearImports() }     // copies from earlier runs, now that nothing can be using them
-        if withFolder, let media = installerFolder(of: source),
+        if withFolder, let media = droppedFolder(mediaRoot, holding: source) ?? installerFolder(of: source),
            let local = try bringFolder(media, of: source, asDrive: !isOnBottlesDisk(media)) {
             return local
         }
@@ -68,16 +71,26 @@ extension Bottle {
     /// the install only. Nil if drive D: is taken (another install is running in this bottle).
     func bringFolder(_ media: URL, of source: URL, asDrive: Bool) throws -> URL? {
         let fm = FileManager.default
+        // Where the installer sits below `media`: its name, or `Setup/setup.exe` in a dropped folder.
+        let place = String(source.path.dropFirst(media.path.count + 1))
         if asDrive {
             guard (try? fm.attributesOfItem(atPath: mediaDrive.path)) == nil else { return nil }
             try fm.createSymbolicLink(atPath: mediaDrive.path, withDestinationPath: media.path)
-            return mediaDrive.appending(path: source.lastPathComponent)
+            return mediaDrive.appending(path: place)
         }
         let folder = importsDirectory.appending(path: UUID().uuidString)
         try fm.createDirectory(at: importsDirectory, withIntermediateDirectories: true)
         try fm.copyItem(at: media, to: folder)
         try AddProgram.removeLinks(leadingOutOf: folder)      // nothing in the bottle points back at the Mac
-        return folder.appending(path: source.lastPathComponent)
+        return folder.appending(path: place)
+    }
+
+    /// The folder the user dropped, if `file` lies below it. Their word settles what `installerFolder` has to
+    /// guess from dot-files; shared places stay out all the same (`AddProgram.entry` refuses them first).
+    private func droppedFolder(_ root: URL?, holding file: URL) -> URL? {
+        guard let root = root?.standardizedFileURL.resolvingSymlinksInPath(), file.path.hasPrefix(root.path + "/"),
+              Self.isInstallDisc(root) || !AddProgram.isSharedPlace(root) else { return nil }
+        return root
     }
 
     /// The folder `file` sits in, if it may be given to the installer whole: not in a shared place and not a

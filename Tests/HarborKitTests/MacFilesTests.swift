@@ -110,6 +110,35 @@ import Testing
         #expect(try fm.contentsOfDirectory(atPath: working.deletingLastPathComponent().path) == ["setup.exe"])
     }
 
+    /// An installer found inside a folder the user dropped gets that folder, at the same layout (#60).
+    @Test func aDroppedFolderComesAlongAroundAnInstallerInItsSubfolder() throws {
+        let b = try bottle()
+        let base = b.root.deletingLastPathComponent()
+        defer { try? fm.removeItem(at: base) }
+        let disc = base.appending(path: "Thing Disc"), setup = disc.appending(path: "Setup/setup.exe")
+        for name in ["Setup/setup.exe", "Data/data1.cab", ".disc-id"] {
+            try fm.createDirectory(at: disc.appending(path: name).deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(name.utf8).write(to: disc.appending(path: name))
+        }
+        let copy = try b.importForRunning(setup, withFolder: true, mediaRoot: disc)
+        #expect(b.windowsPath(for: copy)?.hasSuffix(#"\Setup\setup.exe"#) == true)
+        #expect(fm.fileExists(atPath: copy.deletingLastPathComponent().appending(path: "../Data/data1.cab").path))
+        // On another disk the same folder is drive D:.
+        b.clearImports()
+        let linked = try #require(try b.bringFolder(disc, of: setup, asDrive: true))
+        #expect(b.windowsPath(for: linked) == #"D:\Setup\setup.exe"#)
+        b.clearImports()
+        // A folder the installer isn't in, or a shared place, is nobody's word: the installer's own folder.
+        let downloads = base.appending(path: "Downloads")
+        try fm.createDirectory(at: downloads.appending(path: "Sub"), withIntermediateDirectories: true)
+        for name in ["Sub/setup.exe", "Sub/part.bin", "Tax Return.pdf"] { try Data().write(to: downloads.appending(path: name)) }
+        for root in [downloads, base.appending(path: "Elsewhere")] {
+            let own = try b.importForRunning(downloads.appending(path: "Sub/setup.exe"), withFolder: true, mediaRoot: root)
+            #expect(try fm.contentsOfDirectory(atPath: own.deletingLastPathComponent().path).sorted() == ["part.bin", "setup.exe"])
+            #expect(!fm.fileExists(atPath: own.deletingLastPathComponent().appending(path: "../Tax Return.pdf").path))
+        }
+    }
+
     /// An installer's folder on another disk isn't copied: it is drive D: for the install and gone afterwards.
     @Test func aFolderOnAnotherDiskBecomesDriveDForTheInstall() throws {
         let b = try bottle()

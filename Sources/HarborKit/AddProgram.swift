@@ -61,7 +61,7 @@ public struct AddProgram: Sendable {
         let programs: [Program]
         do {
             if analysis.installer != nil {
-                programs = try await install(file, name: name, into: bottle, progress: progress)
+                programs = try await install(file, name: name, into: bottle, root: folder, progress: progress)
             } else {
                 // A dropped folder is the program's by the user's word: all of it comes along.
                 programs = [try place(file, analysis: analysis, name: name, in: bottle, root: folder)]
@@ -79,14 +79,20 @@ public struct AddProgram: Sendable {
         return (bottle, programs)
     }
 
-    private func install(_ file: URL, name: String, into bottle: Bottle,
+    /// `root`: the folder the user dropped, if the installer was found in it; the installer gets all of it.
+    private func install(_ file: URL, name: String, into bottle: Bottle, root: URL? = nil,
                          progress: @Sendable (Step) -> Void) async throws -> [Program] {
         let before = Set(bottle.startMenuPrograms(includingAuxiliary: true).map { $0.windowsPath.lowercased() })
         let exesBefore = Self.installedExecutables(in: bottle)
         progress(.runningInstaller(name: name))
+        // As `WineLauncher.open` does it, but the import is made here, where the dropped folder is known.
+        let local = try bottle.importForRunning(file, withFolder: true, mediaRoot: root)
+        let arguments = WineLauncher.arguments(toOpen: local, windowsPath: bottle.windowsPath(for: local))
         // The exit handler is installed before the installer starts, so its end can't be missed.
         try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
-            do { try launcher.open(file, in: bottle, withFolder: true) { _ in done.resume() } } catch { done.resume(throwing: error) }
+            do {
+                try launcher.run(bottle, arguments: arguments, label: file.deletingPathExtension().lastPathComponent) { _ in done.resume() }
+            } catch { done.resume(throwing: error) }
         }
         // Bootstrapper installers start the real setup and exit at once; wait until every Windows process in
         // the bottle has finished (wineserver exits then), or the scan below would run mid-install. That
