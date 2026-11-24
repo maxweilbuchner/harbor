@@ -24,6 +24,14 @@ RUN=""
 cleanup() { [ -z "$RUN" ] || kill "$RUN" 2>/dev/null; "$CLI" stop "$BOTTLE" 2>/dev/null; rm -rf "$HOME/Library/Application Support/Harbor/Bottles/$BOTTLE"; }
 trap cleanup EXIT; trap 'exit 130' INT TERM HUP
 "$CLI" create "$BOTTLE" --mac-files >/dev/null || exit 1
+# The graphics layer must be there before anything is waited for: harbor-cli says at once when it isn't (it looks
+# in $HARBOR_D3DMETAL_LIB, Harbor's installed copy, then the checkout's Runtime/d3dmetal-*). This opens no window.
+why=$("$CLI" run-with "$BOTTLE" "$BACKEND" cmd /c exit 2>&1 </dev/null) || {
+  rc=$?; why=$(printf '%s\n' "$why" | grep '^harbor-cli:' | tail -1)
+  echo "FAIL: nothing runs on $BACKEND: ${why:-status $rc}"
+  [ "$BACKEND" != d3dmetal ] || echo "  (D3DMetal: scripts/import-d3dmetal.sh <Game Porting Toolkit .dmg>, or HARBOR_D3DMETAL_LIB=<its lib folder>)"
+  exit 1; }
+"$CLI" stop "$BOTTLE"
 # OWN_SPACE=n runs with Wine's raised-window fullscreen instead of a macOS fullscreen Space (Harbor's patch 0011).
 if [ -n "${OWN_SPACE:-}" ]; then
   "$CLI" run "$BOTTLE" reg add 'HKCU\Software\Wine\Mac Driver' /v FullscreenInOwnSpace /d "$OWN_SPACE" /f >/dev/null 2>&1
@@ -74,7 +82,11 @@ PY
 LOG="$OUT/$BACKEND${MODE:+-$MODE}.log"
 "$CLI" run-with "$BOTTLE" "$BACKEND" "$PWD/build/WindowsTests/graphics/d3d11fs.exe" $([ "$MODE" = passive ] && echo passive) > "$LOG" 2>&1 &
 RUN=$!
-wait_for() { i=0; while ! grep -q "$1" "$LOG" 2>/dev/null; do sleep 0.2; i=$((i + 1)); [ $i -gt 600 ] && return 1; done; return 0; }
+# Up to 120 s for a line of the program's, and not a moment longer once the program has ended without printing it.
+wait_for() { i=0; while ! grep -q "$1" "$LOG" 2>/dev/null; do
+    kill -0 "$RUN" 2>/dev/null || { grep -q "$1" "$LOG" 2>/dev/null; return; }
+    sleep 0.2; i=$((i + 1)); [ $i -gt 600 ] && return 1
+  done; return 0; }
 
 status=0
 front() { PID=$(pgrep -n -f 'd3d11fs.exe' || true)
@@ -136,8 +148,8 @@ fi
 i=0; while kill -0 "$RUN" 2>/dev/null; do
   sleep 1; i=$((i + 1)); [ $i -le 40 ] || { echo "FAIL: the program was still running 40 s after the last check"; status=1; break; }
 done
-grep -E '^(INFO|FAIL)' "$LOG" | sed 's/^/  /'
+grep -E '^(INFO|FAIL|harbor-cli:)' "$LOG" | sed 's/^/  /'   # harbor-cli: why the program never started, if so
 # A program that never got to a phase (or wasn't found to bring to the front) must not pass with fewer checks.
 expected=7; [ "$MODE" = guided ] && expected=9
-[ "$ran" -eq "$expected" ] || { echo "FAIL: $ran of $expected checks ran"; status=1; }
+[ "$ran" -eq "$expected" ] || { echo "FAIL: $ran of $expected checks ran (the program's output: $LOG)"; status=1; }
 exit $status

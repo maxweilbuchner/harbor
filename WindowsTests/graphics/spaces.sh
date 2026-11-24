@@ -49,7 +49,12 @@ settle() { # waits until the Mac has $1 fullscreen Spaces again (a closed window
 }
 start() { # $1 = program, $2 = kind, $3 = seconds; prints the program's Mac pid once its window is up
   "$CLI" run "$BOTTLE" "$PWD/$G/$1.exe" "$2" "$3" > "$OUT/$1-$2.log" 2>/dev/null &
-  i=0; while ! grep -aq '^READY' "$OUT/$1-$2.log" 2>/dev/null; do sleep 0.2; i=$((i + 1)); [ $i -gt 300 ] && return 1; done
+  run=$!
+  # Up to 60 s for its window, and not a moment longer once the program has ended without one.
+  i=0; while ! grep -aq '^READY' "$OUT/$1-$2.log" 2>/dev/null; do
+    kill -0 "$run" 2>/dev/null || { grep -aq '^READY' "$OUT/$1-$2.log" 2>/dev/null || return 1; break; }
+    sleep 0.2; i=$((i + 1)); [ $i -gt 300 ] && return 1
+  done
   sleep 1; pgrep -n -f "$1.exe"
 }
 
