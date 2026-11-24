@@ -50,13 +50,18 @@ public struct AddProgram: Sendable {
 
     /// Returns the bottle and the programs added to it.
     /// `file` may be a folder: then the installer or program at its top is added (`entry(in:)`).
-    public func add(_ file: URL, progress: @Sendable (Step) -> Void = { _ in }) async throws -> (Bottle, [Program]) {
+    /// `created` learns the new bottle as soon as its folder exists, so the caller can stop what runs in it.
+    /// Cancelling the task keeps nothing: the bottle is removed, or goes to the Trash once the installer has run
+    /// (the caller ends a running installer with `WineLauncher.shutdown`; nothing here interrupts it).
+    public func add(_ file: URL, progress: @Sendable (Step) -> Void = { _ in },
+                    created: @Sendable (Bottle) -> Void = { _ in }) async throws -> (Bottle, [Program]) {
         progress(.analyzing)
         let folder = Self.isFolder(file) ? file.standardizedFileURL.resolvingSymlinksInPath() : nil
         let file = try folder.map { try Self.entry(in: $0) } ?? file
         guard ["exe", "msi"].contains(file.pathExtension.lowercased()),
               let analysis = try? ProgramAnalysis.analyze(file) else { throw Failure.notAWindowsProgram }
         let name = Self.bottleName(for: analysis, file: folder ?? file)
+        try Task.checkCancellation()
 
         progress(.preparingWindows(name: name))
         let (launcher, template) = (self.launcher, self.template)
@@ -65,7 +70,12 @@ public struct AddProgram: Sendable {
         defer { release() }
         let bottle = try await store.create(name: name) {
             release = $0.claim()
+            created($0)
             try await launcher.initialize($0, template: template)
+        }
+        if Task.isCancelled {
+            delete(bottle)
+            throw CancellationError()
         }
         let programs: [Program]
         if analysis.installer != nil {
@@ -74,6 +84,7 @@ public struct AddProgram: Sendable {
             do {
                 // A dropped folder is the program's by the user's word: all of it comes along.
                 programs = [try place(file, analysis: analysis, name: name, in: bottle, root: folder)]
+                try Task.checkCancellation()
             } catch {
                 delete(bottle)
                 throw error
@@ -101,6 +112,7 @@ public struct AddProgram: Sendable {
             // As `WineLauncher.open` does it, but the import is made here, where the dropped folder is known.
             let local = try bottle.importForRunning(file, withFolder: true, mediaRoot: root)
             let arguments = WineLauncher.arguments(toOpen: local, windowsPath: bottle.windowsPath(for: local))
+            try Task.checkCancellation()
             // The exit handler is installed before the installer starts, so its end can't be missed.
             try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
                 do {
@@ -117,6 +129,12 @@ public struct AddProgram: Sendable {
         // the bottle has finished (wineserver exits then), or the scan below would run mid-install. That
         // includes a program the installer starts at its end; the sheet asks the user to quit it.
         try await launcher.waitForShutdown(bottle)
+        // Cancelled while the installer ran: what it installed isn't wanted. To the Trash like a bottle nothing
+        // was installed into, should the click have been a slip.
+        if Task.isCancelled {
+            try? store.moveToTrash(bottle)
+            throw CancellationError()
+        }
         bottle.clearImports()          // the installer's copy inside the bottle
         progress(.findingPrograms)
         let added = Self.installedExecutables(in: bottle).subtracting(exesBefore)

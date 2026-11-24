@@ -263,6 +263,8 @@ struct ProgramMenu: View {
 
     var body: some View {
         Button("Open") { model.open(item) }
+        // Also for what runs without Harbor having started it this time (left from before Harbor was reopened).
+        if model.running.contains(item.id) || item.bottle.isRunning() { Button("Quit") { model.quit(item) } }
         Button("Show in Finder") { model.showInFinder(item) }
         if !item.managedByStore { ownMenu } else if item.storeTitleKey != nil {
             // Stores sell software too, and Apple's D3DMetal is for games only. Harbor follows the store's own
@@ -333,20 +335,36 @@ struct AddProgressSheet: View {
                 ProgressView().controlSize(.large)
                 Text(title(step)).font(.headline)
                 Text(detail(step)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                // Every state that waits for something that may never come has a way out. Finding the programs
+                // is Harbor's own, short work.
+                switch step {
+                case .analyzing, .preparingWindows:
+                    cancelButton.help("Don’t add this program")
+                case .runningInstaller:
+                    HStack {
+                        cancelButton.help("End the installer and add nothing")
+                        Button("Stop") { model.stopAdd() }.help("End the installer and add what it has installed")
+                    }
+                case .findingPrograms:
+                    EmptyView()
+                }
             case .store(let which, let step):
                 ProgressView().controlSize(.large)
                 Text(storeTitle(which, step)).font(.headline)
                 Text(storeDetail(which, step)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                cancelButton.help("Don’t add \(which.name)")
             case .component(let program):
                 ProgressView().controlSize(.large)
                 Text("Installing \(state.fileName)…").font(.headline)
                 Text("For \(program). Microsoft’s installer runs in the background; this can take a few minutes.")
                     .foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button("Stop") { model.stopAdd() }.help("End the installer. This also quits \(program) if it is running.")
             case .updating:
                 ProgressView().controlSize(.large)
                 Text("Updating Windows for \(state.fileName)…").font(.headline)
                 Text("This happens once after Harbor updates its Windows support. It takes about half a minute.")
                     .foregroundStyle(.secondary).multilineTextAlignment(.center)
+                cancelButton.help("Don’t open \(state.fileName) now")
             case .failed(let message):
                 Image(systemName: "exclamationmark.triangle").font(.largeTitle).foregroundStyle(.orange)
                 Text("Couldn’t Add \(state.fileName)").font(.headline)
@@ -356,6 +374,10 @@ struct AddProgressSheet: View {
         }
         .padding(28)
         .frame(width: 380)
+    }
+
+    private var cancelButton: some View {
+        Button("Cancel") { model.cancelAdd() }.keyboardShortcut(.cancelAction)
     }
 
     private func storeTitle(_ which: GameStores.Store, _ step: GameStores.Step) -> String {
@@ -388,7 +410,7 @@ struct AddProgressSheet: View {
         switch step {
         case .analyzing: "Checking what kind of program this is."
         case .preparingWindows: "This takes about half a minute the first time."
-        case .runningInstaller: "Finish the installer’s window to continue. If it starts the program at the end, quit the program too."
+        case .runningInstaller: "Finish the installer’s window to continue. If it starts the program at the end, quit the program too. If nothing happens after that, click Stop."
         case .findingPrograms: "Looking for what the installer added."
         }
     }

@@ -83,7 +83,9 @@ public struct GameStores: Sendable {
 
     /// Downloads and silently installs a store into its own bottle and adds its launcher to that bottle's
     /// library. Returns the existing bottle instead if the store is already set up.
-    public func install(_ which: Store, progress: @Sendable (Step) -> Void = { _ in }) async throws -> (Bottle, Program) {
+    /// `created` and cancelling the task: as for `AddProgram.add`; a cancelled install leaves no bottle.
+    public func install(_ which: Store, progress: @Sendable (Step) -> Void = { _ in },
+                        created: @Sendable (Bottle) -> Void = { _ in }) async throws -> (Bottle, Program) {
         if let bottle = existingBottle(for: which), let program = storeProgram(which, in: bottle) { return (bottle, program) }
         progress(.downloading)
         let (download, response) = try await URLSession.shared.download(from: which.installerURL)
@@ -106,15 +108,18 @@ public struct GameStores: Sendable {
         defer { release() }
         let bottle = try await store.create(name: which.bottleName) {
             release = $0.claim()
+            created($0)
             try await launcher.initialize($0, template: template)
         }
         do {
+            try Task.checkCancellation()
             progress(.installing)
             let local = try bottle.importForRunning(installer)     // Wine can't run it from the Mac's temp folder
             try await launcher.execute(bottle, arguments: which.silentInstall(bottle.windowsPath(for: local) ?? local.path),
                                        label: "\(which.name) setup")
             try await nameWindows(of: which, in: bottle)
             try await launcher.waitForShutdown(bottle)
+            try Task.checkCancellation()
             bottle.clearImports()
             guard let program = storeProgram(which, in: bottle) else { throw AddProgram.Failure.installerFoundNothing(name: which.name) }
             try bottle.savePrograms([program])

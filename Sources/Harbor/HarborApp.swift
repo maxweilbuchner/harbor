@@ -416,6 +416,40 @@ final class AppModel {
     var status: String?
     var rosettaAvailable = Rosetta.isAvailable
 
+    /// The bottle the sheet's work runs in, once there is one, and what ends the task doing that work: what the
+    /// sheet's Stop and Cancel act on.
+    private var addBottle: Bottle?
+    private var endAddTask: () -> Void = {}
+
+    private func showSheet(_ state: AddState, bottle: Bottle? = nil) {
+        addState = state
+        addBottle = bottle
+        endAddTask = {}
+    }
+
+    /// The sheet's Stop: ends what runs in the bottle. An add then goes on to look for what was installed.
+    func stopAdd() {
+        // A component's installers run one after the other: the next one must not start.
+        if case .component = addState?.phase { endAddTask() }
+        endAddBottle()
+    }
+
+    /// The sheet's Cancel: ends the work and keeps nothing of it. Can be asked again: an installer that was
+    /// only just being started when the first click came is ended by the next.
+    func cancelAdd() {
+        endAddTask()
+        // Nothing runs yet while the file is being read, so the sheet goes at once; the add ends itself when
+        // the read returns.
+        if case .working(.analyzing) = addState?.phase { addState = nil }
+        endAddBottle()
+    }
+
+    private func endAddBottle() {
+        guard let launcher, let bottle = addBottle else { return }
+        // Waits for wineserver to end the bottle's programs: off the main actor.
+        Task.detached { try? launcher.shutdown(bottle) }
+    }
+
     /// Whether a program, a store or a component is being installed right now (quitting asks first).
     var isInstalling: Bool {
         switch addState?.phase {
@@ -584,9 +618,13 @@ final class AppModel {
         // Before the first suspension: reading the file can take a while (a network share, a file iCloud has to
         // fetch), and a second add that got past the check above meanwhile would run beside this one. From here
         // on no switch of Windows support begins either (`activateRuntimeUpdateIfIdle`).
-        addState = AddState(fileName: file.lastPathComponent, phase: .working(.analyzing))
+        let state = AddState(fileName: file.lastPathComponent, phase: .working(.analyzing))
+        let id = state.id
+        showSheet(state)
         // Reading the file happens off the main actor, so a slow or hostile file can't freeze the window.
         let suggested = await Task.detached { AddProgram.suggestedName(for: file) }.value
+        // Cancelled meanwhile: the sheet is gone, and another add's may be up by now.
+        guard addState?.id == id else { return }
         if !allowDuplicate, let name = suggested,
            let existing = library.first(where: { $0.bottle.settings.name.caseInsensitiveCompare(name) == .orderedSame }) {
             addState = nil
@@ -594,20 +632,35 @@ final class AppModel {
             return
         }
         let flow = AddProgram(store: store, launcher: launcher)
-        do {
-            let (_, programs) = try await flow.add(file) { step in
+        // In a task of its own, so that Cancel can end it.
+        let task = Task {
+            try await flow.add(file, progress: { step in
                 Task { @MainActor in
+                    // Not a late report that would undo "failed", nor one of an add whose sheet is gone.
+                    guard self.addState?.id == id, case .working = self.addState?.phase else { return }
                     self.addState?.phase = .working(step)
                     // The installer window should come to the front, not hide behind Harbor.
                     if case .runningInstaller = step { self.bringWineToFront(since: Date()) }
                 }
-            }
+            }, created: { bottle in
+                Task { @MainActor in if self.addState?.id == id { self.addBottle = bottle } }
+            })
+        }
+        endAddTask = { task.cancel() }
+        let result = await task.result
+        guard addState?.id == id else {
+            reload()
+            return
+        }
+        switch result {
+        case .success((_, let programs)):
             await reload().value
             addState = nil
             status = programs.count == 1 ? "Added \(programs[0].name)" : "Added \(programs.count) programs"
-        } catch {
+        case .failure(let error):
             reload()
-            addState?.phase = .failed(ErrorMessage.text(for: error))
+            // Cancelled: nothing of it was kept, and how the installer ended is no news.
+            if task.isCancelled { addState = nil } else { addState?.phase = .failed(ErrorMessage.text(for: error)) }
         }
     }
 
@@ -626,12 +679,21 @@ final class AppModel {
     func install(_ recipe: Recipe, for item: LibraryItem) async {
         guard let launcher, addState == nil else { return }
         if waitsForRuntimeSwitch() { return }
-        addState = AddState(fileName: recipe.name, phase: .component(item.program.name))
+        showSheet(AddState(fileName: recipe.name, phase: .component(item.program.name)), bottle: item.bottle)
+        let task = Task { try await launcher.install(recipe, in: item.bottle) }
+        endAddTask = { task.cancel() }
         do {
-            try await launcher.install(recipe, in: item.bottle)
+            try await task.value
             addState = nil
         } catch {
-            addState?.phase = .failed(ErrorMessage.text(for: error))
+            // Stopped by the user: how the installer ended is no news then. What the stop left the program's
+            // Windows environment without (`RecipeError`) is.
+            if task.isCancelled, !(error is RecipeError) {
+                addState = nil
+                status = "Stopped installing \(recipe.name)."
+            } else {
+                addState?.phase = .failed(ErrorMessage.text(for: error))
+            }
         }
     }
 
@@ -646,17 +708,24 @@ final class AppModel {
             open(item)
             return
         }
-        addState = AddState(fileName: which.name, phase: .store(which, .downloading))
-        do {
-            let (bottle, program) = try await stores.install(which) { step in
+        showSheet(AddState(fileName: which.name, phase: .store(which, .downloading)))
+        let task = Task {
+            try await stores.install(which, progress: { step in
                 Task { @MainActor in self.addState?.phase = .store(which, step) }
-            }
+            }, created: { bottle in
+                Task { @MainActor in self.addBottle = bottle }
+            })
+        }
+        endAddTask = { task.cancel() }
+        do {
+            let (bottle, program) = try await task.value
             await reload().value
             addState = nil
             if let item = library.first(where: { $0.bottle == bottle && $0.program.id == program.id }) { open(item) }
         } catch {
             reload()
-            addState?.phase = .failed(ErrorMessage.text(for: error))
+            // Cancelled: the store's Windows environment is gone again, and how its installer ended is no news.
+            if task.isCancelled { addState = nil } else { addState?.phase = .failed(ErrorMessage.text(for: error)) }
         }
     }
 
@@ -675,12 +744,14 @@ final class AppModel {
         // leaving people looking at nothing. Not while the bottle is still running from before the update (the
         // program is usually already open there, and the update would wait for it to quit).
         if item.bottle.needsWindowsUpdate(for: launcher.runtime), !item.bottle.isRunning(), addState == nil {
-            addState = AddState(fileName: item.program.name, phase: .updating)
-            Task {
+            showSheet(AddState(fileName: item.program.name, phase: .updating), bottle: item.bottle)
+            let task = Task {
                 try? await launcher.updateWindows(item.bottle)
                 addState = nil
-                launchNow(item, with: launcher)
+                // Cancelled: the program isn't wanted any more. (Windows is updated when it is next started.)
+                if !Task.isCancelled { launchNow(item, with: launcher) }
             }
+            endAddTask = { task.cancel() }
             return
         }
         launchNow(item, with: launcher)
@@ -689,7 +760,8 @@ final class AppModel {
     /// How many launches of each program are still going: a program can be opened twice, and is running until
     /// the last of them has ended.
     private var launches: [LibraryItem.ID: Int] = [:]
-    /// Bottles Harbor stopped itself (their program was removed); how their programs end is no failure.
+    /// Bottles Harbor stopped itself (their program was removed, or quit from its tile); how their programs end
+    /// is no failure.
     private var stoppedBottles: Set<Bottle.ID> = []
 
     private func launchEnded(_ id: LibraryItem.ID) {
@@ -772,6 +844,22 @@ final class AppModel {
             case .unexplained:
                 status = exit.signalled ? "\(name) was stopped unexpectedly" : "\(name) quit unexpectedly (\(exit.status))"
             }
+        }
+    }
+
+    /// Ends the program, and with it everything else that runs in its bottle (programs installed together share
+    /// one Windows session). Also ends what is left of it in the background, without a window to close.
+    func quit(_ item: LibraryItem) {
+        guard let launcher else { return }
+        stoppedBottles.insert(item.bottle.id)
+        let (bottle, name) = (item.bottle, item.program.name)
+        Task {
+            // Waits for wineserver to end the bottle's programs: off the main actor.
+            let problem = await Task.detached { () -> String? in
+                do { try launcher.shutdown(bottle) } catch { return ErrorMessage.text(for: error) }
+                return nil
+            }.value
+            if let problem { status = "Couldn’t quit \(name): \(problem)" }
         }
     }
 

@@ -174,7 +174,8 @@ public enum RecipeError: Error, CustomStringConvertible, Equatable {
 extension WineLauncher {
     /// Downloads (or reuses from the cache), verifies and silently runs a recipe's installers in `bottle`, then
     /// sets its DLL overrides. Every installer runs (32-bit programs need theirs even when the 64-bit one
-    /// failed); the first real failure is thrown afterwards.
+    /// failed); the first real failure is thrown afterwards. Once the task is cancelled no further installer
+    /// starts (a running one is the caller's to end, with `shutdown`).
     public func install(_ recipe: Recipe, in bottle: Bottle,
                         cache: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appending(path: "Harbor/Recipes")) async throws {
         var monoRemoved = false
@@ -222,6 +223,7 @@ extension WineLauncher {
         }
         for (n, download) in recipe.downloads.enumerated() {
             do {
+                try Task.checkCancellation()
                 if let version = download.windowsVersion {
                     try await present(version)
                     versionChanged = true
