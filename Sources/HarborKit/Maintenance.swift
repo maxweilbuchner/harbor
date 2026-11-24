@@ -23,6 +23,8 @@ public enum Maintenance {
             keep.insert(dxmt.runtimeName(basedOn: launcher.runtime))
         }
         keep.insert(PrefixTemplate(launcher: launcher, directory: templatesDirectory).root.lastPathComponent)
+        // A build holds its lock on this file; removed, the next look would find no file and no build.
+        keep.insert(PrefixTemplate.buildLock)
 
         var removed: [URL] = []
         for directory in [runtimesDirectory, templatesDirectory] {

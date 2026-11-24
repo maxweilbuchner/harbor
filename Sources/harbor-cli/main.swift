@@ -212,7 +212,7 @@ case "update-runtime" where args.count == 2 || (args.count == 4 && args[2] == "-
     }
     try await installer.stage(manifest, appBuild: nil)
     // The download took a while: look again right before the switch (and before the previous runtime is removed).
-    guard try installer.activateStagedIfIdle({ args.count == 4 || !store.list().contains { $0.isRunning() } },
+    guard try installer.activateStagedIfIdle({ args.count == 4 || (!store.list().contains { $0.isRunning() } && !PrefixTemplate.isBeingBuilt()) },
                                              verify: { installed in WineRuntime(root: installed.appending(path: "wine")).starts() })
     else { fail("a bottle was started meanwhile; quit its programs and run this again (the download is kept)") }
     print("updated: wine \(installer.installedVersion(of: "wine") ?? "-"), d3dmetal \(installer.installedVersion(of: "d3dmetal") ?? "-"), sequence \(installer.installedSequence.map(String.init) ?? "-")")

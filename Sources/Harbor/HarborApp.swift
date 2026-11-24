@@ -368,10 +368,11 @@ final class AppModel {
         // the check below finds running is all there is.
         runtimeIsSwitching = true
         defer { runtimeIsSwitching = false }
-        let store = store
+        let (store, templates) = (store, templates)
         do {
             let switched = try await Task.detached {
-                try installer.activateStagedIfIdle({ !store.list().contains { $0.isRunning() } }) { installed in
+                // The template build runs Wine too, in a prefix that is in no store.
+                try installer.activateStagedIfIdle({ !store.list().contains { $0.isRunning() } && !PrefixTemplate.isBeingBuilt(in: templates) }) { installed in
                     WineRuntime(root: installed.appending(path: "wine")).starts()
                 }
             }.value
@@ -551,7 +552,9 @@ final class AppModel {
         Task.detached(priority: .utility) {
             // Old derived runtimes and templates (from earlier Wine builds) go first; in-use ones stay.
             Maintenance.collectGarbage(launcher: launcher)
-            try? await PrefixTemplate(launcher: launcher, directory: templates).prepare()
+            // Not while Windows support is being switched: the build would start Wine from a folder that is
+            // being replaced. (The build asked for at the end of a switch gets here after the switch is over.)
+            try? await PrefixTemplate(launcher: launcher, directory: templates).prepare { await !self.runtimeIsSwitching }
         }
     }
 

@@ -31,11 +31,42 @@ public struct PrefixTemplate: Sendable {
 
     public var isReady: Bool { D3DMetalRedist.isComplete(root) }
 
+    /// Locked (shared) by every build for as long as it runs. The staging prefix is in no `BottleStore`, so this
+    /// is what tells a switch of the runtime that Wine is running from it (`isBeingBuilt`). A lock, not a note
+    /// with a process number: it is gone with the process that held it, however that ended.
+    static let buildLock = ".building"
+
+    /// Whether a template is being built in `directory`: some process holds the build lock, or a build whose
+    /// process is gone (Harbor was quit) still has Wine running in its staging prefix. Part of "nothing is
+    /// running" before the runtime is switched. A build that hangs counts for as long as its process lives; it
+    /// delays the switch, never a program's start. (So does, for a moment after a build, a child process that
+    /// was being started as it ended: until it has become its program it holds a copy of the lock.)
+    public static func isBeingBuilt(in directory: URL = defaultDirectory, serverDirectory: String? = nil) -> Bool {
+        let fd = open(directory.appending(path: buildLock).path, O_RDONLY | O_CLOEXEC)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { return true }
+        flock(fd, LOCK_UN)
+        return ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).contains { name in
+            guard name.hasPrefix(".staging-") else { return false }
+            let bottle = Bottle(root: directory.appending(path: name), settings: BottleSettings(name: "Template"))
+            return serverDirectory.map { bottle.isRunning(serverDirectory: $0) } ?? bottle.isRunning()
+        }
+    }
+
     /// Builds the template if it doesn't exist yet. Safe to call repeatedly and from several processes.
-    public func prepare() async throws {
+    /// `mayStart` is asked once the build lock is held and can call the build off (a switch of the runtime has
+    /// begun): whichever of the two comes second sees the other.
+    public func prepare(mayStart: () async -> Bool = { true }) async throws {
         if isReady { return }
         let fm = FileManager.default
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        // Not inherited: a program started meanwhile would hold the lock for as long as it runs.
+        let lock = open(directory.appending(path: Self.buildLock).path, O_CREAT | O_RDWR | O_CLOEXEC, 0o644)
+        guard lock >= 0 else { throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: directory.path]) }
+        defer { close(lock) }      // closing gives the lock up
+        guard flock(lock, LOCK_SH) == 0 else { throw CocoaError(.fileLocking) }
+        guard await mayStart() else { return }
         let staging = directory.appending(path: ".staging-\(UUID().uuidString)")
         // A throwaway bottle around the staging prefix, so the normal setup path does the work.
         let bottle = Bottle(root: staging, settings: BottleSettings(name: "Template"))
