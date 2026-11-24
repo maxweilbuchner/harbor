@@ -6,6 +6,7 @@
 #     wine-dir:     signed (scripts/sign-runtime.sh) and notarized (scripts/notarize.sh) runtime, with the
 #                   .harbor-source record scripts/build-wine.sh writes (which Harbor commit it was built from)
 #     d3dmetal-dir: folder containing lib/ (Apple's /redist/lib) plus License.rtf and Acknowledgements.rtf
+#   ALLOW_DIRTY_RUNTIME=1 packs a runtime built with uncommitted changes in scripts/ (refused otherwise).
 #   WINE_RUNTIME_VERSION overrides the Wine component version (default <Wine sources version>-<RUNTIME_REVISION>).
 set -eu
 cd "$(dirname "$0")/.."
@@ -16,7 +17,14 @@ DVER="$D3DMETAL_VERSION"
 [ -x "$WINE/bin/wine" ] || { echo "package-runtime: $WINE has no bin/wine" >&2; exit 1; }
 [ -f "$D3D/lib/external/libd3dshared.dylib" ] && [ -f "$D3D/License.rtf" ] || { echo "package-runtime: $D3D needs lib/ and License.rtf" >&2; exit 1; }
 grep -q '^commit=[0-9a-f]\{40\}$' "$WINE/.harbor-source" 2>/dev/null || { echo "package-runtime: $WINE has no .harbor-source (rebuild with scripts/build-wine.sh)" >&2; exit 1; }
+# Built from a commit, all of it: the commit is what the release notes name as this runtime's source.
+grep -qx 'dirty=no' "$WINE/.harbor-source" || [ -n "${ALLOW_DIRTY_RUNTIME:-}" ] || { echo "package-runtime: $WINE was built with uncommitted changes in scripts/; commit and rebuild (or ALLOW_DIRTY_RUNTIME=1)" >&2; exit 1; }
 codesign -dv --verbose=2 "$WINE/bin/wine" 2>&1 | grep -q 'Authority=Developer ID Application' || { echo "package-runtime: Wine isn't Developer ID-signed (scripts/sign-runtime.sh)" >&2; exit 1; }
+# Notarized as it is now (signing again after notarization changes the files): asks Apple, as Gatekeeper does on a
+# Mac that downloads it. spctl can't judge a loose executable ("does not seem to be an app").
+for f in wine wineserver; do
+  codesign --verify -R='notarized' --check-notarization "$WINE/bin/$f" 2>/dev/null || { echo "package-runtime: $WINE/bin/$f isn't notarized (scripts/notarize.sh --runtime-only $WINE)" >&2; exit 1; }
+done
 # Apple's files must still be Apple's when they ship.
 scripts/verify-d3dmetal.sh "$D3D/lib"
 rm -rf "$OUT" && mkdir -p "$OUT"

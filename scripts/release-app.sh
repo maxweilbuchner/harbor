@@ -6,7 +6,8 @@
 #
 #   scripts/release-app.sh 0.2.0 --publish
 #       real release: GitHub release v0.2.0 (marked latest) with Harbor-0.2.0.zip and Harbor-0.2.0.pkg, item in
-#       updates/appcast.xml (commit and push that file afterwards; apps read it from the main branch)
+#       updates/appcast.xml (commit and push that file afterwards; apps read it from the main branch).
+#       Refuses unless everything is committed and pushed and the version is new (release, tag, feed, changelog).
 #   scripts/release-app.sh 0.2.0 --local http://127.0.0.1:8766/ build/update-test
 #       update test: zip + appcast in build/update-test, download URLs under the given prefix, nothing published
 set -eu
@@ -27,8 +28,22 @@ case "$MODE" in
 esac
 mkdir -p "$OUT"
 # Before the build, not after it: a release without its installer would leave the website's button on the old one.
-if [ "$MODE" = --publish ] && ! security find-identity -v | grep -q '"Developer ID Installer'; then
+if [ "$MODE" = --publish ] && ! security find-identity -v | grep -qF "${INSTALLER_IDENTITY:-\"Developer ID Installer}"; then
   echo "release-app: no \"Developer ID Installer\" certificate in the keychain (docs/RELEASING.md)" >&2; exit 1
+fi
+MARKER="<!-- items: newest first, added by scripts/release-app.sh -->"
+if [ "$MODE" = --publish ]; then
+  # Refused here, before anything is built or published: the release is tagged at this commit, so the commit
+  # must be all that is built (nothing uncommitted) and be on GitHub, and the version must be new everywhere.
+  no() { echo "release-app: $1" >&2; exit 1; }
+  [ -z "$(git status --porcelain)" ] || no "there are uncommitted changes; commit them first"
+  HEAD_SHA=$(git rev-parse HEAD)
+  [ "$(git ls-remote origin refs/heads/main | cut -f1)" = "$HEAD_SHA" ] || no "HEAD isn't what origin's main is at; push (or pull) first"
+  grep -q "^## $VERSION (" CHANGELOG.md || no "CHANGELOG.md has no \"## $VERSION (<date>)\" section"
+  grep -qF -- "$MARKER" "$APPCAST" || no "$APPCAST has lost its marker line for new items"
+  ! grep -qF "<sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>" "$APPCAST" || no "$APPCAST already has an item for $VERSION"
+  [ -z "$(git ls-remote origin "refs/tags/v$VERSION")" ] || no "the tag v$VERSION exists already"
+  ! gh release view "v$VERSION" -R "$REPO" >/dev/null 2>&1 || no "the release v$VERSION exists already"
 fi
 BUILD=$(git rev-list --count HEAD)
 [ "$MODE" = --local ] && BUILD="${HARBOR_BUILD:-$BUILD}"
@@ -66,19 +81,19 @@ ITEM="    <item>
       <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
       <enclosure url=\"$PREFIX$(basename "$ZIP")\" $SIG type=\"application/octet-stream\"/>$INSTALLER
     </item>"
-python3 -I - "$APPCAST" "$ITEM" <<'PY'
+if [ "$MODE" = --publish ]; then
+  # The release first, tagged at the commit that was built (without --target GitHub tags whatever main is by
+  # then); the feed only points at it once it exists.
+  gh release create "v$VERSION" -R "$REPO" --target "$HEAD_SHA" --title "Harbor $VERSION" --latest \
+    --notes "Harbor $VERSION. Download Harbor-$VERSION.pkg and open it: it installs Harbor in Applications. Harbor-$VERSION.zip is the same app without an installer, which installed copies update from." "$ZIP" "$PKG"
+fi
+python3 -I - "$APPCAST" "$ITEM" "$MARKER" <<'PY'
 import sys
-path, item = sys.argv[1], sys.argv[2]
-marker = "<!-- items: newest first, added by scripts/release-app.sh -->"
+path, item, marker = sys.argv[1:4]
 text = open(path).read()
 assert marker in text, "appcast marker missing"
 open(path, "w").write(text.replace(marker, marker + "\n" + item, 1))
 PY
 xmllint --noout "$APPCAST"
 echo "release-app: $ZIP, item added to $APPCAST (build $BUILD)"
-
-if [ "$MODE" = --publish ]; then
-  gh release create "v$VERSION" -R "$REPO" --title "Harbor $VERSION" --latest \
-    --notes "Harbor $VERSION. Download Harbor-$VERSION.pkg and open it: it installs Harbor in Applications. Harbor-$VERSION.zip is the same app without an installer, which installed copies update from." "$ZIP" "$PKG"
-  echo "release-app: published v$VERSION; now commit and push $APPCAST"
-fi
+[ "$MODE" != --publish ] || echo "release-app: published v$VERSION; now commit and push $APPCAST"

@@ -26,7 +26,7 @@ fi
 SOURCES="$DL/crossover-sources-$CROSSOVER_SOURCES_VERSION.tar.gz $DL/freetype-$FREETYPE_VERSION.tar.xz
 $DL/nettle-$NETTLE_VERSION.tar.gz $DL/gnutls-$GNUTLS_VERSION.tar.xz $DL/libtasn1-$LIBTASN1_VERSION.tar.gz
 $DL/wine-mono-$WINE_MONO_VERSION-src.tar.xz $DL/wine-gecko-$WINE_GECKO_VERSION-src.tar.xz"
-for f in $SOURCES; do [ -f "$f" ] || { echo "publish-runtime: missing source archive $f" >&2; exit 1; }; done
+for f in $SOURCES; do [ -f "$f" ] || { echo "publish-runtime: missing source archive $f (scripts/fetch-sources.sh)" >&2; exit 1; }; done
 echo "$WINE_MONO_SRC_SHA256  $DL/wine-mono-$WINE_MONO_VERSION-src.tar.xz" | shasum -a 256 -c - >/dev/null
 echo "$WINE_GECKO_SRC_SHA256  $DL/wine-gecko-$WINE_GECKO_VERSION-src.tar.xz" | shasum -a 256 -c - >/dev/null
 

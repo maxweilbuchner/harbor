@@ -5,11 +5,13 @@
 #
 #   scripts/notarize.sh [runtime-dir]   # default: build/out/wine (sign it first with scripts/sign-runtime.sh)
 #   scripts/notarize.sh --app-only      # just Harbor.app (the runtime is notarized separately, by content)
+#   scripts/notarize.sh --runtime-only <runtime-dir>   # just the runtime: a runtime release needs no app bundle
 #   scripts/notarize.sh --installer <pkg>   # just an installer package (scripts/package-installer.sh), stapled
 set -eu
 cd "$(dirname "$0")/.."
 PROFILE="${NOTARY_PROFILE:-harbor-notary}"
 APP_ONLY=; [ "${1:-}" = --app-only ] && { APP_ONLY=1; shift; }
+RUNTIME_ONLY=; [ "${1:-}" = --runtime-only ] && { RUNTIME_ONLY=1; shift; }
 RUNTIME="${1:-build/out/wine}"
 if [ -z "${DEVELOPER_DIR:-}" ]; then export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer; fi
 mkdir -p build/notarize
@@ -35,10 +37,13 @@ if [ "${1:-}" = --installer ]; then
   exit 0
 fi
 
-ditto -c -k --keepParent build/app/Harbor.app build/notarize/Harbor.zip
-submit build/notarize/Harbor.zip
-xcrun stapler staple build/app/Harbor.app
-xcrun stapler validate build/app/Harbor.app
+[ -n "$APP_ONLY" ] || [ -x "$RUNTIME/bin/wine" ] || { echo "notarize: $RUNTIME has no bin/wine" >&2; exit 1; }
+if [ -z "$RUNTIME_ONLY" ]; then
+  ditto -c -k --keepParent build/app/Harbor.app build/notarize/Harbor.zip
+  submit build/notarize/Harbor.zip
+  xcrun stapler staple build/app/Harbor.app
+  xcrun stapler validate build/app/Harbor.app
+fi
 
 # Loose binaries can't be stapled; Gatekeeper fetches their notarization ticket online on first launch.
 if [ -z "$APP_ONLY" ]; then
@@ -46,4 +51,4 @@ if [ -z "$APP_ONLY" ]; then
   submit build/notarize/runtime.zip
 fi
 
-spctl -a -vv build/app/Harbor.app 2>&1 | head -3
+[ -n "$RUNTIME_ONLY" ] || spctl -a -vv build/app/Harbor.app 2>&1 | head -3

@@ -4,6 +4,7 @@
 #
 #   scripts/bundle-app.sh            # sign with "Developer ID Application"
 #   SIGN_IDENTITY=- scripts/bundle-app.sh   # ad-hoc (local testing only)
+#   SIGN_IDENTITY=<SHA-1> scripts/bundle-app.sh   # one certificate of several (scripts/sign-runtime.sh reads it too)
 #   HARBOR_RUNTIME_MANIFEST_URL=http://127.0.0.1:8765/runtime.json scripts/bundle-app.sh   # test server
 #   HARBOR_UPDATE_FEED_URL=http://127.0.0.1:8765/appcast.xml HARBOR_UPDATE_TEST=1 scripts/bundle-app.sh   # update test
 # Test servers and the update-test flag are written into this bundle's Info.plist. The app itself reads no such
@@ -14,6 +15,12 @@ cd "$(dirname "$0")/.."
 VERSION="${HARBOR_VERSION:-0.1.0}"
 BUILD="${HARBOR_BUILD:-$(git rev-list --count HEAD)}"
 IDENTITY="${SIGN_IDENTITY:-Developer ID Application}"
+# Exactly one certificate may match: with a renewed certificate beside the old one, codesign calls the bare name
+# ambiguous. SIGN_IDENTITY then takes the SHA-1 of the one to use (security find-identity -v -p codesigning).
+if [ "$IDENTITY" != "-" ]; then
+  n=$(security find-identity -v -p codesigning | grep -cF "$IDENTITY" || true)
+  [ "$n" -eq 1 ] || { echo "bundle-app: $n certificates in the keychain match \"$IDENTITY\"; set SIGN_IDENTITY (docs/RELEASING.md)" >&2; exit 1; }
+fi
 BUNDLE_ID="io.github.maxweilbuchner.harbor"
 # Published by scripts/publish-runtime.sh; override to test against another server.
 RUNTIME_MANIFEST_URL="${HARBOR_RUNTIME_MANIFEST_URL:-https://github.com/maxweilbuchner/harbor/releases/download/runtime/runtime.json}"

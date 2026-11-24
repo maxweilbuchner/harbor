@@ -9,6 +9,12 @@ set -eu
 cd "$(dirname "$0")/.."
 DIR="$1"
 IDENTITY="${SIGN_IDENTITY:-Developer ID Application}"
+# Exactly one certificate may match: with a renewed certificate beside the old one, codesign calls the bare name
+# ambiguous. SIGN_IDENTITY then takes the SHA-1 of the one to use (security find-identity -v -p codesigning).
+if [ "$IDENTITY" != "-" ]; then
+  n=$(security find-identity -v -p codesigning | grep -cF "$IDENTITY" || true)
+  [ "$n" -eq 1 ] || { echo "sign-runtime: $n certificates in the keychain match \"$IDENTITY\"; set SIGN_IDENTITY (docs/RELEASING.md)" >&2; exit 1; }
+fi
 ENT="$PWD/scripts/wine.entitlements"
 if [ -z "${DEVELOPER_DIR:-}" ]; then export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer; fi
 TS="--timestamp"; [ "$IDENTITY" = "-" ] && TS=""

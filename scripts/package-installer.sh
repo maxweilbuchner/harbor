@@ -20,7 +20,10 @@ BUNDLED=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/C
 if [ "$IDENTITY" != "-" ]; then
   # What the installer puts on a Mac must open there without a network connection.
   xcrun stapler validate "$APP" >/dev/null 2>&1 || { echo "package-installer: $APP isn't notarized and stapled (scripts/notarize.sh --app-only)" >&2; exit 1; }
-  security find-identity -v | grep -q "\"$IDENTITY" || { echo "package-installer: no \"$IDENTITY\" certificate in the keychain (docs/RELEASING.md)" >&2; exit 1; }
+  # Exactly one: productbuild refuses a name that a renewed certificate shares with the old one. INSTALLER_IDENTITY
+  # then takes the SHA-1 of the one to use.
+  n=$(security find-identity -v | grep -cF "$IDENTITY" || true)
+  [ "$n" -eq 1 ] || { echo "package-installer: $n certificates in the keychain match \"$IDENTITY\" (docs/RELEASING.md)" >&2; exit 1; }
 fi
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/root/Applications" "$WORK/packages" "$OUT"
