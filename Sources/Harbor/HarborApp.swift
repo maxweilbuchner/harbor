@@ -188,7 +188,7 @@ final class AppModel {
             prepareTemplate()
             updateBottlesInBackground()
         } catch {
-            runtimeDownload = .failed(String(describing: error))
+            runtimeDownload = .failed(ErrorMessage.text(for: error))
         }
     }
     // MARK: Updating installed Windows support
@@ -557,7 +557,7 @@ final class AppModel {
             status = programs.count == 1 ? "Added \(programs[0].name)" : "Added \(programs.count) programs"
         } catch {
             reload()
-            addState?.phase = .failed(String(describing: error))
+            addState?.phase = .failed(ErrorMessage.text(for: error))
         }
     }
 
@@ -581,7 +581,7 @@ final class AppModel {
             try await launcher.install(recipe, in: item.bottle)
             addState = nil
         } catch {
-            addState?.phase = .failed(String(describing: error))
+            addState?.phase = .failed(ErrorMessage.text(for: error))
         }
     }
 
@@ -606,7 +606,7 @@ final class AppModel {
             if let item = library.first(where: { $0.bottle == bottle && $0.program.id == program.id }) { open(item) }
         } catch {
             reload()
-            addState?.phase = .failed(String(describing: error))
+            addState?.phase = .failed(ErrorMessage.text(for: error))
         }
     }
 
@@ -670,7 +670,7 @@ final class AppModel {
             } catch {
                 await MainActor.run {
                     self.launchEnded(id)
-                    self.status = "Couldn’t open \(item.program.name): \(error)"
+                    self.status = "Couldn’t open \(item.program.name): \(ErrorMessage.text(for: error))"
                 }
             }
         }
