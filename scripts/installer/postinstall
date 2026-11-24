@@ -5,5 +5,10 @@
 APP="$2/Applications/Harbor.app"
 OWNER="${USER:-}"
 [ -n "$OWNER" ] && [ "$OWNER" != root ] || OWNER=$(/usr/bin/stat -f%Su /dev/console)
-[ -n "$OWNER" ] && [ "$OWNER" != root ] && [ -d "$APP" ] && /usr/sbin/chown -R "$OWNER":admin "$APP"
+# Only what the installer just wrote, which root owns: when a newer Harbor is already there (updated by Sparkle
+# since), the Installer leaves that bundle alone, and it is the person's already. Links aren't followed, and a file
+# with a second name is skipped: in a tree someone else could write to, that name may belong to a file elsewhere.
+# -depth hands a folder over only after what is in it.
+[ -n "$OWNER" ] && [ "$OWNER" != root ] && [ -d "$APP" ] && [ ! -L "$APP" ] &&
+  /usr/bin/find "$APP" -depth -user root \( -type d -o -links 1 \) -exec /usr/sbin/chown -h "$OWNER":admin {} +
 exit 0
