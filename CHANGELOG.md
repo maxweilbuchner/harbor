@@ -4,6 +4,7 @@ What changed in each Harbor release, newest first. The website's changelog page 
 
 ## Unreleased
 
+- A program that couldn't run can be reported from its message: Report Problem shows the whole report (versions, the cause and the end of the log, without your user name or your Mac's name) and opens it as a new issue on GitHub in your browser. Help > Report a Problem… does the same for problems with Harbor itself.
 - An installation that never finishes can be left: the progress sheet has Stop (add what was installed) and Cancel (add nothing), and a running program can be quit from its tile's menu.
 - The library works from the keyboard: Tab reaches the programs, the arrow keys move between them, Return opens one and Cmd-Delete removes it. File has Add Program… (Cmd-O), Open and Remove from Library….
 - Harbor has a single library window: File > New Window is gone, and starting a program from its Mac shortcut no longer opens another window.
@@ -21,6 +22,9 @@ What changed in each Harbor release, newest first. The website's changelog page 
 - A Windows component whose installation fails no longer leaves the program's Windows version changed, and a failed .NET Framework install says that .NET is missing until it is installed again.
 - An update to Windows support that was interrupted (Harbor quit, or the Mac lost power) is finished at the next start instead of leaving programs unable to start, and no longer leaves hundreds of megabytes behind. When a program has to wait for newer Windows support, Harbor says why.
 - A program started at the very moment Windows support is being updated no longer fails to open; Harbor asks to try again in a moment.
+- If an update to Windows support doesn't start and the previous version is no longer on disk, Harbor keeps the update and says so instead of ending up with no Windows support.
+- A check for Windows support that happens to run while a new version is being published no longer reports that the list isn't signed by Harbor.
+- When setting up Windows, a store's installer or a Windows component fails, the message reads "A Windows setup step ended with an error (status N)." instead of "Wine exited with status N".
 - When the update server answers with an error, Settings says the server couldn't be reached instead of "The runtime list isn't signed by Harbor."
 
 ## 0.1.5 (2026-11-23)
