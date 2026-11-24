@@ -161,17 +161,28 @@ public struct RuntimeInstaller: Sendable {
 
     static let allowedIDs: Set<String> = ["wine", "d3dmetal"]
 
-    /// Fetches and verifies the manifest.
-    public func fetchManifest() async throws -> RuntimeManifest {
-        let (data, response) = try await URLSession.shared.data(from: manifestURL)
-        let (sigData, sigResponse) = try await URLSession.shared.data(from: manifestURL.appendingPathExtension("sig"))
-        // Before the signature: an error page isn't a list that someone else signed.
-        try Self.checkStatus(response)
-        try Self.checkStatus(sigResponse)
-        guard let signature = Data(base64Encoded: String(decoding: sigData, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)),
-              publicKey.isValidSignature(signature, for: data) else {
-            throw RuntimeInstallError.badSignature
+    /// Fetches and verifies the manifest. A list that doesn't match its signature is fetched once more after
+    /// `pause` (a few seconds; injectable for tests): publishing replaces the two files one after the other, and
+    /// a check in between sees the new one beside the old other. Each attempt verifies the very bytes it fetched.
+    public func fetchManifest(pause: () async throws -> Void = { try await Task.sleep(for: .seconds(3)) }) async throws -> RuntimeManifest {
+        var data = Data()
+        for attempt in 1...2 {
+            // The second look must not be answered with the first one's files from the URL cache.
+            let policy: URLRequest.CachePolicy = attempt == 1 ? .useProtocolCachePolicy : .reloadIgnoringLocalCacheData
+            let (list, response) = try await URLSession.shared.data(for: URLRequest(url: manifestURL, cachePolicy: policy))
+            let (sigData, sigResponse) = try await URLSession.shared.data(
+                for: URLRequest(url: manifestURL.appendingPathExtension("sig"), cachePolicy: policy))
+            // Before the signature: an error page isn't a list that someone else signed.
+            try Self.checkStatus(response)
+            try Self.checkStatus(sigResponse)
+            if let signature = Data(base64Encoded: String(decoding: sigData, as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)),
+               publicKey.isValidSignature(signature, for: list) {
+                data = list
+                break
+            }
+            if attempt == 2 { throw RuntimeInstallError.badSignature }
+            try await pause()
         }
         let manifest = try JSONDecoder().decode(RuntimeManifest.self, from: data)
         guard manifest.schema <= RuntimeManifest.currentSchema else {

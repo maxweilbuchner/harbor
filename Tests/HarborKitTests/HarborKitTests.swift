@@ -309,12 +309,12 @@ final class Marker {}
         let (manifestURL, root) = try serve(version: "1", contents: "x", key: key)
         defer { try? fm.removeItem(at: root) }
         let impostor = try installer(manifestURL, key: RuntimeSigning.newPrivateKey(), installed: root.appending(path: "i"))
-        await #expect(throws: RuntimeInstallError.badSignature) { _ = try await impostor.fetchManifest() }
+        await #expect(throws: RuntimeInstallError.badSignature) { _ = try await impostor.fetchManifest(pause: {}) }
         var text = try String(contentsOf: manifestURL, encoding: .utf8)
         text = text.replacingOccurrences(of: "\"version\":\"1\"", with: "\"version\":\"9\"")
         try text.write(to: manifestURL, atomically: true, encoding: .utf8)
         let honest = try installer(manifestURL, key: key, installed: root.appending(path: "i"))
-        await #expect(throws: RuntimeInstallError.badSignature) { _ = try await honest.fetchManifest() }
+        await #expect(throws: RuntimeInstallError.badSignature) { _ = try await honest.fetchManifest(pause: {}) }
     }
 
     @Test func rejectsDamagedArchiveAndUnknownComponents() async throws {
