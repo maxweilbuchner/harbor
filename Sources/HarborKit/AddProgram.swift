@@ -81,7 +81,7 @@ public struct AddProgram: Sendable {
 
     private func install(_ file: URL, name: String, into bottle: Bottle,
                          progress: @Sendable (Step) -> Void) async throws -> [Program] {
-        let before = Set(bottle.startMenuPrograms().map { $0.windowsPath.lowercased() })
+        let before = Set(bottle.startMenuPrograms(includingAuxiliary: true).map { $0.windowsPath.lowercased() })
         let exesBefore = Self.installedExecutables(in: bottle)
         progress(.runningInstaller(name: name))
         // The exit handler is installed before the installer starts, so its end can't be missed.
@@ -94,20 +94,26 @@ public struct AddProgram: Sendable {
         try await launcher.waitForShutdown(bottle)
         bottle.clearImports()          // the installer's copy inside the bottle
         progress(.findingPrograms)
-        let new = bottle.startMenuPrograms().filter { !before.contains($0.windowsPath.lowercased()) }
-        if !new.isEmpty { return new }
-        // No shortcuts: offer the main executables the installer added.
-        let candidates = Self.programs(among: Self.installedExecutables(in: bottle).subtracting(exesBefore), in: bottle)
-        guard !candidates.isEmpty else { throw Failure.installerFoundNothing(name: name) }
-        return candidates
+        let added = Self.installedExecutables(in: bottle).subtracting(exesBefore)
+        // Shortcuts first; without any, the main executables the installer added. If that leaves nothing, the
+        // same again with what only its name set aside (a game called "Manual Samuel", a `Support.exe`).
+        for includingAuxiliary in [false, true] {
+            let new = bottle.startMenuPrograms(includingAuxiliary: includingAuxiliary)
+                .filter { !before.contains($0.windowsPath.lowercased()) }
+            if !new.isEmpty { return new }
+            let candidates = Self.programs(among: added, in: bottle, includingAuxiliary: includingAuxiliary)
+            if !candidates.isEmpty { return candidates }
+        }
+        throw Failure.installerFoundNothing(name: name)
     }
 
     /// The main programs among executables an installer added: with a window, not installers themselves, not
-    /// uninstallers or other helpers. Saves their icons.
-    static func programs(among added: Set<URL>, in bottle: Bottle) -> [Program] {
+    /// uninstallers or other helpers (`includingAuxiliary`: only uninstallers are left out). Saves their icons.
+    static func programs(among added: Set<URL>, in bottle: Bottle, includingAuxiliary: Bool = false) -> [Program] {
         let candidates = added.compactMap { exe -> Program? in
+            let name = exe.lastPathComponent
             guard let analysis = try? ProgramAnalysis.analyze(exe), analysis.isGUI, analysis.installer == nil,
-                  !Bottle.isAuxiliary(name: exe.lastPathComponent, target: exe.lastPathComponent),
+                  !(includingAuxiliary ? Bottle.isUninstaller(name: name, target: name) : Bottle.isAuxiliary(name: name, target: name)),
                   let windows = bottle.windowsPath(for: exe) else { return nil }
             let program = Program(name: analysis.displayName(fallback: exe), windowsPath: windows,
                                   isGame: Bottle.looksLikeGame(exe))
@@ -297,10 +303,13 @@ public struct AddProgram: Sendable {
            let opened = autorunTarget(autorun, in: folder) { return opened }
 
         var installers: [URL] = [], programs: [URL] = []
-        for file in files.prefix(2000) where ["exe", "msi"].contains(file.pathExtension.lowercased())
-            && !Bottle.isAuxiliary(name: file.lastPathComponent, target: file.lastPathComponent) {
-            guard let analysis = try? ProgramAnalysis.analyze(file) else { continue }
-            if analysis.installer != nil { installers.append(file) } else if analysis.isGUI { programs.append(file) }
+        // If the names leave nothing ("Manual Samuel.exe" alone in its folder), only uninstallers are set aside.
+        for isHelper in [Bottle.isAuxiliary, Bottle.isUninstaller] where installers.isEmpty && programs.isEmpty {
+            for file in files.prefix(2000) where ["exe", "msi"].contains(file.pathExtension.lowercased())
+                && !isHelper(file.lastPathComponent, file.lastPathComponent) {
+                guard let analysis = try? ProgramAnalysis.analyze(file) else { continue }
+                if analysis.installer != nil { installers.append(file) } else if analysis.isGUI { programs.append(file) }
+            }
         }
         let stem = { (file: URL) in file.deletingPathExtension().lastPathComponent.lowercased() }
         let named = installers.filter { ["setup", "install", "installer"].contains(stem($0)) }

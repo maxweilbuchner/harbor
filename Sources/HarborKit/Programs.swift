@@ -229,7 +229,9 @@ extension Bottle {
 
     /// Programs the Start Menu offers: .lnk shortcuts to existing .exe/.bat/.cmd files, minus uninstallers, docs and
     /// duplicates. Names come from the shortcut file name, which installers choose for people to read.
-    public func startMenuPrograms() -> [Program] {
+    /// `includingAuxiliary`: also what only its name sets aside (a game called "Manual Samuel"), for when
+    /// nothing else was found; uninstallers stay out.
+    public func startMenuPrograms(includingAuxiliary: Bool = false) -> [Program] {
         var found: [Program] = []
         var seen = Set<String>()
         let fm = FileManager.default
@@ -240,7 +242,8 @@ extension Bottle {
                 let name = Self.libraryName(fromShortcut: file.deletingPathExtension().lastPathComponent)
                 // .bat/.cmd too: some launch through a script (Unigine Heaven's shortcut targets heaven.bat).
                 guard Self.launchableExtensions.contains(where: { link.target.lowercased().hasSuffix($0) }),
-                      !Self.isAuxiliary(name: name, target: link.target),
+                      !(includingAuxiliary ? Self.isUninstaller(name: name, target: link.target)
+                                           : Self.isAuxiliary(name: name, target: link.target)),
                       seen.insert(link.target.lowercased()).inserted,
                       let exe = unixPath(forWindowsPath: link.target), fm.fileExists(atPath: exe.path) else { continue }
                 let program = Program(name: name, windowsPath: link.target, arguments: link.arguments,
@@ -304,11 +307,22 @@ extension Bottle {
     static let gameLibraryPrefixes = ["steam_api", "openal32", "xinput", "xaudio2_", "x3daudio", "physx", "fmod",
                                       "binkw", "bink2w", "eossdk-", "galaxy64", "galaxy.dll", "discord_game_sdk"]
 
+    /// Whether a shortcut or file is something beside the program rather than the program: its uninstaller, its
+    /// manual, a link to its website. The words count as whole words only ("Help", "Thing Manual", not
+    /// "HelpNDoc" or "QuickSupport"). A program whose own name is such a word ("Manual Samuel") is for the
+    /// callers to rescue: they fall back to what this set aside when nothing else is left.
     static func isAuxiliary(name: String, target: String) -> Bool {
+        if isUninstaller(name: name, target: target) { return true }
+        let n = name.lowercased()
+        let words = ["remove", "readme", "read me", "manual", "help", "documentation", "license", "website", "support",
+                     "release notes", "changelog"]
+        return words.contains { n.range(of: "(?<![a-z])\($0)s?(?![a-z])", options: .regularExpression) != nil }
+    }
+
+    /// The part of `isAuxiliary` that no fallback brings back.
+    static func isUninstaller(name: String, target: String) -> Bool {
         let n = name.lowercased()
         let t = (target.split(separator: "\\").last.map(String.init) ?? target).lowercased()
-        let words = ["uninstall", "deinstall", "remove ", "readme", "read me", "manual", "help", "documentation",
-                     "license", "website", "support", "release notes", "changelog"]
-        return words.contains { n.contains($0) } || t.hasPrefix("unins") || t.contains("uninstall")
+        return n.contains("uninstall") || n.contains("deinstall") || t.hasPrefix("unins") || t.contains("uninstall")
     }
 }

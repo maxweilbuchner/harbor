@@ -109,7 +109,10 @@ public struct ProgramAnalysis: Sendable, Equatable {
         for (marker, kind) in markers where data.range(of: Data(marker.utf8)) != nil { return kind }
         let name = file.deletingPathExtension().lastPathComponent.lowercased()
         let text = (description ?? "").lowercased()
-        if ["setup", "install", "installer"].contains(where: { name.contains($0) || text.contains($0) }) { return .other }
+        // The word has to end there: "ChromeSetup", "thing_setup_1.2" and "Install Thing" are installers,
+        // `SetupDiag.exe` and "InstallShield Viewer" are programs.
+        let word = "(setup|install|installer)(?![a-z])"
+        if [name, text].contains(where: { $0.range(of: word, options: .regularExpression) != nil }) { return .other }
         return nil
     }
 }
