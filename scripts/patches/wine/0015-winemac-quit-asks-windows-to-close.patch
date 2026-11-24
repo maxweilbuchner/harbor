@@ -1,0 +1,91 @@
+Harbor: a Quit the user chose asks the program's windows to close instead of ending the process (#81).
+
+On top of 0009 (Quit is Cmd-Q) and 0010 (a program that refuses the session end gets WM_CLOSE).
+
+winemac treats every Quit as the end of the Windows session: WM_QUERYENDSESSION to the process's windows, and
+if none objects, WM_ENDSESSION and TerminateProcess. DefWindowProc doesn't object, so a program that asks
+"save changes?" on its close button but doesn't handle WM_QUERYENDSESSION lost its unsaved work on Cmd-Q.
+
+The Cocoa side knows why the app is asked to quit (the quit Apple Event's reason: none, log out, restart, shut
+down), but only "log out" reached the Windows side, as ENDSESSION_LOGOFF; restart, shutdown and a plain Quit all
+arrived with flags 0. The reason "none" now travels along (by_user), and for it the process posts WM_CLOSE to
+its visible, unowned, enabled top-level windows and declines the termination; the program then closes, asks or
+refuses as it does for its close button. A process without a visible unowned window is still ended the old
+way, and so are all processes on log out, restart and shutdown (0010's WM_CLOSE on refusal now applies to
+restart and shutdown only; its comment said "Quit chosen by the user").
+
+Test: WindowsTests/quit/run.sh.
+
+--- a/dlls/winemac.drv/dllmain.c
++++ b/dlls/winemac.drv/dllmain.c
+@@ -181,9 +181,10 @@
+                 TerminateProcess(GetCurrentProcess(), 0);
+             else if (!qi->flags)
+             {
+-                /* HARBOR HACK: Quit chosen by the user (Cmd-Q, the Dock). Many programs, games above all,
+-                 * answer no to "may the session end?"; a Mac app asked to quit closes its windows, so ask the
+-                 * program the way its close button would. It can still ask to save or refuse. */
++                /* HARBOR HACK: the Mac restarts or shuts down (a Quit the user chose is handled in
++                 * macdrv_app_quit_request and gets here only without windows to close). Many programs, games
++                 * above all, answer no to "may the session end?"; a Mac app asked to quit closes its windows,
++                 * so ask the program the way its close button would. It can still ask to save or refuse. */
+                 UINT i;
+                 for (i = 0; i < qi->count; i++)
+                     if (IsWindowVisible(qi->wins[i]) && !GetWindow(qi->wins[i], GW_OWNER))
+@@ -217,6 +218,36 @@
+     if (!qi->wins || !EnumWindows(get_process_windows, (LPARAM)qi))
+         goto fail;
+ 
++    /* HARBOR HACK - START: a Quit the user chose (Cmd-Q, the menu, the Dock) is not the end of the session.
++     *
++     * The session-end messages below end the process as soon as no window objects, and DefWindowProc doesn't:
++     * a program that asks "save changes?" on its close button but doesn't handle WM_QUERYENDSESSION was ended
++     * with its unsaved work. So a Quit asks the program's windows to close, the way their close buttons would:
++     * visible top-level windows without an owner (owned ones go with their owner; a disabled one is behind a
++     * dialog, and its close button couldn't be pressed either). The program quits by itself once its windows
++     * are gone, or asks, or refuses. Only a program with no window to close is ended the old way, as are all
++     * programs when the user logs out or the Mac restarts or shuts down. */
++    if (params->by_user)
++    {
++        BOOL closable = FALSE;
++
++        for (i = 0; i < qi->count; i++)
++        {
++            if (!IsWindowVisible(qi->wins[i]) || GetWindow(qi->wins[i], GW_OWNER)) continue;
++            closable = TRUE;
++            if (IsWindowEnabled(qi->wins[i])) PostMessageW(qi->wins[i], WM_CLOSE, 0, 0);
++        }
++        if (closable)
++        {
++            TRACE("quit by the user: asked the windows to close\n");
++            HeapFree(GetProcessHeap(), 0, qi->wins);
++            HeapFree(GetProcessHeap(), 0, qi);
++            quit_reply(FALSE);
++            return STATUS_SUCCESS;
++        }
++    }
++    /* HARBOR HACK - END */
++
+     qi->flags = params->flags;
+     qi->result = TRUE;
+     qi->replied = FALSE;
+--- a/dlls/winemac.drv/unixlib.h
++++ b/dlls/winemac.drv/unixlib.h
+@@ -67,6 +67,7 @@
+ {
+     struct dispatch_callback_params dispatch;
+     UINT flags;
++    UINT by_user;   /* HARBOR HACK: Quit chosen in the program itself (menu, Cmd-Q, Dock), not a session end */
+ };
+ 
+ /* macdrv_dnd_query_exited params */
+--- a/dlls/winemac.drv/window.c
++++ b/dlls/winemac.drv/window.c
+@@ -2162,6 +2162,7 @@
+ 
+     if (event->app_quit_requested.reason == QUIT_REASON_LOGOUT)
+         params.flags = ENDSESSION_LOGOFF;
++    params.by_user = (event->app_quit_requested.reason == QUIT_REASON_NONE); /* HARBOR HACK */
+ 
+     KeUserDispatchCallback(&params.dispatch, sizeof(params), &ret_ptr, &ret_len);
+ }
