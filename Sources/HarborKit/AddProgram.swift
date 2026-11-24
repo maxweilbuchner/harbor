@@ -170,6 +170,25 @@ public struct AddProgram: Sendable {
         return (adopted, empty)
     }
 
+    /// How long an empty bottle is left alone after it was made: whoever made it may be about to use it.
+    static let abandonedAfter: TimeInterval = 5 * 60
+
+    /// What the app does at every look at the library: `adoptUnrecorded`, and of the empty bottles those go to
+    /// the Trash that nobody will miss: no installer put a program file into them, they aren't running and
+    /// weren't made in the last minutes. An empty bottle that holds an installer's files (programs Harbor
+    /// couldn't name) stays. Reads many files: call it off the main actor.
+    public static func recoverUnrecorded(in store: BottleStore, now: Date = Date()) -> (adopted: [Bottle], trashed: [Bottle]) {
+        let found = adoptUnrecorded(in: store)
+        let trashed = found.empty.filter { bottle in
+            guard let made = (try? bottle.root.resourceValues(forKeys: [.creationDateKey]))?.creationDate,
+                  now.timeIntervalSince(made) > abandonedAfter,
+                  installedExecutables(in: bottle).allSatisfy({ isWinesOwn($0, in: bottle) }),
+                  !bottle.isRunning(), !bottle.isClaimed else { return false }
+            return (try? store.moveToTrash(bottle)) != nil
+        }
+        return (found.adopted, trashed)
+    }
+
     /// Whether `executable` is one every Wine prefix has outside its Windows folder (its stand-ins for Internet
     /// Explorer, WordPad and Media Player), which no installer put there.
     static func isWinesOwn(_ executable: URL, in bottle: Bottle) -> Bool {

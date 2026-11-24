@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 @main
 struct HarborApp: App {
     @State private var model = AppModel()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
         // Running from `swift run` has no bundle; make it a regular foreground app anyway.
@@ -129,6 +130,25 @@ final class Updates: NSObject, SPUUpdaterDelegate {
         guard Self.isUpdateTest else { return false }
         immediateInstallationBlock()
         return true
+    }
+}
+
+/// Asks before quitting in the middle of an installation: Cmd-Q, the Dock, or an app update's "Install and
+/// Relaunch". Harbor would otherwise never record what the installer leaves (it is found at the next start, but
+/// nobody was told).
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Set by the model, which the delegate has no other way to reach.
+    static var installIsRunning: () -> Bool = { false }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard Self.installIsRunning() else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = "An installation is still running. Quit anyway?"
+        alert.informativeText = "The installer itself keeps running. Harbor adds what it installed when you open Harbor again."
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
     }
 }
 
@@ -396,11 +416,22 @@ final class AppModel {
     var status: String?
     var rosettaAvailable = Rosetta.isAvailable
 
+    /// Whether a program, a store or a component is being installed right now (quitting asks first).
+    var isInstalling: Bool {
+        switch addState?.phase {
+        case .working, .store, .component: true
+        case .updating, .failed, nil: false
+        }
+    }
+
     init() {
         // The first scan happens before the window exists, so the library never flashes its empty state.
         show(Self.scan(store))
         runtimeVersions = Self.versions(of: launcher)
         prepareTemplate()
+        // An install that never reached the library is looked for off the main actor; it shows a moment later.
+        reload()
+        AppDelegate.installIsRunning = { [weak self] in self?.isInstalling ?? false }
         // Distribution checks: `open --env HARBOR_SMOKE_TEST=/path/result.txt Harbor.app` makes the real, signed
         // app (launched through LaunchServices, as Gatekeeper sees it) set up a bottle, run a Windows command,
         // write the outcome and quit.
@@ -490,7 +521,15 @@ final class AppModel {
         let (store, previous) = (store, reloading)
         let task = Task {
             await previous?.value
-            show(await Task.detached { Self.scan(store) }.value)
+            let (found, scan) = await Task.detached {
+                // Installs that never reached the library (Harbor quit while the installer ran) come in first.
+                (AddProgram.recoverUnrecorded(in: store).adopted, Self.scan(store))
+            }.value
+            show(scan)
+            if let first = found.first {
+                status = found.count == 1 ? "Found \(first.settings.name), installed earlier."
+                                          : "Found \(found.count) programs installed earlier."
+            }
         }
         reloading = task
         return task
