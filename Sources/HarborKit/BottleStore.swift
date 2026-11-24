@@ -3,9 +3,17 @@ import Foundation
 /// Bottles live in `~/Library/Application Support/Harbor/Bottles/<slug>/`.
 public struct BottleStore: Sendable {
     public let directory: URL
+    /// Where `moveToTrash` puts bottles instead of the user's Trash; for tests.
+    let trash: URL?
 
     public init(directory: URL) {
         self.directory = directory
+        trash = nil
+    }
+
+    init(directory: URL, trash: URL) {
+        self.directory = directory
+        self.trash = trash
     }
 
     public static var `default`: BottleStore {
@@ -61,6 +69,12 @@ public struct BottleStore: Sendable {
     /// Returns where it went.
     @discardableResult
     public func moveToTrash(_ bottle: Bottle) throws -> URL? {
+        if let trash {
+            let place = trash.appending(path: "\(bottle.root.lastPathComponent)-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: bottle.root, to: place)
+            return place
+        }
         var trashed: NSURL?
         try FileManager.default.trashItem(at: bottle.root, resultingItemURL: &trashed)
         return trashed as URL?

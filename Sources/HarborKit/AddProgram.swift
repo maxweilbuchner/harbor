@@ -19,6 +19,8 @@ public struct AddProgram: Sendable {
     public enum Failure: Error, CustomStringConvertible, Equatable {
         case notAWindowsProgram
         case installerFoundNothing(name: String)
+        /// The installer ended without adding a single program file (cancelled, or it failed); its bottle is gone.
+        case nothingInstalled(name: String)
         /// A dropped folder with several programs or none at its top.
         case unclearFolder
         /// A dropped folder that isn't a program's: Downloads, Desktop, a disk.
@@ -30,6 +32,7 @@ public struct AddProgram: Sendable {
             case .unclearFolder: "Harbor couldn’t tell which program in this folder to add. Drop the program itself."
             case .sharedFolder: "This folder holds more than one program’s files. Drop the program itself."
             case .installerFoundNothing(let n): "The \(n) installer finished, but Harbor couldn’t find what it installed."
+            case .nothingInstalled(let n): "The \(n) installer didn’t install anything."
             }
         }
     }
@@ -57,26 +60,35 @@ public struct AddProgram: Sendable {
 
         progress(.preparingWindows(name: name))
         let (launcher, template) = (self.launcher, self.template)
-        let bottle = try await store.create(name: name) { try await launcher.initialize($0, template: template) }
+        // Claimed until this add ends, so `adoptUnrecorded` doesn't take a bottle in the making for one left behind.
+        var release: @Sendable () -> Void = {}
+        defer { release() }
+        let bottle = try await store.create(name: name) {
+            release = $0.claim()
+            try await launcher.initialize($0, template: template)
+        }
         let programs: [Program]
-        do {
-            if analysis.installer != nil {
-                programs = try await install(file, name: name, into: bottle, root: folder, progress: progress)
-            } else {
+        if analysis.installer != nil {
+            programs = try await install(file, name: name, into: bottle, root: folder, progress: progress)
+        } else {
+            do {
                 // A dropped folder is the program's by the user's word: all of it comes along.
                 programs = [try place(file, analysis: analysis, name: name, in: bottle, root: folder)]
+            } catch {
+                delete(bottle)
+                throw error
             }
-        } catch Failure.installerFoundNothing(let n) {
-            // Something may well be installed; keep the bottle rather than delete it (Advanced can reach it).
-            throw Failure.installerFoundNothing(name: n)
-        } catch {
-            try? launcher.shutdown(bottle)
-            try? FileManager.default.removeItem(at: bottle.root)
-            throw error
         }
-        // A finished install is never deleted because saving the library entry failed.
+        // A finished install is never deleted because saving the library entry failed (`adoptUnrecorded`
+        // records it at the next start).
         try bottle.savePrograms(programs)
         return (bottle, programs)
+    }
+
+    /// Removes a new bottle that nothing was installed into yet.
+    private func delete(_ bottle: Bottle) {
+        try? launcher.shutdown(bottle)
+        try? FileManager.default.removeItem(at: bottle.root)
     }
 
     /// `root`: the folder the user dropped, if the installer was found in it; the installer gets all of it.
@@ -85,15 +97,22 @@ public struct AddProgram: Sendable {
         let before = Set(bottle.startMenuPrograms(includingAuxiliary: true).map { $0.windowsPath.lowercased() })
         let exesBefore = Self.installedExecutables(in: bottle)
         progress(.runningInstaller(name: name))
-        // As `WineLauncher.open` does it, but the import is made here, where the dropped folder is known.
-        let local = try bottle.importForRunning(file, withFolder: true, mediaRoot: root)
-        let arguments = WineLauncher.arguments(toOpen: local, windowsPath: bottle.windowsPath(for: local))
-        // The exit handler is installed before the installer starts, so its end can't be missed.
-        try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
-            do {
-                try launcher.run(bottle, arguments: arguments, label: file.deletingPathExtension().lastPathComponent) { _ in done.resume() }
-            } catch { done.resume(throwing: error) }
+        do {
+            // As `WineLauncher.open` does it, but the import is made here, where the dropped folder is known.
+            let local = try bottle.importForRunning(file, withFolder: true, mediaRoot: root)
+            let arguments = WineLauncher.arguments(toOpen: local, windowsPath: bottle.windowsPath(for: local))
+            // The exit handler is installed before the installer starts, so its end can't be missed.
+            try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
+                do {
+                    try launcher.run(bottle, arguments: arguments, label: file.deletingPathExtension().lastPathComponent) { _ in done.resume() }
+                } catch { done.resume(throwing: error) }
+            }
+        } catch {
+            delete(bottle)      // the installer never started: the bottle holds nothing
+            throw error
         }
+        // From here on the installer has run and the bottle may hold what it installed: no error deletes it.
+        // If one keeps the programs from being recorded, `adoptUnrecorded` finds them at the next start.
         // Bootstrapper installers start the real setup and exit at once; wait until every Windows process in
         // the bottle has finished (wineserver exits then), or the scan below would run mid-install. That
         // includes a program the installer starts at its end; the sheet asks the user to quit it.
@@ -101,8 +120,21 @@ public struct AddProgram: Sendable {
         bottle.clearImports()          // the installer's copy inside the bottle
         progress(.findingPrograms)
         let added = Self.installedExecutables(in: bottle).subtracting(exesBefore)
-        // Shortcuts first; without any, the main executables the installer added. If that leaves nothing, the
-        // same again with what only its name set aside (a game called "Manual Samuel", a `Support.exe`).
+        let found = Self.installedPrograms(in: bottle, apartFrom: before, among: added)
+        if !found.isEmpty { return found }
+        guard !added.isEmpty else {
+            // Not one new executable: the installer was cancelled or failed, and a bottle without a program
+            // would never show in the library. To the Trash rather than deleted, should the guess be wrong.
+            try? store.moveToTrash(bottle)
+            throw Failure.nothingInstalled(name: name)
+        }
+        throw Failure.installerFoundNothing(name: name)
+    }
+
+    /// What an install left in `bottle`: the Start Menu shortcuts not among `before`; without any, the main
+    /// programs among the executables `added`. If that leaves nothing, the same again with what only its name
+    /// set aside (a game called "Manual Samuel", a `Support.exe`).
+    static func installedPrograms(in bottle: Bottle, apartFrom before: Set<String> = [], among added: Set<URL>) -> [Program] {
         for includingAuxiliary in [false, true] {
             let new = bottle.startMenuPrograms(includingAuxiliary: includingAuxiliary)
                 .filter { !before.contains($0.windowsPath.lowercased()) }
@@ -110,7 +142,40 @@ public struct AddProgram: Sendable {
             let candidates = Self.programs(among: added, in: bottle, includingAuxiliary: includingAuxiliary)
             if !candidates.isEmpty { return candidates }
         }
-        throw Failure.installerFoundNothing(name: name)
+        return []
+    }
+
+    /// Gives bottles whose install never reached the library their programs: Harbor quit while the installer
+    /// ran, or recording what it installed failed. Looks at every bottle in `store` that has no `programs.json`,
+    /// holds no game store, isn't running and isn't being added to right now, and finds its programs the way
+    /// `add` does once an installer has exited.
+    ///
+    /// Returns the bottles that now have programs recorded (`adopted`) and those in which nothing was found
+    /// (`empty`: a cancelled install, a bottle that was never set up). The empty ones are left as they are;
+    /// the caller decides (`BottleStore.moveToTrash`). Reads many files: call it off the main actor.
+    public static func adoptUnrecorded(in store: BottleStore) -> (adopted: [Bottle], empty: [Bottle]) {
+        let fm = FileManager.default
+        var adopted: [Bottle] = [], empty: [Bottle] = []
+        for bottle in store.list() where !fm.fileExists(atPath: bottle.programsFile.path) && !bottle.isClaimed
+            && !bottle.isRunning() && SteamLibrary.steamFolder(in: bottle) == nil && EpicLibrary.launcherPath(in: bottle) == nil {
+            let executables = installedExecutables(in: bottle).filter { !isWinesOwn($0, in: bottle) }
+            let programs = installedPrograms(in: bottle, among: executables)
+            if programs.isEmpty {
+                empty.append(bottle)
+            } else if (try? bottle.savePrograms(programs)) != nil {
+                try? fm.removeItem(at: bottle.claimFile)       // what the interrupted add left
+                adopted.append(bottle)
+            }
+        }
+        return (adopted, empty)
+    }
+
+    /// Whether `executable` is one every Wine prefix has outside its Windows folder (its stand-ins for Internet
+    /// Explorer, WordPad and Media Player), which no installer put there.
+    static func isWinesOwn(_ executable: URL, in bottle: Bottle) -> Bool {
+        let parts = (bottle.windowsPath(for: executable) ?? "").lowercased().split(separator: "\\")
+        return parts.count > 2 && parts[1].hasPrefix("program files")
+            && ["internet explorer", "windows media player", "windows nt"].contains(parts[2])
     }
 
     /// The main programs among executables an installer added: with a window, not installers themselves, not
@@ -387,6 +452,31 @@ public struct AddProgram: Sendable {
 }
 
 extension Bottle {
+    var claimFile: URL { root.appending(path: ".adding") }
+
+    /// Marks the bottle as being set up by this process; call the returned function when that is over. The mark
+    /// is a lock, which the system drops when the process ends: a bottle left behind by a crash isn't claimed.
+    func claim() -> @Sendable () -> Void {
+        let file = claimFile
+        let fd = open(file.path, O_CREAT | O_RDWR, 0o644)
+        guard fd >= 0 else { return {} }
+        _ = flock(fd, LOCK_EX | LOCK_NB)
+        return {
+            try? FileManager.default.removeItem(at: file)
+            close(fd)
+        }
+    }
+
+    /// Whether some process is setting the bottle up right now (`claim`).
+    var isClaimed: Bool {
+        let fd = open(claimFile.path, O_RDONLY)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { return true }
+        flock(fd, LOCK_UN)
+        return false
+    }
+
     /// Windows path (`C:\…`) for a file inside this bottle's drive C, or `D:\…` for one on the drive an installer
     /// runs from (`mediaDrive`); nil if it's elsewhere.
     public func windowsPath(for file: URL) -> String? {

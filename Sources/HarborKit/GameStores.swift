@@ -101,7 +101,13 @@ public struct GameStores: Sendable {
 
         progress(.preparingWindows)
         let (launcher, template) = (self.launcher, self.template)
-        let bottle = try await store.create(name: which.bottleName) { try await launcher.initialize($0, template: template) }
+        // Claimed like a bottle `AddProgram` is adding to, or `adoptUnrecorded` would take it for one left behind.
+        var release: @Sendable () -> Void = {}
+        defer { release() }
+        let bottle = try await store.create(name: which.bottleName) {
+            release = $0.claim()
+            try await launcher.initialize($0, template: template)
+        }
         do {
             progress(.installing)
             let local = try bottle.importForRunning(installer)     // Wine can't run it from the Mac's temp folder
