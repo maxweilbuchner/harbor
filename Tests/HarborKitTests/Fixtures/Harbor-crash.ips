@@ -1,0 +1,300 @@
+{"app_name":"Harbor","timestamp":"2026-11-24 19:44:30.00 +0100","app_version":"0.1.7","slice_uuid":"00000000-0000-0000-0000-000000000002","build_version":"210","platform":1,"share_with_app_devs":1,"is_first_party":1,"bug_type":"309","os_version":"macOS 27.3 (26C5047e)","roots_installed":0,"incident_id":"00000000-0000-0000-0000-000000000001","name":"Harbor"}
+{
+ "uptime": 50000,
+ "procRole": "Unspecified",
+ "version": 2,
+ "userID": 501,
+ "deployVersion": 210,
+ "coalitionID": 1294,
+ "osVersion": {
+  "train": "macOS 27.3",
+  "build": "26C5047e",
+  "releaseType": "User"
+ },
+ "captureTime": "2026-11-24 19:44:30.5582 +0100",
+ "codeSigningMonitor": 2,
+ "incident": "00000000-0000-0000-0000-00000000000f",
+ "pid": 55312,
+ "translated": false,
+ "cpuType": "ARM-64",
+ "procLaunch": "2026-11-24 19:44:30.1977 +0100",
+ "procStartAbsTime": 1214279950955,
+ "procExitAbsTime": 1214287132639,
+ "procName": "Harbor",
+ "procPath": "/Users/jane/Applications/Harbor.app/Contents/MacOS/Harbor",
+ "parentProc": "zsh",
+ "parentPid": 55300,
+ "coalitionName": "com.apple.Terminal",
+ "crashReporterKey": "00000000-0000-0000-0000-00000000000f",
+ "chargingStatus": {
+  "externalSourceConnected": true,
+  "chargeMode": "chargingWired"
+ },
+ "developerMode": 1,
+ "responsiblePid": 1334,
+ "responsibleProc": "Terminal",
+ "codeSigningID": "Harbor",
+ "codeSigningTeamID": "",
+ "codeSigningFlags": 570556929,
+ "codeSigningValidationCategory": 10,
+ "codeSigningTrustLevel": 4294967295,
+ "codeSigningAuxiliaryInfo": 0,
+ "instructionByteStream": {
+  "beforePC": "AAAAAAAAAAAAAAAAAAAAAAgIQPkfIQDxYwAAVAAsQPnAA1/WIAAg1A==",
+  "atPC": "IAAg1CAAINT4////AAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+ },
+ "bootSessionUUID": "00000000-0000-0000-0000-00000000000f",
+ "wakeTime": 11597,
+ "sleepWakeUUID": "00000000-0000-0000-0000-00000000000f",
+ "sip": "enabled",
+ "exception": {
+  "codes": "0x0000000000000001, 0x0000000102134428",
+  "rawCodes": [
+   1,
+   4329784360
+  ],
+  "type": "EXC_BREAKPOINT",
+  "signal": "SIGTRAP"
+ },
+ "termination": {
+  "flags": 0,
+  "code": 5,
+  "namespace": "SIGNAL",
+  "indicator": "Trace/BPT trap: 5",
+  "byProc": "exc handler",
+  "byPid": 55312
+ },
+ "os_fault": {
+  "process": "Harbor"
+ },
+ "extMods": {
+  "caller": {
+   "thread_create": 0,
+   "thread_set_state": 0,
+   "task_for_pid": 0
+  },
+  "system": {
+   "thread_create": 0,
+   "thread_set_state": 0,
+   "task_for_pid": 0
+  },
+  "targeted": {
+   "thread_create": 0,
+   "thread_set_state": 0,
+   "task_for_pid": 0
+  },
+  "warnings": 0
+ },
+ "faultingThread": 0,
+ "threads": [
+  {
+   "triggered": true,
+   "id": 3109697,
+   "threadState": {
+    "x": [
+     {
+      "value": 1
+     },
+     {
+      "value": 6137099296
+     },
+     {
+      "value": 6137099312
+     },
+     {
+      "value": 6137099696
+     },
+     {
+      "value": 1
+     },
+     {
+      "value": 16
+     },
+     {
+      "value": 99
+     },
+     {
+      "value": 0
+     },
+     {
+      "value": 4329784360,
+      "symbolLocation": 0,
+      "symbol": "main"
+     },
+     {
+      "value": 8492764400,
+      "symbolLocation": 2864,
+      "symbol": "lsl::sPoolBytes"
+     },
+     {
+      "value": 4329783296
+     },
+     {
+      "value": 1008
+     },
+     {
+      "value": 128
+     },
+     {
+      "value": 4329784176
+     },
+     {
+      "value": 0
+     },
+     {
+      "value": 6738235648,
+      "symbolLocation": 0,
+      "symbol": "$_0::operator()() const::'lambda'(unsigned long, std::__type_descriptor_t, std::nothrow_t const&)::__invoke(unsigned long, std::__type_descriptor_t, std::nothrow_t const&)"
+     },
+     {
+      "value": 6747539780,
+      "symbolLocation": 0,
+      "symbol": "os_unfair_lock_unlock"
+     },
+     {
+      "value": 8302723936
+     },
+     {
+      "value": 0
+     },
+     {
+      "value": 8492761304,
+      "symbolLocation": 0,
+      "symbol": "lsl::sMemoryManagerBuffer"
+     },
+     {
+      "value": 8492761472,
+      "symbolLocation": 0,
+      "symbol": "lsl::sAllocatorBuffer"
+     },
+     {
+      "value": 6137097776
+     },
+     {
+      "value": 6137097952
+     },
+     {
+      "value": 8495771696,
+      "symbolLocation": 0,
+      "symbol": "vm_page_mask"
+     },
+     {
+      "value": 1
+     },
+     {
+      "value": 68719460620
+     },
+     {
+      "value": 6137098136
+     },
+     {
+      "value": 8495771680,
+      "symbolLocation": 0,
+      "symbol": "mach_task_self_"
+     },
+     {
+      "value": 4332486656
+     }
+    ],
+    "flavor": "ARM_THREAD_STATE64",
+    "lr": {
+     "value": 6662393744
+    },
+    "cpsr": {
+     "value": 1610614784
+    },
+    "fp": {
+     "value": 6137099264
+    },
+    "sp": {
+     "value": 6137097616
+    },
+    "esr": {
+     "value": 4060086273,
+     "description": "(Breakpoint) brk 1"
+    },
+    "pc": {
+     "value": 4329784360,
+     "matchesCrashFrame": 1
+    },
+    "far": {
+     "value": 0
+    }
+   },
+   "queue": "com.apple.main-thread",
+   "frames": [
+    {
+     "imageOffset": 1064,
+     "symbol": "main",
+     "symbolLocation": 0,
+     "imageIndex": 0
+    },
+    {
+     "imageOffset": 204688,
+     "symbol": "start",
+     "symbolLocation": 6652,
+     "imageIndex": 1
+    }
+   ]
+  }
+ ],
+ "usedImages": [
+  {
+   "source": "P",
+   "arch": "arm64",
+   "base": 4329783296,
+   "size": 16384,
+   "uuid": "00000000-0000-0000-0000-0000000000aa",
+   "path": "/Users/jane/Applications/Harbor.app/Contents/MacOS/Harbor",
+   "name": "Harbor"
+  },
+  {
+   "source": "P",
+   "arch": "arm64e",
+   "base": 6662189056,
+   "size": 787524,
+   "uuid": "00000000-0000-0000-0000-0000000000aa",
+   "path": "/usr/lib/dyld",
+   "name": "dyld"
+  },
+  {
+   "size": 0,
+   "source": "A",
+   "base": 0,
+   "uuid": "00000000-0000-0000-0000-0000000000aa"
+  },
+  {
+   "source": "P",
+   "arch": "arm64e",
+   "base": 6738149376,
+   "size": 106240,
+   "uuid": "00000000-0000-0000-0000-0000000000aa",
+   "path": "/usr/lib/libc++abi.dylib",
+   "name": "libc++abi.dylib"
+  },
+  {
+   "source": "P",
+   "arch": "arm64e",
+   "base": 6747537408,
+   "size": 38228,
+   "uuid": "00000000-0000-0000-0000-0000000000aa",
+   "path": "/usr/lib/system/libsystem_platform.dylib",
+   "name": "libsystem_platform.dylib"
+  }
+ ],
+ "sharedCache": {
+  "base": 6657441792,
+  "size": 7723286528,
+  "uuid": "a9f7ef23-50b6-30f4-a6eb-b2331720c664"
+ },
+ "vmSummary": "ReadOnly portion of Libraries: Total=1.6G resident=0K(0%) swapped_out_or_unallocated=1.6G(100%)\nWritable regions: Total=85.7M written=208K(0%) resident=208K(0%) swapped_out=0K(0%) unallocated=85.5M(100%)\n\n                                VIRTUAL   REGION \nREGION TYPE                        SIZE    COUNT (non-coalesced) \n===========                     =======  ======= \nDeferred Reclaim                  64.0M        1 \nGuard                            385.0G        1 \nMalloc                            13.5M        9 \nMalloc Guard Page                 3216K        4 \nOS Alloc Once                       32K        1 \nStack                             8176K        1 \nStack Guard                       56.0M        1 \n__AUTH                              35K       11 \n__AUTH_CONST                       221K       40 \n__DATA                             182K       31 \n__DATA_CONST                       109K       39 \n__DATA_DIRTY                       145K       71 \n__LINKEDIT                         1.6G        2 \n__OBJC_RO                        119.0M        1 \n__OBJC_RW                         2757K        1 \n__TEXT                            6412K       83 \n__TPRO_CONST                       132K        4 \npage table in kernel               208K        1 \nshared memory                       96K        2 \n===========                     =======  ======= \nTOTAL                            386.9G      304 \n",
+ "legacyInfo": {
+  "threadTriggered": {
+   "queue": "com.apple.main-thread"
+  }
+ },
+ "logWritingSignature": "f06f5206f0714989683d973040007b442e08bff1",
+ "roots_installed": 0,
+ "bug_type": "309",
+ "trmStatus": 1
+}

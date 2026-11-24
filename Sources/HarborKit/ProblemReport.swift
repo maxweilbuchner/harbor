@@ -57,6 +57,8 @@ public struct ProblemReport: Sendable, Equatable {
     public var exit: WineExit?
     /// The end of the launch's log (`endOfLog`), as Wine wrote it. `text` redacts it.
     public var log: String?
+    /// What macOS recorded when Harbor itself crashed (`CrashReport.summary`). `text` redacts it.
+    public var crash: String?
 
     public init(kind: Kind, versions: Versions, program: String? = nil, diagnosis: Diagnosis? = nil, exit: WineExit? = nil,
                 log: String? = nil) {
@@ -70,7 +72,7 @@ public struct ProblemReport: Sendable, Equatable {
 
     /// The issue's title. Names the cause, never the program.
     public var title: String {
-        guard kind == .program else { return "" }
+        guard kind == .program else { return crash == nil ? "" : "Harbor quit unexpectedly" }
         switch diagnosis?.cause {
         case .missingLibrary(let dll, _): return "A program doesn’t run: \(dll) is missing"
         case .dotNet: return "A .NET program doesn’t run"
@@ -101,6 +103,9 @@ public struct ProblemReport: Sendable, Equatable {
         if let log {
             let end = log.trimmingCharacters(in: .newlines)
             lines += ["", "### End of the log", "", "```", end.isEmpty ? "(the log is empty)" : Redaction.redact(end, identity: identity), "```"]
+        }
+        if let crash {
+            lines += ["", "### What macOS recorded", "", "```", Redaction.redact(crash, identity: identity), "```"]
         }
         return lines.joined(separator: "\n") + "\n"
     }

@@ -54,6 +54,7 @@
 "Couldn’t update. %@" = "Couldn’t update. %@";
 "D3DMetal (games)" = "D3DMetal (games)";
 "D3DMetal (Games)" = "D3DMetal (Games)";
+"Dismiss" = "Dismiss";
 "Don’t add %@" = "Don’t add %@";
 "Don’t add this program" = "Don’t add this program";
 "Don’t open %@ now" = "Don’t open %@ now";
@@ -82,6 +83,7 @@
 "Harbor couldn’t tell which program in this folder to add. Drop the program itself." = "Harbor couldn’t tell which program in this folder to add. Drop the program itself.";
 "Harbor needs a one-time download to run Windows programs." = "Harbor needs a one-time download to run Windows programs.";
 "Harbor needs a one-time download to run Windows programs. (%@)" = "Harbor needs a one-time download to run Windows programs. (%@)";
+"Harbor quit unexpectedly last time." = "Harbor quit unexpectedly last time.";
 "Harbor’s main window offers the download." = "Harbor’s main window offers the download.";
 "Install %@" = "Install %@";
 "Install Again" = "Install Again";
@@ -119,6 +121,7 @@
 "Remove %@?" = "Remove %@?";
 "Remove from Library" = "Remove from Library";
 "Remove from Library…" = "Remove from Library…";
+"Report" = "Report";
 "Report a Problem" = "Report a Problem";
 "Report a Problem…" = "Report a Problem…";
 "Report Problem" = "Report Problem";

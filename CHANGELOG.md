@@ -4,6 +4,7 @@ What changed in each Harbor release, newest first. The website's changelog page 
 
 ## Unreleased
 
+- After Harbor itself quit unexpectedly, it offers at the next start to report that: the same report sheet, with what macOS recorded about the crash and nothing that identifies your Mac.
 - Programs that stop at start because Harbor's built-in shader compiler can't build their graphics code (games made with wgpu on DirectX 12, such as Veloren) get the offer to install Microsoft's Direct3D Shader Compiler, a new Windows component.
 
 ## 0.1.7 (2026-11-24)

@@ -21,7 +21,7 @@ let package = Package(
         .executableTarget(name: "harbor-cli", dependencies: ["HarborKit"]),
         .testTarget(name: "HarborKitTests", dependencies: ["HarborKit"],
                     resources: [.copy("Fixtures/app64.exe"), .copy("Fixtures/app32.exe"), .copy("Fixtures/game64.exe"),
-                                .copy("Fixtures/d3dapp64.exe")]),
+                                .copy("Fixtures/d3dapp64.exe"), .copy("Fixtures/Harbor-crash.ips")]),
         .testTarget(name: "HarborTests", dependencies: ["Harbor"]),
     ]
 )

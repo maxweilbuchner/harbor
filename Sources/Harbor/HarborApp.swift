@@ -475,6 +475,7 @@ final class AppModel {
         // An install that never reached the library is looked for off the main actor; it shows a moment later.
         reload()
         guard background else { return }
+        lookForACrash()
         // Distribution checks: `open --env HARBOR_SMOKE_TEST=/path/result.txt Harbor.app` makes the real, signed
         // app (launched through LaunchServices, as Gatekeeper sees it) set up a bottle, run a Windows command,
         // write the outcome and quit.
@@ -880,7 +881,28 @@ final class AppModel {
 
     /// Writes a report and shows it: about the program that failed, with the end of that launch's log, or
     /// (from the Help menu) with the versions only. The program's name stays out; the user can add it.
-    func reportProblem(_ failure: Failure? = nil) {
+    /// The report macOS wrote if Harbor crashed since it was started the time before; offered once in the status
+    /// area. Found by the report's date against the last start's, which is all that is kept.
+    private(set) var crashReport: URL?
+
+    private func lookForACrash() {
+        let key = "HarborLastStart"
+        let last = UserDefaults.standard.object(forKey: key) as? Date
+        UserDefaults.standard.set(Date(), forKey: key)
+        guard let last else { return }
+        Task { crashReport = await Task.detached { CrashReport.latest(after: last) }.value }
+    }
+
+    /// Shows the report about that crash; either way the offer is gone afterwards.
+    func reportCrash() {
+        guard let file = crashReport else { return }
+        crashReport = nil
+        reportProblem(crash: file)
+    }
+
+    func dismissCrash() { crashReport = nil }
+
+    func reportProblem(_ failure: Failure? = nil, crash: URL? = nil) {
         let support = runtimeVersions.map { versions in
             let layers = [versions.d3dmetal.map { "D3DMetal \($0)" }, versions.dxmt.map { "DXMT \($0)" }].compactMap { $0 }
             return (versions.wine ?? "this checkout’s own build") + (layers.isEmpty ? "" : " (\(layers.joined(separator: ", ")))")
@@ -894,6 +916,7 @@ final class AppModel {
             let text = await Task.detached(operation: {
                 var report = report
                 report.log = log.map { ProblemReport.endOfLog($0) }
+                report.crash = crash.flatMap { CrashReport.summary(of: $0) }
                 return report.text(identity: .current)
             }).value
             reportDraft = ReportDraft(kind: report.kind, title: report.title, text: text)
@@ -1054,7 +1077,7 @@ struct StatusLine: View {
     @State private var showingAll = false
 
     var body: some View {
-        if model.status != nil || model.runtimeUpdate == .ready || !model.damaged.isEmpty {
+        if model.status != nil || model.runtimeUpdate == .ready || !model.damaged.isEmpty || model.crashReport != nil {
             VStack(alignment: alignment, spacing: 4) {
                 if let status = model.status {
                     // Statuses name programs and quote errors, and the sidebar is narrow: a long one is cut after
@@ -1079,6 +1102,16 @@ struct StatusLine: View {
                         .multilineTextAlignment(alignment == .center ? .center : .leading)
                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting(model.damaged) }
                         .buttonStyle(.link)
+                }
+                if model.crashReport != nil {
+                    Text("Harbor quit unexpectedly last time.")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(alignment == .center ? .center : .leading)
+                    HStack(spacing: 12) {
+                        Button("Report") { model.reportCrash() }
+                        Button("Dismiss") { model.dismissCrash() }
+                    }
+                    .buttonStyle(.link)
                 }
                 if model.runtimeUpdate == .ready {
                     // Short enough for one line in the narrowest sidebar.
