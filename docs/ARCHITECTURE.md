@@ -143,6 +143,11 @@ unimplemented function, D3D device creation failure, crash in known module) to a
 ## 11. Open risks and questions
 
 1. **Rosetta future** — Wine's x86 code depends on Rosetta; Apple's post-macOS-27 Rosetta scope must be confirmed.
+   Rosetta also emulates the x87 floating-point unit in software: measured on runtime 26.3.0-9 (M4 Pro), a
+   cosine through x87 takes 11 times as long as through SSE. Programs built with GCC's mingw-w64 runtime compute
+   sin, cos, pow and log that way, and math-heavy threads fall behind: Veloren's sound mixer needed 245 % of real
+   time with 32 effect channels, so half of its output was silence (#88). Nothing in Wine can change code a
+   program carries itself; the remedy is a setting in the program (there: 8 channels, 62 %, no gaps).
 2. **D3DMetal 4 is beta**; license is non-commercial — Harbor must stay non-commercial (no paid tier, no ads).
 3. **Stock Wine vs CrossOver Wine** with D3DMetal under real games (glue loads on stock 11.21; rendering unverified).
 4. **Hardened runtime vs Wine**: spawned ad-hoc-signed Wine binaries, DYLD paths, JIT/unsigned executable
