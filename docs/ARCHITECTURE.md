@@ -167,6 +167,14 @@ What leaves the Mac about any of this (issue #50) does so only after the user sa
    time with 32 effect channels, so half of its output was silence (#88). Nothing in Wine can change code a
    program carries itself; the remedy is a setting in the program (there: 8 channels, 62 %, no gaps).
 2. **D3DMetal 4 is beta**; license is non-commercial — Harbor must stay non-commercial (no paid tier, no ads).
+   Decided 2026-11-25 (#78): a beta D3DMetal is acceptable in a release, because it is the version that runs
+   the games; the changelog names the version a release ships. Not decided by reading alone: Apple's Game
+   Porting Toolkit licence allows redistributing `/redist` non-commercially (2A(iii), 2C) but grants use "for
+   the sole purpose of developing, testing, or evaluating video games" (2A(i)), and Harbor's users play games
+   on it. The owner is getting a legal read of that, and of the consent wording and privacy page for statistics
+   (#50). Until it is recorded here, Harbor keeps shipping D3DMetal and keeps the "early release" label in the
+   README and on the website. If the read says no, the fallback is to stop shipping D3DMetal and let users
+   import it from Apple's own download (`scripts/import-d3dmetal.sh` is that path for the build today).
 3. **Stock Wine vs CrossOver Wine** with D3DMetal under real games (glue loads on stock 11.21; rendering unverified).
 4. **Hardened runtime vs Wine**: spawned ad-hoc-signed Wine binaries, DYLD paths, JIT/unsigned executable
    memory; whether runtimes must be re-signed with Harbor's Developer ID.
@@ -359,4 +367,5 @@ An independent review re-checked the plan against the code and runtime. Items ma
    decisions. `HARBOR_PREVIEW_RUNTIME_UPDATE=<state>` shows a state without a check (for screenshots; development builds only).
 8. **M7:** Runtime downloader + source offers, legal review, first public beta. Done: the runtime is downloaded
    and updated from a signed list (`RuntimeInstaller`), and the sources of its copyleft components are published
-   beside it (`scripts/publish-runtime.sh`); public releases since 0.1.0 (2026-11-20). Not done: the legal review.
+   beside it (`scripts/publish-runtime.sh`); public releases since 0.1.0 (2026-11-20). Not done: the legal review
+   (§11.2 says what it has to answer and what holds until then).
