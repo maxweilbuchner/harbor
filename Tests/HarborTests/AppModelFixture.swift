@@ -57,7 +57,23 @@ import Testing
     func model(wine: Bool = true, installer: RuntimeInstaller? = nil, minimum: Int? = nil) -> AppModel {
         AppModel(store: store, launcher: wine ? launcher : nil, runtimeInstaller: installer, minimumRuntimeSequence: minimum,
                  shortcuts: shortcuts.directory, salt: LaunchSalt(file: URL(filePath: "/dev/null/launch-salt")),
-                 templates: base.appending(path: "templates"), background: false)
+                 templates: base.appending(path: "templates"), statistics: statistics, service: service, background: false)
+    }
+
+    /// Statistics kept in settings of the fixture's own, never the test runner's.
+    var statistics: UsageStatistics { UsageStatistics(defaults: UserDefaults(suiteName: base.lastPathComponent)!) }
+    /// Stands in for Harbor's service: accepts everything and writes each request's path and body to `sent`.
+    var service: HarborService {
+        let sent = base.appending(path: "sent")
+        return HarborService { request in
+            let line = (request.url?.lastPathComponent ?? "") + " " + String(decoding: request.httpBody ?? Data(), as: UTF8.self).filter { !$0.isNewline } + "\n"
+            let old = (try? Data(contentsOf: sent)) ?? Data()
+            try (old + Data(line.utf8)).write(to: sent)
+            return (Data(#"{"reference":"AAAA-BBBB-CCCC-DDDD"}"#.utf8), 201)
+        }
+    }
+    func sent() -> [String] {
+        ((try? String(contentsOf: base.appending(path: "sent"), encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
     }
 
     /// A bottle whose library holds `names`, each at `C:\Games\<name>.exe`, with Windows marked as up to date
@@ -113,5 +129,6 @@ import Testing
         shortcuts.scheduleSync([], keepingOthers: true, icon: { _ in nil }) { settled.signal() }
         settled.wait()
         try? FileManager.default.removeItem(at: base)
+        UserDefaults().removePersistentDomain(forName: base.lastPathComponent)
     }
 }

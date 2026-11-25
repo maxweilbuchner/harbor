@@ -27,6 +27,31 @@ import Testing
         try "\(status)\n".write(to: f.bin.appending(path: go), atomically: true, encoding: .utf8)
     }
 
+    // MARK: Statistics (#50)
+
+    /// A program that ends is counted and the record sent only after the user agreed; before, nothing leaves.
+    @Test(.timeLimit(.minutes(1))) func programsAreCountedOnlyAfterAgreeing() async throws {
+        let f = try AppModelFixture(start: "exit 0")
+        defer { f.cleanUp() }
+        _ = try f.bottle("Thing", programs: ["Thing"])
+        let model = f.model()
+        let item = try await f.item("Thing", in: model)
+        #expect(model.sharesStatistics == nil && model.nextStatistics == nil)
+        model.open(item)
+        try await f.wait(for: "the first end") { f.calls().count == 1 && model.running.isEmpty }
+        model.shareStatistics(false)
+        model.open(item)
+        try await f.wait(for: "the second end") { f.calls().count == 2 && model.running.isEmpty }
+        #expect(model.nextStatistics == nil && f.sent().isEmpty)
+
+        model.shareStatistics(true)
+        model.open(item)
+        try await f.wait(for: "the record") { f.sent().count == 1 }
+        #expect(f.sent()[0].hasPrefix("statistics {") && f.sent()[0].contains(#""ran" : 1"#))
+        #expect(!f.sent()[0].contains("Thing"))
+        try await f.wait(for: "the counts to be taken off") { model.nextStatistics == nil }
+    }
+
     // MARK: harbor://launch/<id>
 
     @Test(.timeLimit(.minutes(1))) func aShortcutsLinkOpensItsProgram() async throws {

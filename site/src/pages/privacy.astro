@@ -1,0 +1,136 @@
+---
+import Base from "../layouts/Base.astro";
+import { REPO } from "../lib/release";
+
+// Harbor's own service (service/collect in the repository; the app has the same address in HarborService).
+const SERVICE = "https://liipwgofoskaybprarjz.supabase.co/functions/v1/collect";
+---
+
+<Base
+  title="Harbor privacy: what the app sends, and when"
+  description="Harbor sends nothing about you unless you say so. Every field of the optional statistics and of a problem report, where it is kept and for how long."
+>
+  <section class="banner">
+    <div class="container banner__in">
+      <div>
+        <h1>What Harbor sends.</h1>
+        <p class="lead">
+          Nothing about you, unless you say so. No account, no advertising, and this website loads nothing from
+          anyone else and counts no visitors.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <div class="container">
+    <section class="release release--words" id="always">
+      <div class="release__head"><h2>Without asking</h2></div>
+      <ul>
+        <li><span>Harbor looks for updates to itself and to its Windows support, and downloads them, from GitHub.</span></li>
+        <li><span>
+          When you add Steam or the Epic Games Store, or install a Windows component, Harbor downloads it from
+          its maker: Valve, Epic Games or Microsoft.
+        </span></li>
+        <li><span>
+          These are plain downloads. They carry nothing about you or your programs, but like any download they
+          show the server your internet address. Windows programs you run make their own connections; Harbor
+          has no part in those.
+        </span></li>
+      </ul>
+    </section>
+
+    <section class="release release--words" id="statistics">
+      <div class="release__head"><h2>Statistics</h2></div>
+      <ul>
+        <li><span>
+          Off until you agree. Harbor asks once, and Harbor &gt; Settings &gt; Privacy has the switch afterwards.
+          While it is off nothing is counted and nothing is sent.
+        </span></li>
+        <li><span>
+          When it is on, Harbor sends one record a day at most, and only on days a program ended. The record
+          holds: Harbor’s version, the version of its Windows support and graphics layers, the macOS version
+          (such as 27.3), the name of the Mac’s chip (such as Apple M3 Pro), and how many programs ran and how
+          many didn’t since the last record, counted by cause: a missing library, .NET, the shader compiler,
+          anti-cheat, a crash, or an unexplained early exit.
+        </span></li>
+        <li><span>
+          It holds no program names, no file names, no account, and no number that tells your Mac from another
+          or links one day’s record to the next. Settings shows the next record exactly as it will be sent.
+        </span></li>
+        <li><span>
+          Records are kept with the day they arrived, without the time, and deleted after 13 months. Because a
+          record can’t be traced to anyone, a single one can’t be picked out and deleted on request; switching
+          statistics off stops them and discards what was counted but not yet sent.
+        </span></li>
+      </ul>
+    </section>
+
+    <section class="release release--words" id="reports">
+      <div class="release__head"><h2>Problem reports</h2></div>
+      <ul>
+        <li><span>
+          A report is only made when you choose Report Problem. Harbor shows all of it first and you can change
+          every word. It holds the versions listed above, the cause Harbor found, and the last lines of the
+          program’s log, with your user name and your Mac’s name replaced. The log can still mention the program.
+        </span></li>
+        <li><span>
+          Open in Browser puts the text into a new issue on GitHub, which you submit yourself under your GitHub
+          account. Issues are public, and GitHub’s own privacy statement applies.
+        </span></li>
+        <li><span>
+          Send to Harbor sends the title and the text, and nothing else, to Harbor’s own service. It is kept
+          with the day it arrived and deleted after 90 days. Harbor shows a reference for it once; nothing else
+          connects the report to you.
+        </span></li>
+        <li>
+          <span>To delete a report sooner, enter its reference here.</span>
+          <form class="forget" id="forget">
+            <label for="reference">Reference</label>
+            <input id="reference" name="reference" required autocomplete="off" spellcheck="false" placeholder="ABCD-EFGH-JKLM-NPQR" />
+            <button class="btn" type="submit">Delete report</button>
+            <p role="status" id="forget-result"></p>
+          </form>
+        </li>
+      </ul>
+    </section>
+
+    <section class="release release--words" id="where">
+      <div class="release__head"><h2>Where it is kept</h2></div>
+      <ul>
+        <li><span>
+          Statistics and reports sent to Harbor are stored in a database in Frankfurt, Germany, hosted by
+          Supabase. Only Harbor’s maintainer can read it. Nothing is sold, shared or used for anything but
+          finding and fixing problems in Harbor.
+        </span></li>
+        <li><span>
+          Harbor’s service stores no internet address and no time of day. The hosting company’s own access log
+          does record each request’s address, rough location and time, as any web server does, and keeps it
+          for about a day. Harbor doesn’t copy it or join it to a record.
+        </span></li>
+        <li><span>
+          Questions, or anything here that doesn’t match what the app does: <a href={`${REPO}/issues`}>open an
+          issue on GitHub</a>. The service’s code is in the <a href={`${REPO}/tree/main/service`}>repository</a>.
+        </span></li>
+      </ul>
+    </section>
+  </div>
+
+  <script is:inline define:vars={{ SERVICE }}>
+    const form = document.getElementById("forget");
+    const result = document.getElementById("forget-result");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const reference = form.reference.value.trim().toUpperCase();
+      result.textContent = "Deleting…";
+      try {
+        const answer = await fetch(`${SERVICE}/reports/${encodeURIComponent(reference)}`, { method: "DELETE" });
+        result.textContent = answer.ok ? "Deleted."
+          : answer.status === 404 || answer.status === 400 ? "No report has this reference. It may already be deleted."
+          : "That didn’t work. Try again later.";
+        if (answer.ok) form.reset();
+      } catch {
+        result.textContent = "The service couldn’t be reached. Try again later.";
+      }
+    });
+  </script>
+</Base>

@@ -4,6 +4,8 @@ What changed in each Harbor release, newest first. The website's changelog page 
 
 ## Unreleased
 
+- Harbor asks once whether to share anonymous statistics: how many programs ran and how many didn't, by cause, with the versions involved. It is off until you agree, holds no program names and nothing that identifies you, and Settings > Privacy shows exactly what is sent next. The website's new privacy page lists every field.
+- A problem report can be sent without a GitHub account: Send to Harbor in the report sheet sends the text you see to Harbor's own service, which keeps it for 90 days and gives you a reference to delete it sooner.
 - After Harbor itself quit unexpectedly, it offers at the next start to report that: the same report sheet, with what macOS recorded about the crash and nothing that identifies your Mac.
 - Programs that stop at start because Harbor's built-in shader compiler can't build their graphics code (games made with wgpu on DirectX 12, such as Veloren) get the offer to install Microsoft's Direct3D Shader Compiler, a new Windows component.
 

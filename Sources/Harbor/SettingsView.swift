@@ -41,6 +41,24 @@ struct SettingsView: View {
             } footer: {
                 Text("Updates download in the background and are installed once no Windows program is running.")
             }
+            Section {
+                Toggle("Share anonymous statistics", isOn: Binding(get: { model.sharesStatistics == true },
+                                                                   set: { model.shareStatistics($0) }))
+                if model.sharesStatistics == true {
+                    LabeledContent("Sent next") {
+                        // Exactly the bytes of the next request.
+                        Text(model.nextStatistics ?? String(localized: "Nothing yet. Harbor counts from the next program you open."))
+                            .font(model.nextStatistics == nil ? .body : .caption.monospaced())
+                            .textSelection(.enabled)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            } header: {
+                Text("Privacy")
+            } footer: {
+                Text("At most once a day: how many programs ran and how many didn’t, by cause. No program names, nothing that identifies you.") + Text(" ") + Text(privacyLink)
+            }
             if let versions = model.runtimeVersions {
                 Section("Graphics") {
                     LabeledContent("D3DMetal (games)", value: versions.d3dmetal ?? String(localized: "Not installed"))
@@ -52,6 +70,13 @@ struct SettingsView: View {
         .scrollDisabled(true)
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// "What Harbor sends", leading to the website's privacy page.
+    private var privacyLink: AttributedString {
+        var link = AttributedString(String(localized: "What Harbor sends"))
+        link.link = HarborService.privacyPage
+        return link
     }
 
     /// The same call does all three: it checks, or retries, or switches to a downloaded update if nothing runs.

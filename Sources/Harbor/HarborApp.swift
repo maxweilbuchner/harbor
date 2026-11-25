@@ -460,7 +460,10 @@ final class AppModel {
     /// no check for newer Windows support, none of the development modes below.
     init(store: BottleStore, launcher: WineLauncher?, runtimeInstaller: RuntimeInstaller? = nil,
          minimumRuntimeSequence: Int? = nil, shortcuts: URL = AppShortcuts.defaultDirectory, salt: LaunchSalt = LaunchSalt(),
-         templates: URL = PrefixTemplate.defaultDirectory, background: Bool = true) {
+         templates: URL = PrefixTemplate.defaultDirectory, statistics: UsageStatistics = UsageStatistics(),
+         service: HarborService = .live, background: Bool = true) {
+        self.statistics = statistics
+        self.service = service
         self.store = store
         self.launcher = launcher
         self.runtimeInstaller = runtimeInstaller
@@ -474,8 +477,12 @@ final class AppModel {
         if background { prepareTemplate() }
         // An install that never reached the library is looked for off the main actor; it shows a moment later.
         reload()
+        refreshStatistics()
         guard background else { return }
         lookForACrash()
+        // Asked once, and not on top of the screen that offers Windows support: without it nothing can run yet.
+        statisticsQuestion = statistics.consent == nil && launcher != nil
+        sendStatistics()
         // Distribution checks: `open --env HARBOR_SMOKE_TEST=/path/result.txt Harbor.app` makes the real, signed
         // app (launched through LaunchServices, as Gatekeeper sees it) set up a bottle, run a Windows command,
         // write the outcome and quit.
@@ -828,7 +835,7 @@ final class AppModel {
                 try launcher.launch(item.program, in: item.bottle) { exit in
                     Task { @MainActor in
                         self.launchEnded(id)
-                        if exit.status != 0 { self.explainFailure(of: item, exit: exit) }
+                        if exit.status != 0 { self.explainFailure(of: item, exit: exit) } else { self.count(.ran) }
                         self.checkForRuntimeUpdate()
                     }
                 }
@@ -902,11 +909,59 @@ final class AppModel {
 
     func dismissCrash() { crashReport = nil }
 
-    func reportProblem(_ failure: Failure? = nil, crash: URL? = nil) {
-        let support = runtimeVersions.map { versions in
+    /// The installed Windows support with its graphics layers, as a report and the statistics name it.
+    private var windowsSupport: String? {
+        runtimeVersions.map { versions in
             let layers = [versions.d3dmetal.map { "D3DMetal \($0)" }, versions.dxmt.map { "DXMT \($0)" }].compactMap { $0 }
             return (versions.wine ?? "this checkout’s own build") + (layers.isEmpty ? "" : " (\(layers.joined(separator: ", ")))")
         }
+    }
+
+    // MARK: Statistics (issue #50)
+
+    private let statistics: UsageStatistics
+    /// Harbor's own service: the statistics record goes there, and a report sent with "Send to Harbor".
+    let service: HarborService
+    /// The question whether to share statistics is showing. Asked once; Settings has the answer afterwards.
+    var statisticsQuestion = false
+    /// What the user answered; nil before they have.
+    private(set) var sharesStatistics: Bool?
+    /// The record that would be sent next, exactly as it would be sent; nil while there is nothing to send.
+    private(set) var nextStatistics: String?
+
+    func shareStatistics(_ share: Bool) {
+        statistics.consent = share
+        statisticsQuestion = false
+        refreshStatistics()
+    }
+
+    private var statisticsVersions: UsageStatistics.Record {
+        .onThisMac(harbor: Bundle.main.harborVersion, windowsSupport: windowsSupport)
+    }
+
+    private func refreshStatistics() {
+        sharesStatistics = statistics.consent
+        nextStatistics = statistics.record(statisticsVersions).map { String(decoding: $0.json, as: UTF8.self) }
+    }
+
+    /// One more program that ended this way; counted only when the user agreed to share statistics.
+    private func count(_ outcome: UsageStatistics.Outcome) {
+        statistics.count(outcome)
+        refreshStatistics()
+        sendStatistics()
+    }
+
+    /// At most once a day, and only what `nextStatistics` shows.
+    private func sendStatistics() {
+        let (statistics, versions, service) = (statistics, statisticsVersions, service)
+        Task {
+            await statistics.sendIfDue(versions, service: service)
+            refreshStatistics()
+        }
+    }
+
+    func reportProblem(_ failure: Failure? = nil, crash: URL? = nil) {
+        let support = windowsSupport
         let report = ProblemReport(kind: failure == nil ? .harbor : .program,
                                    versions: .onThisMac(harbor: Bundle.main.harborVersion, windowsSupport: support),
                                    diagnosis: failure?.diagnosis, exit: failure?.exit)
@@ -936,10 +991,12 @@ final class AppModel {
             let diagnosis = await Task.detached(operation: { exit.log.flatMap { bottle.diagnosis(ofLog: $0, program: path) } }).value
             switch exit.report(diagnosis: diagnosis, stoppedByHarbor: stopped) {
             case .nothing:
-                break
+                count(.ran)
             case .cause(let diagnosis):
+                count(UsageStatistics.Outcome(diagnosis.cause))
                 if let log = exit.log { failure = Failure(item: item, diagnosis: diagnosis, log: log, exit: exit) }
             case .unexplained:
+                count(.unexplained)
                 // The exit code goes in as text: a number would be written with grouping.
                 status = exit.signalled ? String(localized: "\(name) was stopped unexpectedly")
                                         : String(localized: "\(name) quit unexpectedly (\(String(exit.status)))")
@@ -1179,6 +1236,7 @@ struct ContentView: View {
             Text(failure.diagnosis.message(for: failure.item.program.name))
         }
         .sheet(item: Binding(get: { model.reportDraft }, set: { model.reportDraft = $0 })) { ReportSheet(draft: $0) }
+        .sheet(isPresented: Binding(get: { model.statisticsQuestion }, set: { model.statisticsQuestion = $0 })) { StatisticsQuestion() }
         // Stores install games on their own: look again whenever Harbor comes to the front.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.reload()

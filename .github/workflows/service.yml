@@ -1,0 +1,18 @@
+name: Service
+
+# Harbor's receiving service (service/collect, docs/ARCHITECTURE.md §10) is asked once a day whether it is
+# there. A failure here means statistics and "Send to Harbor" reports go nowhere. The call also counts as use:
+# the host pauses a free project nobody has called for a week.
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  awake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask the service
+        run: curl --fail --silent --show-error --retry 3 --retry-delay 20 https://liipwgofoskaybprarjz.supabase.co/functions/v1/collect

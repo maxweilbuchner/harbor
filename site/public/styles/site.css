@@ -147,6 +147,12 @@ a { text-decoration-color: var(--color-accent-2); text-decoration-thickness: var
 .release li:first-child { padding-top: 0; }
 .release li + li { border-top: var(--rule-hair) solid var(--color-muted); }
 .release li > span { display: block; max-width: 52ch; }
+/* The privacy page uses the same rows under words instead of version numbers, and has the site's one form. */
+.release--words h2 { font-size: var(--text-section); }
+.forget { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-md); margin-top: var(--space-lg); font-size: 1rem; }
+.forget input { min-height: 52px; width: 28ch; padding: 0 var(--space-md); border: var(--rule-bar) solid var(--color-ink); border-radius: var(--radius-pill); background: var(--color-paper); color: var(--color-ink); font: 1rem ui-monospace, "SF Mono", Menlo, monospace; }
+.forget input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
+.forget p { flex-basis: 100%; min-height: 1.5em; }
 .release code, .index code { font: 0.9em ui-monospace, "SF Mono", Menlo, monospace; }
 /* The 404 page: the banner alone, with the two ways back under its line. */
 .banner .lead + .actions { margin-top: var(--space-lg); }

@@ -1,4 +1,5 @@
 /* Every sentence Harbor shows, written by scripts/update-strings.sh. English is the key. */
+" " = " ";
 "%@ (Installed)" = "%@ (Installed)";
 "%@ can no longer open your Mac’s files the next time it starts." = "%@ can no longer open your Mac’s files the next time it starts.";
 "%@ can open your Mac’s files the next time it starts." = "%@ can open your Mac’s files the next time it starts.";
@@ -33,6 +34,7 @@
 "Added %lld programs" = "Added %lld programs";
 "Allow Access to My Mac’s Files" = "Allow Access to My Mac’s Files";
 "An update is ready. Quit your Windows programs to install it." = "An update is ready. Quit your Windows programs to install it.";
+"At most once a day: how many programs ran and how many didn’t, by cause. No program names, nothing that identifies you." = "At most once a day: how many programs ran and how many didn’t, by cause. No program names, nothing that identifies you.";
 "Automatic" = "Automatic";
 "Automatically check for updates" = "Automatically check for updates";
 "Built by %@; not updated by Harbor." = "Built by %@; not updated by Harbor.";
@@ -44,6 +46,7 @@
 "Choose File…" = "Choose File…";
 "Compatibility" = "Compatibility";
 "Copy" = "Copy";
+"Copy Reference" = "Copy Reference";
 "Couldn't unpack %@ (tar exit %@)." = "Couldn't unpack %@ (tar exit %@).";
 "Couldn’t Add %@" = "Couldn’t Add %@";
 "Couldn’t move %@ to the Trash: %@" = "Couldn’t move %@ to the Trash: %@";
@@ -51,13 +54,16 @@
 "Couldn’t quit %@: %@" = "Couldn’t quit %@: %@";
 "Couldn’t remove %@: %@" = "Couldn’t remove %@: %@";
 "Couldn’t save the setting: %@" = "Couldn’t save the setting: %@";
+"Couldn’t send the report. %@" = "Couldn’t send the report. %@";
 "Couldn’t update. %@" = "Couldn’t update. %@";
 "D3DMetal (games)" = "D3DMetal (games)";
 "D3DMetal (Games)" = "D3DMetal (Games)";
 "Dismiss" = "Dismiss";
+"Done" = "Done";
 "Don’t add %@" = "Don’t add %@";
 "Don’t add this program" = "Don’t add this program";
 "Don’t open %@ now" = "Don’t open %@ now";
+"Don’t Share" = "Don’t Share";
 "Download Windows Support" = "Download Windows Support";
 "Download Windows support to open %@." = "Download Windows support to open %@.";
 "Downloading %@…" = "Downloading %@…";
@@ -81,10 +87,13 @@
 "Harbor" = "Harbor";
 "Harbor can’t read part of what it has recorded for this program, and saving would lose that part. Nothing was changed." = "Harbor can’t read part of what it has recorded for this program, and saving would lose that part. Nothing was changed.";
 "Harbor couldn’t tell which program in this folder to add. Drop the program itself." = "Harbor couldn’t tell which program in this folder to add. Drop the program itself.";
+"Harbor keeps it for 90 days. To have it deleted sooner, enter this reference on Harbor’s privacy page. It isn’t shown again." = "Harbor keeps it for 90 days. To have it deleted sooner, enter this reference on Harbor’s privacy page. It isn’t shown again.";
 "Harbor needs a one-time download to run Windows programs." = "Harbor needs a one-time download to run Windows programs.";
 "Harbor needs a one-time download to run Windows programs. (%@)" = "Harbor needs a one-time download to run Windows programs. (%@)";
 "Harbor quit unexpectedly last time." = "Harbor quit unexpectedly last time.";
 "Harbor’s main window offers the download." = "Harbor’s main window offers the download.";
+"Harbor’s service didn’t accept it (status %@)." = "Harbor’s service didn’t accept it (status %@).";
+"Harbor’s service has taken as much as it accepts today. Try again tomorrow." = "Harbor’s service has taken as much as it accepts today. Try again tomorrow.";
 "Install %@" = "Install %@";
 "Install Again" = "Install Again";
 "Install Now" = "Install Now";
@@ -101,15 +110,20 @@
 "Newer Windows support is available for a newer Harbor. Choose Harbor > Check for Updates…" = "Newer Windows support is available for a newer Harbor. Choose Harbor > Check for Updates…";
 "No Apps Yet" = "No Apps Yet";
 "No Games Yet" = "No Games Yet";
+"No program names, and nothing that identifies you or this Mac. Settings shows exactly what is sent next, and you can change your mind there at any time." = "No program names, and nothing that identifies you or this Mac. Settings shows exactly what is sent next, and you can change your mind there at any time.";
 "Not installed" = "Not installed";
+"Nothing yet. Harbor counts from the next program you open." = "Nothing yet. Harbor counts from the next program you open.";
 "OK" = "OK";
 "Open" = "Open";
 "Open %@" = "Open %@";
 "Open in Browser" = "Open in Browser";
+"Open in Browser starts a new issue on GitHub with the text below; nothing is sent until you submit it there. Without a GitHub account, Send to Harbor sends the text to Harbor’s own service, which keeps it for 90 days. Your user name and your Mac’s name are left out; the log may still mention the program." = "Open in Browser starts a new issue on GitHub with the text below; nothing is sent until you submit it there. Without a GitHub account, Send to Harbor sends the text to Harbor’s own service, which keeps it for 90 days. Your user name and your Mac’s name are left out; the log may still mention the program.";
 "Opening %@ although Windows couldn’t be updated for it: %@" = "Opening %@ although Windows couldn’t be updated for it: %@";
 "Opens the program" = "Opens the program";
 "Other programs installed alongside it stay in your library." = "Other programs installed alongside it stay in your library.";
 "Preparing Windows for %@…" = "Preparing Windows for %@…";
+"Privacy" = "Privacy";
+"Privacy Page" = "Privacy Page";
 "Programs you add appear here. Use “Treat as Game” to move one." = "Programs you add appear here. Use “Treat as Game” to move one.";
 "Quit" = "Quit";
 "Quit %@ to finish updating Windows support, then start %@ again." = "Quit %@ to finish updating Windows support, then start %@ again.";
@@ -125,12 +139,18 @@
 "Report a Problem" = "Report a Problem";
 "Report a Problem…" = "Report a Problem…";
 "Report Problem" = "Report Problem";
+"Report Sent" = "Report Sent";
 "Rosetta Is Needed" = "Rosetta Is Needed";
 "Rosetta wasn’t installed." = "Rosetta wasn’t installed.";
 "Rosetta wasn’t installed: %@" = "Rosetta wasn’t installed: %@";
 "Running" = "Running";
 "Search Programs" = "Search Programs";
+"Send to Harbor" = "Send to Harbor";
+"Sent next" = "Sent next";
 "Setting up a separate Windows environment for your games." = "Setting up a separate Windows environment for your games.";
+"Share" = "Share";
+"Share anonymous statistics" = "Share anonymous statistics";
+"Share Anonymous Statistics?" = "Share Anonymous Statistics?";
 "Show in Finder" = "Show in Finder";
 "Show Log" = "Show Log";
 "Steam updates itself on its first start, which can take a few minutes." = "Steam updates itself on its first start, which can take a few minutes.";
@@ -155,6 +175,7 @@
 "The update server couldn’t be reached: %@" = "The update server couldn’t be reached: %@";
 "The updated Windows support didn't start when Harbor tried it, and the previous version is gone, so the update stays installed." = "The updated Windows support didn't start when Harbor tried it, and the previous version is gone, so the update stays installed.";
 "The updated Windows support didn't start; the previous version was kept." = "The updated Windows support didn't start; the previous version was kept.";
+"They show which kinds of problems are common, so those get fixed first. At most once a day Harbor would send how many programs ran and how many didn’t, by cause, with the versions of Harbor, Windows support and macOS and the name of this Mac’s chip." = "They show which kinds of problems are common, so those get fixed first. At most once a day Harbor would send how many programs ran and how many didn’t, by cause, with the versions of Harbor, Windows support and macOS and the name of this Mac’s chip.";
 "This checkout’s own build" = "This checkout’s own build";
 "This development build doesn’t update itself." = "This development build doesn’t update itself.";
 "This development build has no download location. Run %@, then relaunch Harbor." = "This development build has no download location. Run %@, then relaunch Harbor.";
@@ -162,7 +183,6 @@
 "This folder holds more than one program’s files. Drop the program itself." = "This folder holds more than one program’s files. Drop the program itself.";
 "This happens once after Harbor updates its Windows support. It takes about half a minute." = "This happens once after Harbor updates its Windows support. It takes about half a minute.";
 "This is too long for a link, so the browser gets a shortened text. Open in Browser also copies all of it: paste it over the text there." = "This is too long for a link, so the browser gets a shortened text. Open in Browser also copies all of it: paste it over the text there.";
-"This opens a new issue on GitHub in your browser with the text below. Nothing is sent until you submit it there. Your user name and your Mac’s name are left out; the log may still mention the program." = "This opens a new issue on GitHub in your browser with the text below. Nothing is sent until you submit it there. Your user name and your Mac’s name are left out; the log may still mention the program.";
 "This takes a minute or two." = "This takes a minute or two.";
 "This takes about half a minute the first time." = "This takes about half a minute the first time.";
 "This Windows support needs a newer Harbor (build %@)." = "This Windows support needs a newer Harbor (build %@).";
@@ -177,6 +197,8 @@
 "Updating Windows for %@…" = "Updating Windows for %@…";
 "Updating Windows support first. Start %@ again when that’s done." = "Updating Windows support first. Start %@ again when that’s done.";
 "Version %@" = "Version %@";
+"What Harbor Sends" = "What Harbor Sends";
+"What Harbor sends" = "What Harbor sends";
 "What went wrong, in a few words" = "What went wrong, in a few words";
 "Windows Program" = "Windows Program";
 "Windows programs run through Apple’s Rosetta translation. It’s a free, one-time install from Apple." = "Windows programs run through Apple’s Rosetta translation. It’s a free, one-time install from Apple.";

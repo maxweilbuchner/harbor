@@ -140,6 +140,24 @@ Every launch logs to the bottle (`last-run.log`, rotated). A matcher table maps 
 unimplemented function, D3D device creation failure, crash in known module) to an explanation and an action
 (install recipe, switch graphics layer, change Windows version). Users can export a redacted report.
 
+What leaves the Mac about any of this (issue #50) does so only after the user said so, and can be read first:
+
+- **Problem reports** (`ProblemReport`, `ReportSheet`): the whole text is shown and editable. "Open in Browser"
+  fills a new GitHub issue; "Send to Harbor" posts the same text to Harbor's own service for people without an
+  account there, and shows the reference the service made for it.
+- **Usage statistics** (`UsageStatistics`): asked once, off until agreed to. While off nothing is counted. A
+  record holds versions, the chip's name and counts per outcome (ran, and each `Diagnosis` cause); no program
+  names and no identifier. At most one a day; Settings shows the next one byte for byte.
+- **The service** (`service/collect`, a Supabase Edge Function with its database in Frankfurt; the address is
+  `HarborService.endpoint`): stores a record or a report with the day it came, refuses anything that isn't the
+  expected shape, and takes a limited number of rows a day. A report is deleted after 90 days or at once with
+  its reference (the form on the website's privacy page); statistics after 13 months. The tables are readable
+  with the project's service key only. `.github/workflows/service.yml` calls it once a day: that shows when it
+  is down and keeps the free project from being paused for inactivity.
+- Known limits: the host's gateway keeps its own access log (address, rough location, time) for about a day,
+  which the privacy page says; and the endpoint is the host's address, so moving the service means a new app
+  version (older ones then send nowhere, silently).
+
 ## 11. Open risks and questions
 
 1. **Rosetta future** — Wine's x86 code depends on Rosetta; Apple's post-macOS-27 Rosetta scope must be confirmed.
