@@ -11,10 +11,11 @@ or developer.apple.com > Certificates); notarization uses the `harbor-notary` ke
 The "Developer ID Application" certificate was renewed on 2026-11-24: the new one **expires 2027-12-24**, the
 previous one on 2027-02-01. What is signed and timestamped before a certificate expires stays valid; nothing new
 can be signed with it afterwards, so renew earlier (an Apple Developer account action; the request file comes
-from `openssl req -new -newkey rsa:2048` or Keychain Access). While both certificates are in the keychain the
-scripts refuse to sign, because the name matches two: set `SIGN_IDENTITY` to the SHA-1 of the new one
-(`security find-identity -v -p codesigning`; `F38A49201551AA9021F89173E2535CD8EA3CBC3B`) until the old one has
-been deleted from the keychain, and `INSTALLER_IDENTITY` likewise if the installer certificate is ever doubled.
+from `openssl req -new -newkey rsa:2048` or Keychain Access). The previous one was deleted from the keychain on
+2026-11-25, so the scripts find the new one by name. Whenever two certificates of one name are in the keychain
+(the next renewal) the scripts refuse to sign: set `SIGN_IDENTITY` to the SHA-1 of the one to use
+(`security find-identity -v -p codesigning`) until the old one is deleted, and `INSTALLER_IDENTITY` likewise for
+the installer certificate.
 
 ## Runtime only (a Wine patch, a new D3DMetal or DXMT)
 
