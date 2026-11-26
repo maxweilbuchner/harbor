@@ -1,0 +1,150 @@
+Harbor: Direct2D has the 3D transform, atlas and tile effects (#93).
+
+Excel creates them; creating one failed with D2DERR_EFFECT_IS_NOT_REGISTERED. They are declared like the other
+built-in effects here: the properties exist and can be set, and there is no processing of their own behind them.
+Seen from Excel in a start with a workbook open: these three, and scale, colour matrix and flood, which exist.
+Which of 0025 to 0028 Excel's blank window was down to was not separated for this one; without 0027 alone the
+window stays blank.
+
+Test: WindowsTests/d2d/run.sh.
+
+--- a/dlls/d2d1/effect.c
++++ b/dlls/d2d1/effect.c
+@@ -1800,10 +1800,127 @@
+         .scale = { 1.0f, 1.0f },
+         .border_mode = D2D1_BORDER_MODE_SOFT,
+         .interpolation_mode = D2D1_SCALE_INTERPOLATION_MODE_LINEAR,
++    };
++    return d2d_effect_create_impl(effect, &properties, sizeof(properties));
++}
++
++static const WCHAR _3d_transform_description[] =
++L"<?xml version='1.0'?>                                                   \
++  <Effect>                                                                \
++    <Property name='DisplayName' type='string' value='3D Transform'/>     \
++    <Property name='Author'      type='string' value='The Wine Project'/> \
++    <Property name='Category'    type='string' value='Stub'/>             \
++    <Property name='Description' type='string' value='3D Transform'/>     \
++    <Inputs>                                                              \
++      <Input name='Source'/>                                              \
++    </Inputs>                                                             \
++    <Property name='InterpolationMode' type='enum' />                     \
++    <Property name='BorderMode' type='enum' />                            \
++    <Property name='TransformMatrix' type='matrix4x4' />                  \
++  </Effect>";
++
++struct _3d_transform_properties
++{
++    UINT32 interpolation_mode;
++    D2D1_BORDER_MODE border_mode;
++    D2D_MATRIX_4X4_F transform_matrix;
++};
++
++EFFECT_PROPERTY_RW(_3d_transform, interpolation_mode, ENUM)
++EFFECT_PROPERTY_RW(_3d_transform, border_mode, ENUM)
++EFFECT_PROPERTY_RW(_3d_transform, transform_matrix, MATRIX_4X4)
++
++static const D2D1_PROPERTY_BINDING _3d_transform_bindings[] =
++{
++    { L"InterpolationMode", BINDING_RW(_3d_transform, interpolation_mode) },
++    { L"BorderMode", BINDING_RW(_3d_transform, border_mode) },
++    { L"TransformMatrix", BINDING_RW(_3d_transform, transform_matrix) },
++};
++
++static HRESULT __stdcall _3d_transform_factory(IUnknown **effect)
++{
++    static const struct _3d_transform_properties properties =
++    {
++        .interpolation_mode = 1,    /* D2D1_3DTRANSFORM_INTERPOLATION_MODE_LINEAR */
++        .border_mode = D2D1_BORDER_MODE_SOFT,
++        .transform_matrix = { ._11 = 1.0f, ._22 = 1.0f, ._33 = 1.0f, ._44 = 1.0f },
++    };
++    return d2d_effect_create_impl(effect, &properties, sizeof(properties));
++}
++
++static const WCHAR atlas_description[] =
++L"<?xml version='1.0'?>                                                   \
++  <Effect>                                                                \
++    <Property name='DisplayName' type='string' value='Atlas'/>            \
++    <Property name='Author'      type='string' value='The Wine Project'/> \
++    <Property name='Category'    type='string' value='Stub'/>             \
++    <Property name='Description' type='string' value='Atlas'/>            \
++    <Inputs>                                                              \
++      <Input name='Source'/>                                              \
++    </Inputs>                                                             \
++    <Property name='InputRect' type='vector4' />                          \
++    <Property name='InputPaddingRect' type='vector4' />                   \
++  </Effect>";
++
++struct atlas_properties
++{
++    D2D1_VECTOR_4F input_rect;
++    D2D1_VECTOR_4F input_padding_rect;
++};
++
++EFFECT_PROPERTY_RW(atlas, input_rect, VECTOR4)
++EFFECT_PROPERTY_RW(atlas, input_padding_rect, VECTOR4)
++
++static const D2D1_PROPERTY_BINDING atlas_bindings[] =
++{
++    { L"InputRect", BINDING_RW(atlas, input_rect) },
++    { L"InputPaddingRect", BINDING_RW(atlas, input_padding_rect) },
++};
++
++static HRESULT __stdcall atlas_factory(IUnknown **effect)
++{
++    static const struct atlas_properties properties =
++    {
++        .input_rect = { -INFINITY, -INFINITY, INFINITY, INFINITY },
++        .input_padding_rect = { -INFINITY, -INFINITY, INFINITY, INFINITY },
+     };
+     return d2d_effect_create_impl(effect, &properties, sizeof(properties));
+ }
+ 
++static const WCHAR tile_description[] =
++L"<?xml version='1.0'?>                                                   \
++  <Effect>                                                                \
++    <Property name='DisplayName' type='string' value='Tile'/>             \
++    <Property name='Author'      type='string' value='The Wine Project'/> \
++    <Property name='Category'    type='string' value='Stub'/>             \
++    <Property name='Description' type='string' value='Tile'/>             \
++    <Inputs>                                                              \
++      <Input name='Source'/>                                              \
++    </Inputs>                                                             \
++    <Property name='Rect' type='vector4' />                               \
++  </Effect>";
++
++struct tile_properties
++{
++    D2D1_VECTOR_4F rect;
++};
++
++EFFECT_PROPERTY_RW(tile, rect, VECTOR4)
++
++static const D2D1_PROPERTY_BINDING tile_bindings[] =
++{
++    { L"Rect", BINDING_RW(tile, rect) },
++};
++
++static HRESULT __stdcall tile_factory(IUnknown **effect)
++{
++    static const struct tile_properties properties =
++    {
++        .rect = { 0.0f, 0.0f, 100.0f, 100.0f },
++    };
++    return d2d_effect_create_impl(effect, &properties, sizeof(properties));
++}
++
+ void d2d_effects_init_builtins(struct d2d_factory *factory)
+ {
+     static const struct builtin_description
+@@ -1820,6 +1937,9 @@
+ #define X2(name) name##_description, name##_factory, name##_bindings, ARRAY_SIZE(name##_bindings)
+         { &CLSID_D2D12DAffineTransform, X2(_2d_affine_transform) },
+         { &CLSID_D2D13DPerspectiveTransform, X2(_3d_perspective_transform) },
++        { &CLSID_D2D13DTransform, X2(_3d_transform) },
++        { &CLSID_D2D1Atlas, X2(atlas) },
++        { &CLSID_D2D1Tile, X2(tile) },
+         { &CLSID_D2D1Composite, X2(composite) },
+         { &CLSID_D2D1Crop, X2(crop) },
+         { &CLSID_D2D1Shadow, X2(shadow) },

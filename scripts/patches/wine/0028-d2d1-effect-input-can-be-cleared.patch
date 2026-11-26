@@ -1,0 +1,19 @@
+Harbor: ID2D1Effect::SetInput accepts NULL (#93).
+
+It called AddRef on the new input before looking at it. Clearing an input is ordinary use: Excel does it
+several hundred times while starting, and crashed on the first.
+
+Test: WindowsTests/d2d/run.sh.
+
+--- a/dlls/d2d1/effect.c
++++ b/dlls/d2d1/effect.c
+@@ -2927,7 +2927,8 @@
+     if (index >= effect->input_count)
+         return;
+ 
+-    ID2D1Image_AddRef(input);
++    if (input)
++        ID2D1Image_AddRef(input);
+     if (effect->inputs[index])
+         ID2D1Image_Release(effect->inputs[index]);
+     effect->inputs[index] = input;

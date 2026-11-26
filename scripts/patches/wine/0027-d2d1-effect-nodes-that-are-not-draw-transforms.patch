@@ -1,0 +1,23 @@
+Harbor: a Direct2D effect whose graph holds a node that isn't a draw transform can be created (#93).
+
+Initializing the graph failed the whole effect with E_NOTIMPL for such a node. Office registers effects of its
+own whose graphs hold them (an offset transform is enough) and leaves its window blank when one can't be
+created. The node is now left without draw info; it takes no part in rendering.
+
+Test: WindowsTests/d2d/run.sh.
+
+--- a/dlls/d2d1/effect.c
++++ b/dlls/d2d1/effect.c
+@@ -3528,8 +3528,10 @@
+         }
+         else
+         {
+-            FIXME("Unsupported node %p.\n", node);
+-            return E_NOTIMPL;
++            /* HARBOR HACK: this failed the whole effect with E_NOTIMPL. Office registers effects of its own
++             * whose graphs hold nodes that aren't draw transforms, and gives up drawing when one can't be
++             * created. Such a node gets no draw info and takes no part in rendering (#93). */
++            FIXME("Node %p is not a draw transform, leaving it out.\n", node);
+         }
+     }
+ 

@@ -1,0 +1,23 @@
+Harbor: a Direct2D bitmap shared from another bitmap can be drawn (#93).
+
+CreateSharedBitmap, given bitmap properties, set the new bitmap's options to TARGET | CANNOT_DRAW for everything
+that isn't a DXGI surface, an ID2D1Bitmap source included. Such a bitmap gets no shader view, and drawing it
+draws nothing. Excel shares its tile bitmaps this way: with hardware acceleration off its grid and ribbon came
+out black or empty. The shared bitmap now has its source's options, as it already did when no properties were
+given.
+
+Test: WindowsTests/d2d/run.sh.
+
+--- a/dlls/d2d1/device.c
++++ b/dlls/d2d1/device.c
+@@ -420,6 +420,10 @@
+         memcpy(&bitmap_desc, desc, sizeof(*desc));
+         if (IsEqualIID(iid, &IID_IDXGISurface) || IsEqualIID(iid, &IID_IDXGISurface1))
+             bitmap_desc.bitmapOptions = d2d_get_bitmap_options_for_surface(data);
++        else if (IsEqualIID(iid, &IID_ID2D1Bitmap) && data)
++            /* HARBOR HACK: a bitmap shared from another bitmap can be used the way its source can. Marked
++             * "cannot draw" it got no shader view, and drawing it gave black (#93). */
++            bitmap_desc.bitmapOptions = unsafe_impl_from_ID2D1Bitmap(data)->options;
+         else
+             bitmap_desc.bitmapOptions = D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW;
+         bitmap_desc.colorContext = NULL;
