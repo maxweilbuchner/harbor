@@ -1,0 +1,27 @@
+Harbor: RtlValidRelativeSecurityDescriptor accepts valid descriptors (#91).
+
+The function returned RtlValidSecurityDescriptor(descriptor) == STATUS_SUCCESS. RtlValidSecurityDescriptor returns
+a BOOLEAN, so comparing it with 0 turned the answer round: every valid descriptor was reported invalid, and an
+invalid one valid.
+
+Microsoft's offreg.dll (the offline registry library; Office's Click-to-Run installer ships its own copy) checks
+each hive's security descriptors with it and refuses a hive that fails: OROpenHive returns
+ERROR_NOT_REGISTRY_FILE. The installer then wrote its ten root\vreg\*.vreg.dat hives as empty 8 KB files and
+reported success, and Office's private registry (HKLM\Software\Microsoft\Office\ClickToRun\REGISTRY) held 24 keys
+instead of about 14,000: no VBA, and automation could not return workbook objects.
+
+Still a semi-stub: the length and the requested parts (info) are not checked.
+
+Test: WindowsTests/secdesc/run.sh.
+
+--- a/dlls/ntdll/sec.c	2026-11-26 15:37:13
++++ b/dlls/ntdll/sec.c	2026-11-26 15:37:13
+@@ -551,7 +551,7 @@
+     ULONG length, SECURITY_INFORMATION info)
+ {
+     FIXME("%p,%lu,%ld: semi-stub\n", descriptor, length, info);
+-    return RtlValidSecurityDescriptor(descriptor) == STATUS_SUCCESS;
++    return RtlValidSecurityDescriptor(descriptor);
+ }
+ 
+ /**************************************************************************
