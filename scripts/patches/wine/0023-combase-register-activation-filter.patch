@@ -1,0 +1,47 @@
+Harbor: CoRegisterActivationFilter exists in combase and ole32 (#92).
+
+combase.spec had it as a stub and ole32.spec not at all; Excel imports it from ole32 and doesn't start without
+it. Nothing here consults a filter when a class is activated, so the filter is accepted and never called.
+
+Test: WindowsTests/apigaps/run.sh.
+
+--- a/dlls/combase/combase.c	2026-11-26 16:00:03
++++ b/dlls/combase/combase.c	2026-11-26 16:00:13
+@@ -3463,4 +3463,16 @@
+         return IClassFactory_QueryInterface(&global_options_factory, riid, obj);
+ 
+     return CLASS_E_CLASSNOTAVAILABLE;
++}
++
++/***********************************************************************
++ *           CoRegisterActivationFilter    (combase.@)
++ *
++ * HARBOR HACK: Excel imports it from ole32 and doesn't start without it. Nothing here consults a filter when a
++ * class is activated, so the filter is accepted and never called.
++ */
++HRESULT WINAPI CoRegisterActivationFilter(IUnknown *filter)
++{
++    FIXME("%p: stub\n", filter);
++    return S_OK;
+ }
+--- a/dlls/combase/combase.spec	2026-11-26 16:00:03
++++ b/dlls/combase/combase.spec	2026-11-26 16:00:03
+@@ -139,7 +139,7 @@
+ @ stdcall CoQueryClientBlanket(ptr ptr ptr ptr ptr ptr ptr)
+ @ stdcall CoQueryProxyBlanket(ptr ptr ptr ptr ptr ptr ptr ptr)
+ @ stub CoReactivateObject
+-@ stub CoRegisterActivationFilter
++@ stdcall CoRegisterActivationFilter(ptr)
+ @ stdcall CoRegisterChannelHook(ptr ptr)
+ @ stdcall CoRegisterClassObject(ptr ptr long long ptr)
+ @ stdcall CoRegisterInitializeSpy(ptr ptr)
+--- a/dlls/ole32/ole32.spec	2026-11-26 16:00:03
++++ b/dlls/ole32/ole32.spec	2026-11-26 16:00:03
+@@ -65,6 +65,7 @@
+ @ stdcall CoQueryClientBlanket(ptr ptr ptr ptr ptr ptr ptr) combase.CoQueryClientBlanket
+ @ stdcall CoQueryProxyBlanket(ptr ptr ptr ptr ptr ptr ptr ptr) combase.CoQueryProxyBlanket
+ @ stub CoQueryReleaseObject
++@ stdcall CoRegisterActivationFilter(ptr) combase.CoRegisterActivationFilter
+ @ stdcall CoRegisterChannelHook(ptr ptr) combase.CoRegisterChannelHook
+ @ stdcall CoRegisterClassObject(ptr ptr long long ptr) combase.CoRegisterClassObject
+ @ stdcall CoRegisterInitializeSpy(ptr ptr) combase.CoRegisterInitializeSpy

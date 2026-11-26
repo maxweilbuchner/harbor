@@ -1,0 +1,65 @@
+Harbor: user32 has CalculatePopupWindowPosition (#92).
+
+It was a commented-out stub in user32.spec, so a program importing it by delay-load crashed on the call
+(0xC06D007F): Office does when its account flyout opens ("Sign in"). The popup is placed for the anchor point
+and TrackPopupMenu's alignment flags and kept inside the anchor's monitor, or its work area with TPM_WORKAREA.
+The rectangle the popup should keep clear (the fourth argument) is not taken into account.
+
+Test: WindowsTests/apigaps/run.sh.
+
+--- a/dlls/user32/misc.c	2026-11-26 16:00:03
++++ b/dlls/user32/misc.c	2026-11-26 16:00:13
+@@ -542,4 +542,42 @@
+ {
+     if (!imm_ime_wnd_proc) return DefWindowProcW(hwnd, msg, wParam, lParam);
+     return imm_ime_wnd_proc( hwnd, msg, wParam, lParam, FALSE );
++}
++
++/***********************************************************************
++ *		CalculatePopupWindowPosition (USER32.@)
++ *
++ * HARBOR HACK: where a popup of the given size goes for an anchor point and TrackPopupMenu's alignment flags,
++ * kept inside the anchor's monitor. Office positions its account flyout with it (#92). The rectangle to keep
++ * clear (exclude) is not taken into account.
++ */
++BOOL WINAPI CalculatePopupWindowPosition( const POINT *anchor, const SIZE *size, UINT flags, RECT *exclude, RECT *pos )
++{
++    MONITORINFO info = { sizeof(info) };
++    RECT area;
++    LONG x, y;
++
++    if (!anchor || !size || !pos)
++    {
++        SetLastError( ERROR_INVALID_PARAMETER );
++        return FALSE;
++    }
++    if (exclude) FIXME( "exclude %s ignored\n", wine_dbgstr_rect(exclude) );
++    if (!GetMonitorInfoW( MonitorFromPoint( *anchor, MONITOR_DEFAULTTONEAREST ), &info )) return FALSE;
++    area = (flags & 0x10000 /* TPM_WORKAREA */) ? info.rcWork : info.rcMonitor;
++
++    x = anchor->x;
++    if (flags & TPM_CENTERALIGN) x -= size->cx / 2;
++    else if (flags & TPM_RIGHTALIGN) x -= size->cx;
++    y = anchor->y;
++    if (flags & TPM_VCENTERALIGN) y -= size->cy / 2;
++    else if (flags & TPM_BOTTOMALIGN) y -= size->cy;
++
++    if (x + size->cx > area.right) x = area.right - size->cx;
++    if (x < area.left) x = area.left;
++    if (y + size->cy > area.bottom) y = area.bottom - size->cy;
++    if (y < area.top) y = area.top;
++
++    SetRect( pos, x, y, x + size->cx, y + size->cy );
++    return TRUE;
+ }
+--- a/dlls/user32/user32.spec	2026-11-26 16:00:03
++++ b/dlls/user32/user32.spec	2026-11-26 16:00:03
+@@ -244,7 +244,7 @@
+ # @ stub BuildReasonArray
+ @ stdcall CalcChildScroll(long long)
+ @ stdcall CalcMenuBar(long long long long ptr) CalcMenuBar
+-# @ stub CalculatePopupWindowPosition
++@ stdcall CalculatePopupWindowPosition(ptr ptr long ptr ptr)
+ @ stdcall CallMsgFilter(ptr long) NtUserCallMsgFilter
+ @ stdcall CallMsgFilterA(ptr long) NtUserCallMsgFilter
+ @ stdcall CallMsgFilterW(ptr long) NtUserCallMsgFilter

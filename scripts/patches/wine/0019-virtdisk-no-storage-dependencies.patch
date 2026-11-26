@@ -1,0 +1,28 @@
+Harbor: GetStorageDependencyInformation fails for volumes that aren't on a virtual disk (#92).
+
+The stub returned ERROR_SUCCESS with NumberEntries = 0 and left the rest of the caller's buffer as it was. Excel
+asks about the volume of every add-in file it loads (an XLL registered under Excel\Options\OPEN is enough) and,
+after a success, reads the first entry without looking at NumberEntries: it followed the bytes that were in its
+buffer as a string pointer and crashed at start. With the buffer cleared for it, it crashed on the NULL instead,
+so on Windows the call can't be succeeding for an ordinary volume. Which error Windows returns has not been
+checked on Windows; ERROR_INVALID_FUNCTION is what Excel was seen to accept.
+
+Test: WindowsTests/apigaps/run.sh.
+
+--- a/dlls/virtdisk/virtdisk_main.c	2026-11-26 16:00:03
++++ b/dlls/virtdisk/virtdisk_main.c	2026-11-26 16:02:32
+@@ -40,9 +40,11 @@
+     if (size < temp_size)
+         return ERROR_INSUFFICIENT_BUFFER;
+ 
+-    info->NumberEntries = 0;
+-
+-    return ERROR_SUCCESS;
++    /* HARBOR HACK: this returned success with no entries. Excel asks about the volume of every add-in file and,
++     * after a success, reads the first entry without looking at NumberEntries: it followed whatever was in its
++     * buffer as a string pointer, and a NULL when the buffer was cleared for it (#92). No volume here is on a
++     * virtual disk, so fail; the code Windows gives for an ordinary volume has not been checked on Windows. */
++    return ERROR_INVALID_FUNCTION;
+ }
+ 
+ DWORD WINAPI OpenVirtualDisk(VIRTUAL_STORAGE_TYPE *type, const WCHAR *path, VIRTUAL_DISK_ACCESS_MASK mask, OPEN_VIRTUAL_DISK_FLAG flags,

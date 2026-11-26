@@ -1,0 +1,22 @@
+Harbor: InternetSetOption accepts INTERNET_OPTION_LISTEN_TIMEOUT (#92).
+
+Option 11 fell through to "Option STUB" and ERROR_INTERNET_INVALID_OPTION. Office sets it on the session before
+its account requests and gives up on the request when that fails: signing in ended with error code 12009. The
+value is accepted and not used.
+
+Test: WindowsTests/apigaps/run.sh.
+
+--- a/dlls/wininet/internet.c	2026-11-26 16:00:03
++++ b/dlls/wininet/internet.c	2026-11-26 16:00:03
+@@ -3687,6 +3687,11 @@
+         ret = (res == ERROR_SUCCESS);
+         break;
+         }
++    case INTERNET_OPTION_LISTEN_TIMEOUT:
++        /* HARBOR HACK: a timeout from the FTP days that nothing here uses. Office sets it before its account
++         * requests and gives up on the request (error 12009) when that fails (#92). */
++        TRACE("INTERNET_OPTION_LISTEN_TIMEOUT: accepted, not used\n");
++        break;
+     default:
+         FIXME("Option %ld STUB\n",dwOption);
+         SetLastError(ERROR_INTERNET_INVALID_OPTION);

@@ -1,0 +1,38 @@
+Harbor: kernel32 has SetFileShortNameW (#92).
+
+It was a commented-out stub in kernel32.spec; Office's mso.dll imports it. Files have no short names here, and on
+Windows the call needs SeRestorePrivilege, which a program started by an ordinary user doesn't hold. It fails
+with ERROR_PRIVILEGE_NOT_HELD as it would there; Excel starts with that answer.
+
+Test: WindowsTests/apigaps/run.sh.
+
+--- a/dlls/kernel32/file.c	2026-11-26 16:00:03
++++ b/dlls/kernel32/file.c	2026-11-26 16:00:03
+@@ -533,3 +533,16 @@
+     WARN("(%s): return = HFILE_ERROR error= %d\n", name,ofs->nErrCode );
+     return HFILE_ERROR;
+ }
++
++/***********************************************************************
++ *           SetFileShortNameW   (KERNEL32.@)
++ *
++ * HARBOR HACK: Office (mso.dll) imports it. A file has no short name here, and on Windows the call needs
++ * SeRestorePrivilege, which a program started by an ordinary user doesn't hold: fail the way it does there.
++ */
++BOOL WINAPI SetFileShortNameW( HANDLE file, const WCHAR *name )
++{
++    FIXME( "(%p, %s): stub\n", file, debugstr_w(name) );
++    SetLastError( ERROR_PRIVILEGE_NOT_HELD );
++    return FALSE;
++}
+--- a/dlls/kernel32/kernel32.spec	2026-11-26 16:00:03
++++ b/dlls/kernel32/kernel32.spec	2026-11-26 16:00:03
+@@ -1444,7 +1444,7 @@
+ @ stdcall -import SetFilePointer(long long ptr long)
+ @ stdcall -import SetFilePointerEx(long int64 ptr long)
+ # @ stub SetFileShortNameA
+-# @ stub SetFileShortNameW
++@ stdcall SetFileShortNameW(long wstr)
+ @ stdcall -import SetFileTime(long ptr ptr ptr)
+ @ stdcall -import SetFileValidData(ptr int64)
+ @ stdcall SetFirmwareEnvironmentVariableA(str str ptr long)
