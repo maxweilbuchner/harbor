@@ -1,9 +1,12 @@
 // Lists on-screen windows as "id owner pid WxH name" (name is often empty: macOS hides other apps' titles
-// unless Screen Recording is granted). Usage: swift windows.swift [owner-substring]
+// unless Screen Recording is granted). Usage: swift windows.swift [owner-substring] [--all]
+// --all includes windows that aren't on screen now, such as those on another Space.
 import CoreGraphics
 import Foundation
-let filter = CommandLine.arguments.dropFirst().first?.lowercased()
-let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+let arguments = CommandLine.arguments.dropFirst().filter { $0 != "--all" }
+let filter = arguments.first?.lowercased()
+let scope: CGWindowListOption = CommandLine.arguments.contains("--all") ? [.optionAll] : [.optionOnScreenOnly]
+let info = CGWindowListCopyWindowInfo(scope, kCGNullWindowID) as? [[String: Any]] ?? []
 for w in info {
     let owner = w[kCGWindowOwnerName as String] as? String ?? "?"
     if let filter, !owner.lowercased().contains(filter) { continue }

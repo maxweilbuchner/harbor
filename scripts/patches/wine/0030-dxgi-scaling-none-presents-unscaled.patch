@@ -1,0 +1,75 @@
+Harbor: DXGI_SCALING_NONE presents the buffer unscaled (#94).
+
+The scaling a swap chain was created with was dropped ("Ignoring scaling"), and every present stretched the
+whole buffer over the window. With DXGI_SCALING_NONE the buffer belongs in the window's top left corner as it
+is: what doesn't fit is cut off, what it doesn't cover is left alone. Office makes buffers larger than their
+windows (1512x886 in a window 645 high), which came out squeezed.
+
+The Direct3D 10/11 swap chain keeps its scaling, reports it from GetDesc1, and presents with the rectangle the
+buffer and the window have in common. Windowed swap chains only.
+
+Test: WindowsTests/graphics/childswap.sh (none).
+
+--- a/dlls/dxgi/swapchain.c
++++ b/dlls/dxgi/swapchain.c
+@@ -322,7 +322,30 @@
+         WARN("Returning S_OK for DXGI_PRESENT_TEST.\n");
+         return S_OK;
+     }
++
++    /* HARBOR HACK: with DXGI_SCALING_NONE the buffer goes to the window's top left corner as it is; what doesn't
++     * fit is cut off, and what the buffer doesn't cover is left alone. Presenting without rectangles stretches
++     * the whole buffer over the window. Office makes buffers larger than their windows this way (#94). */
++    if (swapchain->scaling == DXGI_SCALING_NONE)
++    {
++        struct wined3d_swapchain_desc desc;
++        RECT client, rect;
+ 
++        wined3d_mutex_lock();
++        wined3d_swapchain_get_desc(swapchain->wined3d_swapchain, &desc);
++        wined3d_mutex_unlock();
++        if (desc.windowed && GetClientRect(d3d11_swapchain_get_hwnd(swapchain), &client))
++        {
++            SetRect(&rect, 0, 0, min(desc.backbuffer_width, (unsigned int)client.right),
++                    min(desc.backbuffer_height, (unsigned int)client.bottom));
++            if (IsRectEmpty(&rect))
++                return S_OK;
++            if (SUCCEEDED(hr = wined3d_swapchain_present(swapchain->wined3d_swapchain, &rect, &rect, NULL, sync_interval, 0)))
++                InterlockedIncrement(&swapchain->present_count);
++            return hr;
++        }
++    }
++
+     if (SUCCEEDED(hr = wined3d_swapchain_present(swapchain->wined3d_swapchain, NULL, NULL, NULL, sync_interval, 0)))
+         InterlockedIncrement(&swapchain->present_count);
+     return hr;
+@@ -712,7 +735,7 @@
+             wined3d_desc.multisample_type, wined3d_desc.multisample_quality);
+     desc->BufferUsage = dxgi_usage_from_wined3d_bind_flags(wined3d_desc.backbuffer_bind_flags);
+     desc->BufferCount = wined3d_desc.backbuffer_count;
+-    desc->Scaling = DXGI_SCALING_STRETCH;
++    desc->Scaling = swapchain->scaling;
+     desc->SwapEffect = dxgi_swap_effect_from_wined3d(wined3d_desc.swap_effect);
+     desc->AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+     desc->Flags = dxgi_swapchain_flags_from_wined3d(wined3d_desc.flags);
+--- a/dlls/dxgi/device.c
++++ b/dlls/dxgi/device.c
+@@ -468,6 +468,8 @@
+         free(object);
+         return hr;
+     }
++
++    object->scaling = desc->Scaling;
+ 
+     TRACE("Created swapchain %p.\n", object);
+ 
+--- a/dlls/dxgi/dxgi_private.h
++++ b/dlls/dxgi/dxgi_private.h
+@@ -183,6 +183,7 @@
+     IDXGIOutput *target;
+     LONG present_count;
+     LONG in_set_fullscreen_state;
++    DXGI_SCALING scaling;    /* HARBOR HACK: kept for DXGI_SCALING_NONE, see d3d11_swapchain_present() */
+ };
+ 
+ HRESULT d3d11_swapchain_init(struct d3d11_swapchain *swapchain, struct dxgi_device *device,

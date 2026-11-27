@@ -1,0 +1,51 @@
+Harbor: with the OpenGL renderer, a swap chain in a child window presents through GDI (#94).
+
+Presenting through OpenGL gives a window a surface of its own, laid over its top-level window without regard to
+the other windows in it. On macOS a swap chain's picture then covers the windows inside its window and what
+overlapping windows draw. Office builds a window from a dozen swap chains in nested child windows: the sheet's
+window lies inside another window with a swap chain of its own, and was covered by it.
+
+wined3d already presents through GDI when it has no usable drawable; that path goes through the top-level
+window's surface, where windows clip each other as they should. It is now taken for every swap chain whose
+window is a child window, from its first frame (a window once presented to through OpenGL keeps that surface on
+top, so the choice can't be made later, when other windows turn up).
+
+Cost: each frame is read back from the GPU. Affected: the OpenGL renderer only, which is used for Direct3D 9
+and earlier, and for Direct3D 10/11 only where a bottle selects it (the default there is Vulkan). A swap chain
+in a top-level window presents as before; a single swap chain in a child window worked before and now takes
+the slower path too.
+
+Test: WindowsTests/graphics/childswap.sh (stack).
+
+--- a/dlls/wined3d/swapchain.c
++++ b/dlls/wined3d/swapchain.c
+@@ -608,6 +608,21 @@
+         return true;
+ 
+     return false;
++}
++
++/* HARBOR HACK: presenting through OpenGL gives a window a surface of its own, laid over its top-level window
++ * without regard to the other windows in it: on macOS a swap chain's picture covered the windows inside its
++ * window, and what was drawn in windows overlapping it. Office builds its windows from a dozen swap chains in
++ * nested child windows (#94). Presenting through GDI goes through the top-level window's surface, where windows
++ * clip each other as they should; it costs reading each frame back.
++ * That is done for every swap chain in a child window, from its first frame: a window that has once been
++ * presented to through OpenGL keeps that surface on top, so the choice can't wait until other windows turn up.
++ * A swap chain in a top-level window presents as before. */
++static BOOL swapchain_window_is_child(HWND window)
++{
++    HWND root = GetAncestor(window, GA_ROOT);
++
++    return root && root != window;
+ }
+ 
+ static void swapchain_gl_present(struct wined3d_swapchain *swapchain,
+@@ -632,6 +647,7 @@
+ 
+     pixel_format = &wined3d_adapter_gl(swapchain->device->adapter)->pixel_formats[context_gl->pixel_format];
+     if (context_gl->dc == wined3d_device_gl(swapchain->device)->backup_dc
++            || swapchain_window_is_child(swapchain->win_handle)
+             || (pixel_format->swap_method != WGL_SWAP_COPY_ARB
+             && swapchain_present_is_partial_copy(swapchain, dst_rect)))
+     {

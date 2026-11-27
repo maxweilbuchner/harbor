@@ -11,4 +11,5 @@ mkdir -p "$OUT"
 "$CC" -O2 -Wall -o "$OUT/d3d11fs.exe" WindowsTests/graphics/d3d11fs.c -ld3d11 -ldxgi -luser32
 "$CC" -O2 -Wall -o "$OUT/modeset.exe" WindowsTests/graphics/modeset.c -luser32
 "$CC" -O2 -Wall -o "$OUT/spaceprobe.exe" WindowsTests/graphics/spaceprobe.c -luser32 -lgdi32
+"$CC" -O2 -Wall -o "$OUT/childswap.exe" WindowsTests/graphics/childswap.c -ld3d11 -ldxgi -ldxguid -luuid -luser32 -lgdi32
 echo "graphics tests: $OUT"

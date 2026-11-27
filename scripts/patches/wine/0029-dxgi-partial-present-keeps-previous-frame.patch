@@ -1,0 +1,116 @@
+Harbor: a flip model swap chain presented with dirty rectangles keeps the rest of the previous frame (#94).
+
+IDXGISwapChain1::Present1's parameters were ignored. With DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL the buffer a program
+draws to last held an older frame; a program that presents with dirty rectangles has drawn only inside them and
+may not touch the rest. Windows brings that buffer up to date from the frame presented before. Here the buffer
+was presented as it was: on screen, only what had just been drawn (Office redraws its windows this way; they
+showed little but the last changed region).
+
+Before presenting, the buffer now gets the previous frame, which is in the last buffer until the buffers rotate,
+everywhere outside the dirty rectangles. Only for wined3d-backed (Direct3D 10/11) swap chains with the
+sequential flip effect and at least two buffers, and not for the first frame. The scroll rectangle is still
+ignored.
+
+Test: WindowsTests/graphics/childswap.sh (flip).
+
+--- a/dlls/dxgi/swapchain.c
++++ b/dlls/dxgi/swapchain.c
+@@ -326,8 +326,84 @@
+     if (SUCCEEDED(hr = wined3d_swapchain_present(swapchain->wined3d_swapchain, NULL, NULL, NULL, sync_interval, 0)))
+         InterlockedIncrement(&swapchain->present_count);
+     return hr;
++}
++
++/* Makes room for count rectangles. */
++static BOOL rect_list_reserve(RECT **rects, unsigned int *capacity, unsigned int count)
++{
++    RECT *grown;
++
++    if (count <= *capacity)
++        return TRUE;
++    if (!(grown = realloc(*rects, 2 * count * sizeof(*grown))))
++        return FALSE;
++    *rects = grown;
++    *capacity = 2 * count;
++    return TRUE;
+ }
+ 
++/* HARBOR HACK: a flip model swap chain presented with dirty rectangles. The program has drawn only inside them, on
++ * a buffer that last held an older frame; everything else has to be the frame presented before this one, which
++ * is in the last buffer until the buffers rotate. Windows brings the buffer up to date at this point; presenting
++ * it as it was showed only what the program had just drawn (#94). The scroll rectangle is not handled. */
++static void d3d11_swapchain_keep_previous_frame(struct d3d11_swapchain *swapchain,
++        const DXGI_PRESENT_PARAMETERS *parameters)
++{
++    unsigned int i, j, count, capacity = 0, next_count, next_capacity = 0;
++    struct wined3d_texture *current, *previous;
++    struct wined3d_device_context *context;
++    RECT *rects = NULL, *next = NULL, *swap;
++    struct wined3d_swapchain_desc desc;
++    RECT dirty, r;
++
++    if (!parameters->DirtyRectsCount || !parameters->pDirtyRects || !swapchain->present_count)
++        return;
++
++    wined3d_mutex_lock();
++    wined3d_swapchain_get_desc(swapchain->wined3d_swapchain, &desc);
++    if (desc.swap_effect != WINED3D_SWAP_EFFECT_FLIP_SEQUENTIAL || desc.backbuffer_count < 2)
++        goto done;
++
++    /* The buffer without the dirty rectangles: each one cuts a remaining rectangle into at most four. */
++    if (!rect_list_reserve(&rects, &capacity, 1))
++        goto done;
++    SetRect(&rects[0], 0, 0, desc.backbuffer_width, desc.backbuffer_height);
++    count = 1;
++    for (i = 0; i < parameters->DirtyRectsCount && count; ++i)
++    {
++        next_count = 0;
++        for (j = 0; j < count; ++j)
++        {
++            if (!rect_list_reserve(&next, &next_capacity, next_count + 4))
++                goto done;
++            r = rects[j];
++            if (!IntersectRect(&dirty, &r, &parameters->pDirtyRects[i]))
++            {
++                next[next_count++] = r;
++                continue;
++            }
++            if (dirty.top > r.top) SetRect(&next[next_count++], r.left, r.top, r.right, dirty.top);
++            if (dirty.bottom < r.bottom) SetRect(&next[next_count++], r.left, dirty.bottom, r.right, r.bottom);
++            if (dirty.left > r.left) SetRect(&next[next_count++], r.left, dirty.top, dirty.left, dirty.bottom);
++            if (dirty.right < r.right) SetRect(&next[next_count++], dirty.right, dirty.top, r.right, dirty.bottom);
++        }
++        swap = rects; rects = next; next = swap;
++        j = capacity; capacity = next_capacity; next_capacity = j;
++        count = next_count;
++    }
++
++    current = wined3d_swapchain_get_back_buffer(swapchain->wined3d_swapchain, 0);
++    previous = wined3d_swapchain_get_back_buffer(swapchain->wined3d_swapchain, desc.backbuffer_count - 1);
++    context = wined3d_device_get_immediate_context(wined3d_swapchain_get_device(swapchain->wined3d_swapchain));
++    for (i = 0; i < count; ++i)
++        wined3d_device_context_blt(context, current, 0, &rects[i], previous, 0, &rects[i], 0, NULL, WINED3D_TEXF_POINT);
++
++done:
++    free(rects);
++    free(next);
++    wined3d_mutex_unlock();
++}
++
+ static HRESULT STDMETHODCALLTYPE DECLSPEC_HOTPATCH d3d11_swapchain_Present(IDXGISwapChain4 *iface, UINT sync_interval, UINT flags)
+ {
+     struct d3d11_swapchain *swapchain = d3d11_swapchain_from_IDXGISwapChain4(iface);
+@@ -709,7 +785,12 @@
+             iface, sync_interval, flags, present_parameters);
+ 
+     if (present_parameters)
+-        FIXME("Ignored present parameters %p.\n", present_parameters);
++    {
++        if (present_parameters->pScrollRect)
++            FIXME("Ignored scroll rectangle %s.\n", wine_dbgstr_rect(present_parameters->pScrollRect));
++        if (!(flags & DXGI_PRESENT_TEST))
++            d3d11_swapchain_keep_previous_frame(swapchain, present_parameters);
++    }
+ 
+     return d3d11_swapchain_present(swapchain, sync_interval, flags);
+ }
