@@ -1,0 +1,85 @@
+Harbor: drawing into a window reaches the screen after another process has shown one of its ancestors (#95).
+
+A DC from the window DC cache keeps its visible region while it is in use, and a released one is handed out
+again for the same window without recomputing it. Both are safe as long as window changes come from this
+process, which empties or updates the cached DCs they affect. Nothing does that when another process shows,
+moves or resizes an ancestor that belongs to it. A browser's GPU process presents into a window of its own
+inside a browser window inside the embedding application's window; when that application builds a dialog
+around a web view and shows it afterwards (an Office add-in's dialog), the GPU process's DC stayed clipped
+to nothing, and the dialog was black for good.
+
+win32u: a cached DC that is handed out again gets its visible region recomputed if one of the window's
+ancestors belongs to another process. Other windows are served from the cache as before.
+
+wined3d: the GDI present takes a DC for each frame instead of using the one the swap chain has held since it
+got its window. For a window whose ancestors are all in the process that is one cache lookup.
+
+Test: WindowsTests/xproc (the second check). The wined3d half was checked with Excel: an add-in's dialog
+(Office.context.ui.displayDialogAsync) was black and now shows its page.
+
+--- a/dlls/win32u/dce.c
++++ b/dlls/win32u/dce.c
+@@ -1526,6 +1526,17 @@
+ 
+     release_opengl_drawables( &drawables );
+     return ret;
++}
++
++/* HARBOR HACK: whether one of the window's ancestors belongs to another process, see NtUserGetDCEx() */
++static BOOL has_foreign_ancestor( HWND hwnd )
++{
++    HWND parent, desktop = get_desktop_window();
++
++    for (parent = NtUserGetAncestor( hwnd, GA_PARENT ); parent && parent != desktop;
++         parent = NtUserGetAncestor( parent, GA_PARENT ))
++        if (!is_current_process_window( parent )) return TRUE;
++    return FALSE;
+ }
+ 
+ /***********************************************************************
+@@ -1608,7 +1619,10 @@
+             {
+                 TRACE( "found valid %p hwnd %p, flags %08x\n", dce->hdc, hwnd, dce->flags );
+                 found = dce;
+-                update_vis_rgn = FALSE;
++                /* HARBOR HACK: a cached DC is emptied when this process changes the window or one of its
++                 * ancestors. Nothing tells it when another process shows, moves or resizes an ancestor
++                 * that belongs to it, so the region kept here can't be trusted for such a window. */
++                update_vis_rgn = has_foreign_ancestor( hwnd );
+                 break;
+             }
+         }
+--- a/dlls/wined3d/swapchain.c
++++ b/dlls/wined3d/swapchain.c
+@@ -431,7 +431,7 @@
+     unsigned int row_pitch, slice_pitch;
+     NTSTATUS status;
+     HBITMAP bitmap;
+-    HDC src_dc;
++    HDC src_dc, dst_dc;
+ 
+     static unsigned int once;
+ 
+@@ -472,10 +472,18 @@
+ 
+     TRACE("Created source DC %p, bitmap %p for backbuffer %p.\n", src_dc, bitmap, back_buffer);
+ 
+-    if (!StretchBlt(swapchain->dc, dst_rect->left, dst_rect->top, dst_rect->right - dst_rect->left,
+-            dst_rect->bottom - dst_rect->top, src_dc, src_rect->left, src_rect->top,
+-            src_rect->right - src_rect->left, src_rect->bottom - src_rect->top, SRCCOPY))
+-        ERR("Failed to blit.\n");
++    /* HARBOR HACK: a DC for this frame, not the one kept since the swap chain got its window. A DC that is
++     * held keeps the visible region it had when another process showed, moved or resized one of the window's
++     * ancestors (a browser's GPU process presenting into a window inside another application's dialog that
++     * wasn't shown yet): everything drawn through it was clipped away. */
++    if ((dst_dc = GetDCEx(swapchain->win_handle, 0, DCX_USESTYLE | DCX_CACHE)))
++    {
++        if (!StretchBlt(dst_dc, dst_rect->left, dst_rect->top, dst_rect->right - dst_rect->left,
++                dst_rect->bottom - dst_rect->top, src_dc, src_rect->left, src_rect->top,
++                src_rect->right - src_rect->left, src_rect->bottom - src_rect->top, SRCCOPY))
++            ERR("Failed to blit.\n");
++        ReleaseDC(swapchain->win_handle, dst_dc);
++    }
+     GdiFlush();   /* nothing else pushes the window's surface to the screen if this process never idles in a message loop */
+ 
+     destroy_desc.hDc = src_dc;

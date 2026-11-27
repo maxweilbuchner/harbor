@@ -1,5 +1,6 @@
 #!/bin/sh
-# Cross-process drawing regression test (xprocdraw.c: no white columns beside partial updates) in a throwaway bottle on the current runtime
+# Cross-process drawing regression test (xprocdraw.c: no white columns beside partial updates; a window
+# shown late by the other process is drawn into) in a throwaway bottle on the current runtime
 # (HARBOR_WINE_ROOT to pick another). Exit 0 = pass.
 set -u
 cd "$(dirname "$0")/../.."
@@ -21,6 +22,6 @@ printf '%s\n' "$out"
 status=0
 printf '%s\n' "$out" | grep -q '^FAIL' && status=1
 passed=$(printf '%s\n' "$out" | grep -c '^PASS')
-[ "$passed" -eq 1 ] || { echo "FAIL: $passed of 1 checks passed"; status=1; }
+[ "$passed" -eq 2 ] || { echo "FAIL: $passed of 2 checks passed"; status=1; }
 [ $rc -eq 0 ] || { echo "FAIL: xprocdraw.exe ended with status $rc"; status=1; }
 exit $status
