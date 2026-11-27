@@ -1,5 +1,5 @@
 /* A swap chain in a child window, as Office builds its window from (#94): what must reach the screen.
- * Usage: childswap.exe blt|alpha|flip|none|stack|still
+ * Usage: childswap.exe blt|alpha|flip|none|stack|still|dcomp
  *   blt:  bit-block model, one buffer; every frame is cleared to blue and presented.
  *   alpha: as blt, but the blue has alpha 0. The swap chain's alpha mode is "ignore": it must be as opaque.
  *   flip: flip model, two buffers. Frame 1 is all red. Frame 2 draws only the left half green and presents with
@@ -13,6 +13,9 @@
  *         the outer one's picture must not cover the window inside it.
  *   still: as blt, but one frame only, and no message is dispatched after it: the frame must reach the screen
  *         without the program's message loop running (a browser's GPU process presents like this, #95).
+ *   dcomp: the swap chain has no window (CreateSwapChainForComposition, flip model, premultiplied alpha) and is
+ *         the content of a DirectComposition visual that is the root of a target for the child window, as a
+ *         browser shows its picture (#95). Cleared to blue: the child must be blue.
  * Prints "READY" when the last frame is presented, then keeps the window for 12 seconds so the runner
  * (childswap.sh) can look at the screen. The top-level window is white; the child is at (120,80), 400x300. */
 #define COBJMACROS
@@ -32,6 +35,7 @@ int main(int argc, char **argv)
     int none = argc > 1 && !strcmp(argv[1], "none");
     int flip = none || (argc > 1 && !strcmp(argv[1], "flip"));
     int still = argc > 1 && !strcmp(argv[1], "still");
+    int dcomp = argc > 1 && !strcmp(argv[1], "dcomp");
     WNDCLASSA wc = {0};
     wc.lpfnWndProc = DefWindowProcA;
     wc.hInstance = GetModuleHandleA(NULL);
@@ -58,10 +62,28 @@ int main(int argc, char **argv)
     sd.Width = none ? 500 : CHILD_W; sd.Height = none ? 400 : CHILD_H; sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     sd.Scaling = none ? DXGI_SCALING_NONE : DXGI_SCALING_STRETCH;
     sd.SampleDesc.Count = 1; sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.BufferCount = flip ? 2 : 1;
-    sd.SwapEffect = flip ? DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL : DXGI_SWAP_EFFECT_DISCARD;
+    sd.BufferCount = flip || dcomp ? 2 : 1;
+    sd.SwapEffect = flip || dcomp ? DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL : DXGI_SWAP_EFFECT_DISCARD;
     IDXGISwapChain1 *swap;
-    CHECK(IDXGIFactory2_CreateSwapChainForHwnd(factory, (IUnknown *)dev, child, &sd, NULL, NULL, &swap), "CreateSwapChainForHwnd");
+    if (dcomp)
+    {
+        /* Through the raw vtables (dcomp.h is C++ only): IDCompositionDevice has Commit at 3, CreateTargetForHwnd
+         * at 6 and CreateVisual at 7; IDCompositionTarget has SetRoot at 3; IDCompositionVisual has SetContent at 15. */
+        static const GUID iid_device = {0xc37ea93a, 0xe7aa, 0x450d, {0xb1, 0x6f, 0x97, 0x46, 0xcb, 0x04, 0x07, 0xf3}};
+        HRESULT (WINAPI *create_device)(IDXGIDevice *, const GUID *, void **) =
+                (void *)GetProcAddress(LoadLibraryA("dcomp.dll"), "DCompositionCreateDevice");
+        void ***device = NULL, ***target = NULL, ***visual = NULL;
+        CHECK(create_device ? create_device(dxgi_dev, &iid_device, (void **)&device) : E_FAIL, "DCompositionCreateDevice");
+        CHECK(((HRESULT (WINAPI *)(void *, HWND, BOOL, void *))(*device)[6])(device, child, TRUE, &target), "CreateTargetForHwnd");
+        CHECK(((HRESULT (WINAPI *)(void *, void *))(*device)[7])(device, &visual), "CreateVisual");
+        CHECK(((HRESULT (WINAPI *)(void *, void *))(*target)[3])(target, visual), "SetRoot");
+        sd.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+        CHECK(IDXGIFactory2_CreateSwapChainForComposition(factory, (IUnknown *)dev, &sd, NULL, &swap), "CreateSwapChainForComposition");
+        CHECK(((HRESULT (WINAPI *)(void *, void *))(*visual)[15])(visual, swap), "SetContent");
+        CHECK(((HRESULT (WINAPI *)(void *))(*device)[3])(device), "Commit");
+    }
+    else
+        CHECK(IDXGIFactory2_CreateSwapChainForHwnd(factory, (IUnknown *)dev, child, &sd, NULL, NULL, &swap), "CreateSwapChainForHwnd");
 
     static const float red[4] = {1, 0, 0, 1}, green[4] = {0, 1, 0, 1};
     float blue[4] = {0, 0, 1, 1};

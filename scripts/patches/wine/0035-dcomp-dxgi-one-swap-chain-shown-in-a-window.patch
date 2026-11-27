@@ -1,0 +1,784 @@
+Harbor: a browser can show its picture through DirectComposition: one visual, one swap chain, one window (#95).
+
+Chromium's GPU process (WebView2, and with it Office's web add-ins) doesn't present to a window directly. It
+makes a DirectComposition device, a target for its window, one visual as the target's root, a swap chain
+with IDXGIFactory2::CreateSwapChainForComposition, sets that as the visual's content and commits. Wine had
+none of it: DCompositionCreateDevice and CreateSwapChainForComposition returned E_NOTIMPL, the GPU process
+kept retrying, and a web view stayed blank. Chromium does this with --disable-direct-composition too.
+
+dcomp: DCompositionCreateDevice returns an IDCompositionDevice with CreateTargetForHwnd, CreateVisual,
+IDCompositionTarget::SetRoot, IDCompositionVisual::SetContent and Commit. Nothing is composed. Commit tells
+the root visual's swap chain which window it is shown in; everything else (child visuals, offsets,
+transforms, clips, effects, animations, surfaces) fails with E_NOTIMPL and a fixme. DCompositionCreateDevice2
+and 3 still fail, which makes Chromium fall back to the path above.
+
+dxgi: CreateSwapChainForComposition makes an ordinary swap chain on a hidden window of its own. Once dcomp
+has named a window (private data WINE_DXGI_COMPOSITION_TARGET, declared in winedxgi.idl), each present goes
+to that window through wined3d's destination-window override. Direct3D 10 and 11 devices only.
+
+Limits: the picture is drawn into the target's window, opaque (premultiplied alpha is treated as "ignore"),
+at the window's size. A frame presented before the commit isn't shown again after it. With wined3d's Vulkan
+renderer the swap chain stays on the window it was created for, so this works with the OpenGL renderer
+only, which is what Office bottles use.
+
+Test: WindowsTests/graphics/childswap.sh (dcomp).
+
+--- a/dlls/dcomp/Makefile.in
++++ b/dlls/dcomp/Makefile.in
+@@ -1,4 +1,5 @@
+ MODULE    = dcomp.dll
++IMPORTS   = user32
+ 
+ EXTRADLLFLAGS = -Wb,--prefer-native
+ 
+--- a/dlls/dcomp/device.c
++++ b/dlls/dcomp/device.c
+@@ -15,23 +15,611 @@
+  * License along with this library; if not, write to the Free Software
+  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+  */
++#define COBJMACROS
+ #include <stdarg.h>
+-
+ #include "windef.h"
+ #include "winbase.h"
++#include "winuser.h"
++#include "initguid.h"   /* before objidl.h: this is the dll's only source file, it defines every IID it uses */
+ #include "objidl.h"
+ #include "dxgi.h"
++#include "dcomp.h"
++struct wined3d_resource;   /* named by winedxgi.h, which only gives this dll the composition GUIDs */
++struct wined3d_texture;
++#include "wine/winedxgi.h"
+ #include "wine/debug.h"
++#include "wine/list.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(dcomp);
+ 
+-HRESULT WINAPI DCompositionCreateDevice(IDXGIDevice *dxgi_device, REFIID iid, void **device)
++/* HARBOR HACK: the least DirectComposition a browser needs to show its picture (IDCompositionDevice only).
++ * A target for a window takes one visual as its root, and a visual takes a swap chain made with
++ * IDXGIFactory2::CreateSwapChainForComposition() as its content; Commit() tells that swap chain to present
++ * to the target's window (see winedxgi.idl). Nothing is composed: there are no child visuals, offsets,
++ * transforms, clips, effects, animations or surfaces, and those calls fail with E_NOTIMPL. */
++
++static CRITICAL_SECTION dcomp_cs;
++static CRITICAL_SECTION_DEBUG dcomp_cs_debug =
+ {
+-    FIXME("%p, %s, %p.\n", dxgi_device, debugstr_guid(iid), device);
++    0, 0, &dcomp_cs,
++    { &dcomp_cs_debug.ProcessLocksList, &dcomp_cs_debug.ProcessLocksList },
++      0, 0, { (DWORD_PTR)(__FILE__ ": dcomp_cs") }
++};
++static CRITICAL_SECTION dcomp_cs = { &dcomp_cs_debug, -1, 0, 0, 0, 0 };
++
++struct composition_visual
++{
++    IDCompositionVisual IDCompositionVisual_iface;
++    LONG ref;
++    IUnknown *content;
++};
++
++struct composition_device
++{
++    IDCompositionDevice IDCompositionDevice_iface;
++    LONG ref;
++    struct list targets;
++};
++
++struct composition_target
++{
++    IDCompositionTarget IDCompositionTarget_iface;
++    LONG ref;
++    struct list entry;
++    struct composition_device *device;
++    HWND hwnd;
++    struct composition_visual *root;
++    IDXGISwapChain *shown;      /* the swap chain that presents to hwnd since the last Commit() */
++};
++
++static inline struct composition_visual *impl_from_IDCompositionVisual(IDCompositionVisual *iface)
++{
++    return CONTAINING_RECORD(iface, struct composition_visual, IDCompositionVisual_iface);
++}
++
++static inline struct composition_target *impl_from_IDCompositionTarget(IDCompositionTarget *iface)
++{
++    return CONTAINING_RECORD(iface, struct composition_target, IDCompositionTarget_iface);
++}
++
++static inline struct composition_device *impl_from_IDCompositionDevice(IDCompositionDevice *iface)
++{
++    return CONTAINING_RECORD(iface, struct composition_device, IDCompositionDevice_iface);
++}
++
++static HRESULT WINAPI visual_QueryInterface(IDCompositionVisual *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IUnknown) || IsEqualGUID(iid, &IID_IDCompositionVisual))
++    {
++        IDCompositionVisual_AddRef(iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    FIXME("%s not implemented.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG WINAPI visual_AddRef(IDCompositionVisual *iface)
++{
++    struct composition_visual *visual = impl_from_IDCompositionVisual(iface);
++    return InterlockedIncrement(&visual->ref);
++}
++
++static ULONG WINAPI visual_Release(IDCompositionVisual *iface)
++{
++    struct composition_visual *visual = impl_from_IDCompositionVisual(iface);
++    ULONG ref = InterlockedDecrement(&visual->ref);
++
++    if (!ref)
++    {
++        if (visual->content) IUnknown_Release(visual->content);
++        free(visual);
++    }
++    return ref;
++}
++
++static HRESULT WINAPI visual_SetOffsetXAnimation(IDCompositionVisual *iface, IDCompositionAnimation *animation)
++{
++    FIXME("iface %p, animation %p stub!\n", iface, animation);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_SetOffsetX(IDCompositionVisual *iface, float offset_x)
++{
++    FIXME("iface %p, offset_x %.8e stub!\n", iface, offset_x);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_SetOffsetYAnimation(IDCompositionVisual *iface, IDCompositionAnimation *animation)
++{
++    FIXME("iface %p, animation %p stub!\n", iface, animation);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_SetOffsetY(IDCompositionVisual *iface, float offset_y)
++{
++    FIXME("iface %p, offset_y %.8e stub!\n", iface, offset_y);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_SetTransformObject(IDCompositionVisual *iface, IDCompositionTransform *transform)
++{
++    FIXME("iface %p, transform %p stub!\n", iface, transform);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_SetTransform(IDCompositionVisual *iface, const D2D_MATRIX_3X2_F *matrix)
++{
++    FIXME("iface %p, matrix %p stub!\n", iface, matrix);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_SetTransformParent(IDCompositionVisual *iface, IDCompositionVisual *visual)
++{
++    FIXME("iface %p, visual %p stub!\n", iface, visual);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_SetEffect(IDCompositionVisual *iface, IDCompositionEffect *effect)
++{
++    FIXME("iface %p, effect %p stub!\n", iface, effect);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_SetBitmapInterpolationMode(IDCompositionVisual *iface,
++        enum DCOMPOSITION_BITMAP_INTERPOLATION_MODE interpolation_mode)
++{
++    FIXME("iface %p, interpolation_mode %d stub!\n", iface, interpolation_mode);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_SetBorderMode(IDCompositionVisual *iface, enum DCOMPOSITION_BORDER_MODE border_mode)
++{
++    FIXME("iface %p, border_mode %d stub!\n", iface, border_mode);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_SetClipObject(IDCompositionVisual *iface, IDCompositionClip *clip)
++{
++    FIXME("iface %p, clip %p stub!\n", iface, clip);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_SetClip(IDCompositionVisual *iface, const D2D_RECT_F *rect)
++{
++    FIXME("iface %p, rect %p stub!\n", iface, rect);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_SetContent(IDCompositionVisual *iface, IUnknown *content)
++{
++    struct composition_visual *visual = impl_from_IDCompositionVisual(iface);
++    IUnknown *old;
++
++    TRACE("iface %p, content %p.\n", iface, content);
++
++    /* It takes effect with the next Commit(). */
++    if (content) IUnknown_AddRef(content);
++    EnterCriticalSection(&dcomp_cs);
++    old = visual->content;
++    visual->content = content;
++    LeaveCriticalSection(&dcomp_cs);
++    if (old) IUnknown_Release(old);
++    return S_OK;
++}
++
++static HRESULT WINAPI visual_AddVisual(IDCompositionVisual *iface, IDCompositionVisual *visual,
++        BOOL insert_above, IDCompositionVisual *reference_visual)
++{
++    FIXME("iface %p, visual %p, insert_above %d, reference_visual %p stub!\n", iface, visual, insert_above, reference_visual);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_RemoveVisual(IDCompositionVisual *iface, IDCompositionVisual *visual)
++{
++    FIXME("iface %p, visual %p stub!\n", iface, visual);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI visual_RemoveAllVisuals(IDCompositionVisual *iface)
++{
++    TRACE("iface %p.\n", iface);
++    return S_OK;   /* it never has any */
++}
++
++static HRESULT WINAPI visual_SetCompositeMode(IDCompositionVisual *iface, enum DCOMPOSITION_COMPOSITE_MODE composite_mode)
++{
++    FIXME("iface %p, composite_mode %d stub!\n", iface, composite_mode);
++    return E_NOTIMPL;
++}
++
++static const struct IDCompositionVisualVtbl visual_vtbl =
++{
++    visual_QueryInterface,
++    visual_AddRef,
++    visual_Release,
++    visual_SetOffsetXAnimation,
++    visual_SetOffsetX,
++    visual_SetOffsetYAnimation,
++    visual_SetOffsetY,
++    visual_SetTransformObject,
++    visual_SetTransform,
++    visual_SetTransformParent,
++    visual_SetEffect,
++    visual_SetBitmapInterpolationMode,
++    visual_SetBorderMode,
++    visual_SetClipObject,
++    visual_SetClip,
++    visual_SetContent,
++    visual_AddVisual,
++    visual_RemoveVisual,
++    visual_RemoveAllVisuals,
++    visual_SetCompositeMode,
++};
++
++/* Makes the swap chain (or none) the one that presents to the target's window. Called with dcomp_cs held. */
++static void target_show(struct composition_target *target, IDXGISwapChain *swapchain)
++{
++    if (target->shown == swapchain) return;
++    if (target->shown)
++    {
++        IDXGISwapChain_SetPrivateData(target->shown, &WINE_DXGI_COMPOSITION_TARGET, 0, NULL);
++        IDXGISwapChain_Release(target->shown);
++    }
++    if ((target->shown = swapchain))
++    {
++        IDXGISwapChain_AddRef(swapchain);
++        if (FAILED(IDXGISwapChain_SetPrivateData(swapchain, &WINE_DXGI_COMPOSITION_TARGET, sizeof(target->hwnd), &target->hwnd)))
++            FIXME("Swap chain %p wasn't made for composition, it stays in its own window.\n", swapchain);
++    }
++}
++
++static HRESULT WINAPI target_QueryInterface(IDCompositionTarget *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IUnknown) || IsEqualGUID(iid, &IID_IDCompositionTarget))
++    {
++        IDCompositionTarget_AddRef(iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    FIXME("%s not implemented.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG WINAPI target_AddRef(IDCompositionTarget *iface)
++{
++    struct composition_target *target = impl_from_IDCompositionTarget(iface);
++    return InterlockedIncrement(&target->ref);
++}
++
++static ULONG WINAPI target_Release(IDCompositionTarget *iface)
++{
++    struct composition_target *target = impl_from_IDCompositionTarget(iface);
++    ULONG ref = InterlockedDecrement(&target->ref);
++
++    if (!ref)
++    {
++        EnterCriticalSection(&dcomp_cs);
++        list_remove(&target->entry);
++        target_show(target, NULL);
++        LeaveCriticalSection(&dcomp_cs);
++        if (target->root) IDCompositionVisual_Release(&target->root->IDCompositionVisual_iface);
++        IDCompositionDevice_Release(&target->device->IDCompositionDevice_iface);
++        free(target);
++    }
++    return ref;
++}
++
++static HRESULT WINAPI target_SetRoot(IDCompositionTarget *iface, IDCompositionVisual *visual)
++{
++    struct composition_target *target = impl_from_IDCompositionTarget(iface);
++    struct composition_visual *old;
+ 
++    TRACE("iface %p, visual %p.\n", iface, visual);
++
++    if (visual && visual->lpVtbl != &visual_vtbl) return E_INVALIDARG;
++
++    /* It takes effect with the next Commit(). */
++    if (visual) IDCompositionVisual_AddRef(visual);
++    EnterCriticalSection(&dcomp_cs);
++    old = target->root;
++    target->root = visual ? impl_from_IDCompositionVisual(visual) : NULL;
++    LeaveCriticalSection(&dcomp_cs);
++    if (old) IDCompositionVisual_Release(&old->IDCompositionVisual_iface);
++    return S_OK;
++}
++
++static const struct IDCompositionTargetVtbl target_vtbl =
++{
++    target_QueryInterface,
++    target_AddRef,
++    target_Release,
++    target_SetRoot,
++};
++
++static HRESULT WINAPI device_QueryInterface(IDCompositionDevice *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IUnknown) || IsEqualGUID(iid, &IID_IDCompositionDevice))
++    {
++        IDCompositionDevice_AddRef(iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    FIXME("%s not implemented.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG WINAPI device_AddRef(IDCompositionDevice *iface)
++{
++    struct composition_device *device = impl_from_IDCompositionDevice(iface);
++    return InterlockedIncrement(&device->ref);
++}
++
++static ULONG WINAPI device_Release(IDCompositionDevice *iface)
++{
++    struct composition_device *device = impl_from_IDCompositionDevice(iface);
++    ULONG ref = InterlockedDecrement(&device->ref);
++
++    if (!ref) free(device);   /* its targets each hold a reference, so there are none left */
++    return ref;
++}
++
++static HRESULT WINAPI device_Commit(IDCompositionDevice *iface)
++{
++    struct composition_device *device = impl_from_IDCompositionDevice(iface);
++    struct composition_target *target;
++
++    TRACE("iface %p.\n", iface);
++
++    EnterCriticalSection(&dcomp_cs);
++    LIST_FOR_EACH_ENTRY(target, &device->targets, struct composition_target, entry)
++    {
++        IDXGISwapChain *swapchain = NULL;
++
++        if (target->root && target->root->content
++                && FAILED(IUnknown_QueryInterface(target->root->content, &IID_IDXGISwapChain, (void **)&swapchain)))
++            FIXME("Content %p isn't a swap chain, nothing is shown for it.\n", target->root->content);
++        target_show(target, swapchain);
++        if (swapchain) IDXGISwapChain_Release(swapchain);
++    }
++    LeaveCriticalSection(&dcomp_cs);
++    return S_OK;
++}
++
++static HRESULT WINAPI device_WaitForCommitCompletion(IDCompositionDevice *iface)
++{
++    TRACE("iface %p.\n", iface);
++    return S_OK;   /* Commit() has done all there is to do when it returns */
++}
++
++static HRESULT WINAPI device_GetFrameStatistics(IDCompositionDevice *iface, DCOMPOSITION_FRAME_STATISTICS *statistics)
++{
++    FIXME("iface %p, statistics %p stub!\n", iface, statistics);
+     return E_NOTIMPL;
+ }
+ 
++static HRESULT WINAPI device_CreateTargetForHwnd(IDCompositionDevice *iface, HWND hwnd, BOOL topmost,
++        IDCompositionTarget **out)
++{
++    struct composition_device *device = impl_from_IDCompositionDevice(iface);
++    struct composition_target *target;
++
++    TRACE("iface %p, hwnd %p, topmost %d, out %p.\n", iface, hwnd, topmost, out);
++
++    if (!out) return E_INVALIDARG;
++    *out = NULL;
++    if (!IsWindow(hwnd)) return E_INVALIDARG;
++    if (!(target = calloc(1, sizeof(*target)))) return E_OUTOFMEMORY;
++
++    /* The content is drawn into the window itself, which puts it below the window's child windows
++     * whether the target is topmost or not. */
++    target->IDCompositionTarget_iface.lpVtbl = &target_vtbl;
++    target->ref = 1;
++    target->hwnd = hwnd;
++    target->device = device;
++    IDCompositionDevice_AddRef(iface);
++    EnterCriticalSection(&dcomp_cs);
++    list_add_tail(&device->targets, &target->entry);
++    LeaveCriticalSection(&dcomp_cs);
++
++    *out = &target->IDCompositionTarget_iface;
++    return S_OK;
++}
++
++static HRESULT WINAPI device_CreateVisual(IDCompositionDevice *iface, IDCompositionVisual **out)
++{
++    struct composition_visual *visual;
++
++    TRACE("iface %p, out %p.\n", iface, out);
++
++    if (!out) return E_INVALIDARG;
++    *out = NULL;
++    if (!(visual = calloc(1, sizeof(*visual)))) return E_OUTOFMEMORY;
++    visual->IDCompositionVisual_iface.lpVtbl = &visual_vtbl;
++    visual->ref = 1;
++    *out = &visual->IDCompositionVisual_iface;
++    return S_OK;
++}
++
++static HRESULT WINAPI device_CreateSurface(IDCompositionDevice *iface, UINT width, UINT height,
++        DXGI_FORMAT pixel_format, DXGI_ALPHA_MODE alpha_mode, IDCompositionSurface **surface)
++{
++    FIXME("iface %p, width %u, height %u, pixel_format %#x, alpha_mode %#x, surface %p stub!\n",
++            iface, width, height, pixel_format, alpha_mode, surface);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI device_CreateVirtualSurface(IDCompositionDevice *iface, UINT width, UINT height,
++        DXGI_FORMAT pixel_format, DXGI_ALPHA_MODE alpha_mode, IDCompositionVirtualSurface **surface)
++{
++    FIXME("iface %p, width %u, height %u, pixel_format %#x, alpha_mode %#x, surface %p stub!\n",
++            iface, width, height, pixel_format, alpha_mode, surface);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI device_CreateSurfaceFromHandle(IDCompositionDevice *iface, HANDLE handle, IUnknown **surface)
++{
++    FIXME("iface %p, handle %p, surface %p stub!\n", iface, handle, surface);
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI device_CreateSurfaceFromHwnd(IDCompositionDevice *iface, HWND hwnd, IUnknown **surface)
++{
++    FIXME("iface %p, hwnd %p, surface %p stub!\n", iface, hwnd, surface);
++    return E_NOTIMPL;
++}
++
++/* The object-creating methods that aren't implemented all take one pointer to return the object through. */
++static HRESULT device_create_unimplemented(IDCompositionDevice *iface, const char *what, void **out)
++{
++    FIXME("iface %p, out %p: %s stub!\n", iface, out, what);
++    if (out) *out = NULL;
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI device_CreateTranslateTransform(IDCompositionDevice *iface, IDCompositionTranslateTransform **transform)
++{
++    return device_create_unimplemented(iface, "CreateTranslateTransform", (void **)transform);
++}
++
++static HRESULT WINAPI device_CreateScaleTransform(IDCompositionDevice *iface, IDCompositionScaleTransform **transform)
++{
++    return device_create_unimplemented(iface, "CreateScaleTransform", (void **)transform);
++}
++
++static HRESULT WINAPI device_CreateRotateTransform(IDCompositionDevice *iface, IDCompositionRotateTransform **transform)
++{
++    return device_create_unimplemented(iface, "CreateRotateTransform", (void **)transform);
++}
++
++static HRESULT WINAPI device_CreateSkewTransform(IDCompositionDevice *iface, IDCompositionSkewTransform **transform)
++{
++    return device_create_unimplemented(iface, "CreateSkewTransform", (void **)transform);
++}
++
++static HRESULT WINAPI device_CreateMatrixTransform(IDCompositionDevice *iface, IDCompositionMatrixTransform **transform)
++{
++    return device_create_unimplemented(iface, "CreateMatrixTransform", (void **)transform);
++}
++
++static HRESULT WINAPI device_CreateTransformGroup(IDCompositionDevice *iface, IDCompositionTransform **transforms,
++        UINT elements, IDCompositionTransform **transform_group)
++{
++    return device_create_unimplemented(iface, "CreateTransformGroup", (void **)transform_group);
++}
++
++static HRESULT WINAPI device_CreateTranslateTransform3D(IDCompositionDevice *iface, IDCompositionTranslateTransform3D **transform_3d)
++{
++    return device_create_unimplemented(iface, "CreateTranslateTransform3D", (void **)transform_3d);
++}
++
++static HRESULT WINAPI device_CreateScaleTransform3D(IDCompositionDevice *iface, IDCompositionScaleTransform3D **transform_3d)
++{
++    return device_create_unimplemented(iface, "CreateScaleTransform3D", (void **)transform_3d);
++}
++
++static HRESULT WINAPI device_CreateRotateTransform3D(IDCompositionDevice *iface, IDCompositionRotateTransform3D **transform_3d)
++{
++    return device_create_unimplemented(iface, "CreateRotateTransform3D", (void **)transform_3d);
++}
++
++static HRESULT WINAPI device_CreateMatrixTransform3D(IDCompositionDevice *iface, IDCompositionMatrixTransform3D **transform_3d)
++{
++    return device_create_unimplemented(iface, "CreateMatrixTransform3D", (void **)transform_3d);
++}
++
++static HRESULT WINAPI device_CreateTransform3DGroup(IDCompositionDevice *iface, IDCompositionTransform3D **transforms_3d,
++        UINT elements, IDCompositionTransform3D **transform_3d_group)
++{
++    return device_create_unimplemented(iface, "CreateTransform3DGroup", (void **)transform_3d_group);
++}
++
++static HRESULT WINAPI device_CreateEffectGroup(IDCompositionDevice *iface, IDCompositionEffectGroup **effect_group)
++{
++    return device_create_unimplemented(iface, "CreateEffectGroup", (void **)effect_group);
++}
++
++static HRESULT WINAPI device_CreateRectangleClip(IDCompositionDevice *iface, IDCompositionRectangleClip **clip)
++{
++    return device_create_unimplemented(iface, "CreateRectangleClip", (void **)clip);
++}
++
++static HRESULT WINAPI device_CreateAnimation(IDCompositionDevice *iface, IDCompositionAnimation **animation)
++{
++    return device_create_unimplemented(iface, "CreateAnimation", (void **)animation);
++}
++
++static HRESULT WINAPI device_CheckDeviceState(IDCompositionDevice *iface, BOOL *valid)
++{
++    TRACE("iface %p, valid %p.\n", iface, valid);
++
++    if (!valid) return E_INVALIDARG;
++    *valid = TRUE;
++    return S_OK;
++}
++
++static const struct IDCompositionDeviceVtbl device_vtbl =
++{
++    device_QueryInterface,
++    device_AddRef,
++    device_Release,
++    device_Commit,
++    device_WaitForCommitCompletion,
++    device_GetFrameStatistics,
++    device_CreateTargetForHwnd,
++    device_CreateVisual,
++    device_CreateSurface,
++    device_CreateVirtualSurface,
++    device_CreateSurfaceFromHandle,
++    device_CreateSurfaceFromHwnd,
++    device_CreateTranslateTransform,
++    device_CreateScaleTransform,
++    device_CreateRotateTransform,
++    device_CreateSkewTransform,
++    device_CreateMatrixTransform,
++    device_CreateTransformGroup,
++    device_CreateTranslateTransform3D,
++    device_CreateScaleTransform3D,
++    device_CreateRotateTransform3D,
++    device_CreateMatrixTransform3D,
++    device_CreateTransform3DGroup,
++    device_CreateEffectGroup,
++    device_CreateRectangleClip,
++    device_CreateAnimation,
++    device_CheckDeviceState,
++};
++
++HRESULT WINAPI DCompositionCreateDevice(IDXGIDevice *dxgi_device, REFIID iid, void **out)
++{
++    struct composition_device *device;
++    HRESULT hr;
++
++    TRACE("%p, %s, %p.\n", dxgi_device, debugstr_guid(iid), out);
++
++    if (!out) return E_INVALIDARG;
++    *out = NULL;
++    if (!(device = calloc(1, sizeof(*device)))) return E_OUTOFMEMORY;
++    device->IDCompositionDevice_iface.lpVtbl = &device_vtbl;
++    device->ref = 1;
++    list_init(&device->targets);
++
++    hr = IDCompositionDevice_QueryInterface(&device->IDCompositionDevice_iface, iid, out);
++    IDCompositionDevice_Release(&device->IDCompositionDevice_iface);
++    return hr;
++}
++
+ HRESULT WINAPI DCompositionCreateDevice2(IUnknown *rendering_device, REFIID iid, void **device)
+ {
+     FIXME("%p, %s, %p.\n", rendering_device, debugstr_guid(iid), device);
+--- a/dlls/dxgi/dxgi_private.h
++++ b/dlls/dxgi/dxgi_private.h
+@@ -184,6 +184,9 @@
+     LONG present_count;
+     LONG in_set_fullscreen_state;
+     DXGI_SCALING scaling;    /* HARBOR HACK: kept for DXGI_SCALING_NONE, see d3d11_swapchain_present() */
++    /* HARBOR HACK: a swap chain made with CreateSwapChainForComposition() has a hidden window of its own and
++     * presents to the window DirectComposition shows it in, once there is one. */
++    HWND composition_window, composition_target;
+ };
+ 
+ HRESULT d3d11_swapchain_init(struct d3d11_swapchain *swapchain, struct dxgi_device *device,
+--- a/dlls/dxgi/factory.c
++++ b/dlls/dxgi/factory.c
+@@ -381,10 +381,43 @@
+ static HRESULT STDMETHODCALLTYPE dxgi_factory_CreateSwapChainForComposition(IWineDXGIFactory *iface,
+         IUnknown *device, const DXGI_SWAP_CHAIN_DESC1 *desc, IDXGIOutput *output, IDXGISwapChain1 **swapchain)
+ {
+-    FIXME("iface %p, device %p, desc %p, output %p, swapchain %p stub!\n",
++    /* HARBOR HACK: an ordinary swap chain on a hidden window of its own. dcomp names the window it is shown
++     * in when a visual with this swap chain as its content is committed (WINE_DXGI_COMPOSITION_TARGET), and
++     * the swap chain presents there from then on. What DirectComposition could do with it beyond that
++     * (blend it with what is behind, move, scale or clip it) isn't done: the alpha mode becomes "ignore". */
++    IWineDXGISwapChainFactory *swapchain_factory;
++    DXGI_SWAP_CHAIN_DESC1 window_desc;
++    HWND window;
++    HRESULT hr;
++
++    TRACE("iface %p, device %p, desc %p, output %p, swapchain %p.\n",
+             iface, device, desc, output, swapchain);
+ 
+-    return E_NOTIMPL;
++    if (!device || !desc || !swapchain)
++        return DXGI_ERROR_INVALID_CALL;
++    if (!desc->Width || !desc->Height)
++        return E_INVALIDARG;
++
++    if (FAILED(IUnknown_QueryInterface(device, &IID_IWineDXGISwapChainFactory, (void **)&swapchain_factory)))
++    {
++        FIXME("Composition swap chains are only implemented for Direct3D 10 and 11 devices.\n");
++        return E_NOTIMPL;
++    }
++    IWineDXGISwapChainFactory_Release(swapchain_factory);
++
++    if (!(window = CreateWindowExW(0, L"Static", L"Wine DXGI composition swap chain", WS_POPUP,
++            0, 0, desc->Width, desc->Height, NULL, NULL, NULL, NULL)))
++        return E_FAIL;
++
++    window_desc = *desc;
++    window_desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
++    if (FAILED(hr = dxgi_factory_CreateSwapChainForHwnd(iface, device, window, &window_desc, NULL, output, swapchain)))
++    {
++        DestroyWindow(window);
++        return hr;
++    }
++    IDXGISwapChain1_SetPrivateData(*swapchain, &WINE_DXGI_COMPOSITION_WINDOW, sizeof(window), &window);
++    return S_OK;
+ }
+ 
+ static UINT STDMETHODCALLTYPE dxgi_factory_GetCreationFlags(IWineDXGIFactory *iface)
+--- a/dlls/dxgi/swapchain.c
++++ b/dlls/dxgi/swapchain.c
+@@ -242,6 +242,9 @@
+         IWineDXGIFactory_Release(swapchain->factory);
+         wined3d_swapchain_decref(swapchain->wined3d_swapchain);
+         IWineDXGIDevice_Release(device);
++        /* HARBOR HACK: only the thread that made a window can destroy it; another one asks it to. */
++        if (swapchain->composition_window && !DestroyWindow(swapchain->composition_window))
++            PostMessageW(swapchain->composition_window, WM_CLOSE, 0, 0);
+     }
+ 
+     return refcount;
+@@ -256,6 +259,20 @@
+ 
+     TRACE("iface %p, guid %s, data_size %u, data %p.\n", iface, debugstr_guid(guid), data_size, data);
+ 
++    /* HARBOR HACK: see winedxgi.idl */
++    if (IsEqualGUID(guid, &WINE_DXGI_COMPOSITION_TARGET) || IsEqualGUID(guid, &WINE_DXGI_COMPOSITION_WINDOW))
++    {
++        HWND window = data && data_size == sizeof(window) ? *(const HWND *)data : NULL;
++
++        if (IsEqualGUID(guid, &WINE_DXGI_COMPOSITION_WINDOW))
++            swapchain->composition_window = window;
++        else if (swapchain->composition_window)
++            swapchain->composition_target = window;
++        else
++            return DXGI_ERROR_INVALID_CALL;   /* a swap chain with a window of its own can't be composed */
++        return S_OK;
++    }
++
+     return dxgi_set_private_data(&swapchain->private_store, guid, data_size, data);
+ }
+ 
+@@ -334,19 +351,23 @@
+         wined3d_mutex_lock();
+         wined3d_swapchain_get_desc(swapchain->wined3d_swapchain, &desc);
+         wined3d_mutex_unlock();
+-        if (desc.windowed && GetClientRect(d3d11_swapchain_get_hwnd(swapchain), &client))
++        if (desc.windowed && GetClientRect(swapchain->composition_target ? swapchain->composition_target
++                : d3d11_swapchain_get_hwnd(swapchain), &client))
+         {
+             SetRect(&rect, 0, 0, min(desc.backbuffer_width, (unsigned int)client.right),
+                     min(desc.backbuffer_height, (unsigned int)client.bottom));
+             if (IsRectEmpty(&rect))
+                 return S_OK;
+-            if (SUCCEEDED(hr = wined3d_swapchain_present(swapchain->wined3d_swapchain, &rect, &rect, NULL, sync_interval, 0)))
++            if (SUCCEEDED(hr = wined3d_swapchain_present(swapchain->wined3d_swapchain, &rect, &rect,
++                    swapchain->composition_target, sync_interval, 0)))
+                 InterlockedIncrement(&swapchain->present_count);
+             return hr;
+         }
+     }
+ 
+-    if (SUCCEEDED(hr = wined3d_swapchain_present(swapchain->wined3d_swapchain, NULL, NULL, NULL, sync_interval, 0)))
++    /* HARBOR HACK: a composition swap chain presents to the window it is shown in (its own hidden one until then) */
++    if (SUCCEEDED(hr = wined3d_swapchain_present(swapchain->wined3d_swapchain, NULL, NULL,
++            swapchain->composition_target, sync_interval, 0)))
+         InterlockedIncrement(&swapchain->present_count);
+     return hr;
+ }
+--- a/include/wine/winedxgi.idl
++++ b/include/wine/winedxgi.idl
+@@ -20,6 +20,11 @@
+ 
+ import "dxgi1_6.idl";
+ 
++/* HARBOR HACK: how dcomp tells a swap chain made with CreateSwapChainForComposition() which window it is
++ * shown in. Private data set on the swap chain: a HWND, or no data to detach it. The second is dxgi's own. */
++cpp_quote("static const GUID WINE_DXGI_COMPOSITION_TARGET = {0x2b6b0a55,0x5a6d,0x4c1e,{0x9a,0x4f,0x3d,0x0e,0x61,0x7c,0x95,0x01}};")
++cpp_quote("static const GUID WINE_DXGI_COMPOSITION_WINDOW = {0x2b6b0a55,0x5a6d,0x4c1e,{0x9a,0x4f,0x3d,0x0e,0x61,0x7c,0x95,0x02}};")
++
+ [
+     object,
+     local,

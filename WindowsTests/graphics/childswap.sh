@@ -3,10 +3,10 @@
 # wined3d's OpenGL renderer, which is what Office uses (#94). Captures the test program's own window by its
 # window number, so other windows in front of it or another Space being shown don't matter, and samples three
 # places in it. Modes: blt and alpha (worked before the patches), flip (0029), none (0030), stack (0031),
-# still (0034).
+# still (0034), dcomp (0035).
 # Needs Screen Recording permission for the terminal and a GUI session.
 #
-#   WindowsTests/graphics/childswap.sh               # all six modes
+#   WindowsTests/graphics/childswap.sh               # all seven modes
 #   WindowsTests/graphics/childswap.sh "flip none"   # some of them
 set -u
 cd "$(dirname "$0")/../.."
@@ -22,7 +22,7 @@ trap cleanup EXIT; trap 'exit 130' INT TERM HUP
 "$CLI" run "$BOTTLE" reg add 'HKCU\Software\Wine\Direct3D' /v renderer /d gl /f >/dev/null 2>&1 || exit 1
 "$CLI" stop "$BOTTLE" 2>/dev/null
 status=0
-for mode in ${1:-blt alpha flip none stack still}; do
+for mode in ${1:-blt alpha flip none stack still dcomp}; do
   log="$OUT/$mode.log"; : > "$log"
   "$CLI" run "$BOTTLE" "$PWD/build/WindowsTests/graphics/childswap.exe" "$mode" > "$log" 2>/dev/null &
   RUN=$!
@@ -51,9 +51,11 @@ def near(c, want): return all(abs(a - b) <= 40 for a, b in zip(c, want))
 # green block's right edge at x = 200: scaled down with the 500-wide buffer, the edge would be at 160.
 # For "stack" the first is in the inner window, the second beside it in the outer one.
 places = {'blt': ((100, 150), (300, 150)), 'alpha': ((100, 150), (300, 150)), 'flip': ((100, 150), (300, 150)),
-          'none': ((185, 75), (215, 75)), 'stack': ((200, 150), (50, 150)), 'still': ((100, 150), (300, 150))}[mode]
+          'none': ((185, 75), (215, 75)), 'stack': ((200, 150), (50, 150)), 'still': ((100, 150), (300, 150)),
+          'dcomp': ((100, 150), (300, 150))}[mode]
 want = {'blt': ((0, 0, 255), (0, 0, 255)), 'alpha': ((0, 0, 255), (0, 0, 255)), 'flip': ((0, 255, 0), (255, 0, 0)),
-        'none': ((0, 255, 0), (255, 0, 0)), 'stack': ((0, 255, 0), (255, 0, 0)), 'still': ((0, 0, 255), (0, 0, 255))}[mode]
+        'none': ((0, 255, 0), (255, 0, 0)), 'stack': ((0, 255, 0), (255, 0, 0)), 'still': ((0, 0, 255), (0, 0, 255)),
+        'dcomp': ((0, 0, 255), (0, 0, 255))}[mode]
 outside = at(30, 30)
 first, second = (at(120 + x, 80 + y) for x, y in places)
 ok = near(outside, (255, 255, 255)) and near(first, want[0]) and near(second, want[1])
