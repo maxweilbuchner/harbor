@@ -2,9 +2,11 @@ Harbor: Direct2D has the 3D transform, atlas and tile effects (#93).
 
 Excel creates them; creating one failed with D2DERR_EFFECT_IS_NOT_REGISTERED. They are declared like the other
 built-in effects here: the properties exist and can be set, and there is no processing of their own behind them.
-Seen from Excel in a start with a workbook open: these three, and scale, colour matrix and flood, which exist.
-Which of 0025 to 0028 Excel's blank window was down to was not separated for this one; without 0027 alone the
-window stays blank.
+Seen from Excel in a start with a workbook open, and in Format Cells, a cell's context menu, the File page and
+the Insert and Page Layout tabs: these three, and scale, colour matrix and flood, which exist.
+
+Each of 0025 to 0028 is needed on its own (Excel 16.0.20326, each left out in turn): without 0025 most of the
+window is black, without 0026 or 0027 it stays blank, without 0028 Excel crashes at start.
 
 Test: WindowsTests/d2d/run.sh.
 
