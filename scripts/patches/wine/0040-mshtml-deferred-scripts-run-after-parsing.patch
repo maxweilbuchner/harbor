@@ -1,0 +1,123 @@
+Harbor: mshtml: a script from a file marked "defer" runs after the document is parsed (#100).
+
+mshtml ran every script where Gecko's parser handed it over, the deferred ones included, so a deferred
+script in the head ran before the body existed. Pages rely on the opposite: Office's add-in Store page loads
+its three scripts with defer from the head and then looks for the element in the body it renders into
+("Root container missing").
+
+A script element with defer and a src that turns up while the document is still loading is now queued and
+run, in document order, when Gecko reports the end of the load, before the document becomes interactive.
+Inline scripts and scripts added after loading are run as before. Not handled: async.
+
+Test: WindowsTests/mshtml.
+
+--- a/dlls/mshtml/htmlwindow.c
++++ b/dlls/mshtml/htmlwindow.c
+@@ -4456,6 +4456,7 @@
+     list_init(&window->script_hosts);
+     list_init(&window->bindings);
+     list_init(&window->script_queue);
++    list_init(&window->defer_queue);
+ 
+     window->base.outer_window = outer_window;
+     window->base.inner_window = window;
+--- a/dlls/mshtml/mutation.c
++++ b/dlls/mshtml/mutation.c
+@@ -299,6 +299,17 @@
+     if(!doc_obj)
+         return NS_OK;
+     IHTMLWindow2_AddRef(&window->base.IHTMLWindow2_iface);
++
++    /* HARBOR HACK: the scripts run_insert_script() put off */
++    while(!list_empty(&window->defer_queue)) {
++        script_queue_entry_t *entry = LIST_ENTRY(list_head(&window->defer_queue), script_queue_entry_t, entry);
++
++        list_remove(&entry->entry);
++        if(!entry->script->parsed)
++            doc_insert_script(window, entry->script, TRUE);
++        IHTMLScriptElement_Release(&entry->script->IHTMLScriptElement_iface);
++        free(entry);
++    }
+ 
+     if(This == doc_obj->doc_node) {
+         /*
+@@ -318,6 +329,26 @@
+     }
+     IHTMLWindow2_Release(&window->base.IHTMLWindow2_iface);
+     return NS_OK;
++}
++
++/* HARBOR HACK: see run_insert_script() */
++static BOOL is_deferred_script(HTMLScriptElement *script_elem)
++{
++    const PRUnichar *src;
++    cpp_bool defer = FALSE;
++    nsAString src_str;
++    BOOL ret = FALSE;
++
++    if(NS_FAILED(nsIDOMHTMLScriptElement_GetDefer(script_elem->nsscript, &defer)) || !defer)
++        return FALSE;
++
++    nsAString_Init(&src_str, NULL);
++    if(NS_SUCCEEDED(nsIDOMHTMLScriptElement_GetSrc(script_elem->nsscript, &src_str))) {
++        nsAString_GetData(&src_str, &src);
++        ret = *src != 0;
++    }
++    nsAString_Finish(&src_str);
++    return ret;
+ }
+ 
+ static nsresult run_insert_script(HTMLDocumentNode *doc, nsISupports *script_iface, nsISupports *parser_iface)
+@@ -358,6 +389,23 @@
+         return NS_ERROR_FAILURE;
+     }
+ 
++    /* HARBOR HACK: a script from a file that the page marks "defer" runs when the document has been parsed,
++     * in document order (run_end_load()), not where the parser meets it: such scripts expect the elements
++     * that follow them to exist. */
++    if(window->base.outer_window && window->base.outer_window->readystate == READYSTATE_LOADING
++       && is_deferred_script(script_elem)) {
++        script_queue_entry_t *entry = malloc(sizeof(*entry));
++
++        if(entry) {
++            TRACE("deferring %p\n", script_elem);
++            entry->script = script_elem;   /* takes the reference */
++            list_add_tail(&window->defer_queue, &entry->entry);
++            if(nsparser)
++                nsIParser_Release(nsparser);
++            return NS_OK;
++        }
++    }
++
+     if(nsparser) {
+         nsIParser_BeginEvaluatingParserInsertedScript(nsparser);
+         window->parser_callback_cnt++;
+--- a/dlls/mshtml/script.c
++++ b/dlls/mshtml/script.c
+@@ -1982,7 +1982,15 @@
+ 
+     while(!list_empty(&window->script_queue)) {
+         queue_iter = LIST_ENTRY(list_head(&window->script_queue), script_queue_entry_t, entry);
++
++        list_remove(&queue_iter->entry);
++        IHTMLScriptElement_Release(&queue_iter->script->IHTMLScriptElement_iface);
++        free(queue_iter);
++    }
+ 
++    while(!list_empty(&window->defer_queue)) {
++        queue_iter = LIST_ENTRY(list_head(&window->defer_queue), script_queue_entry_t, entry);
++
+         list_remove(&queue_iter->entry);
+         IHTMLScriptElement_Release(&queue_iter->script->IHTMLScriptElement_iface);
+         free(queue_iter);
+--- a/dlls/mshtml/mshtml_private.h
++++ b/dlls/mshtml/mshtml_private.h
+@@ -856,6 +856,8 @@
+     ULONGLONG first_paint_time;
+ 
+     struct list outer_window_entry;
++
++    struct list defer_queue;    /* HARBOR HACK: <script defer src> elements waiting for the end of parsing */
+ };
+ 
+ typedef enum {

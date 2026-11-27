@@ -1,0 +1,28 @@
+Harbor: mshtml: only the document itself may ask about a certificate (#100).
+
+urlmon shows wininet's "Security Warning" dialog for a certificate problem unless the download was started
+with BINDF_NO_UI, and mshtml started every download without it. A page then got a modal dialog for each
+script, image or background request to a host with a bad certificate. Browsers ask (or refuse) for the page
+itself and let such a request fail quietly.
+
+Office's add-in Store page sends reports to csp.microsoft.com, which presents a certificate for
+*.azureedge.net (checked outside Wine too: the names really don't match). The dialog came up over the Store
+window on every visit, and answering "Yes" would have accepted the certificate.
+
+Downloads other than the document itself now carry BINDF_NO_UI: the request fails with the certificate
+error and nothing is asked. No test: it needs a host with a wrong certificate.
+
+--- a/dlls/mshtml/navigate.c
++++ b/dlls/mshtml/navigate.c
+@@ -1907,6 +1907,11 @@
+     bindf = BINDF_ASYNCHRONOUS | BINDF_ASYNCSTORAGE | BINDF_PULLDATA;
+     if(post_data_size)
+         bindf |= BINDF_FORMS_SUBMIT | BINDF_PRAGMA_NO_CACHE | BINDF_HYPERLINK | BINDF_GETNEWESTVERSION;
++    /* HARBOR HACK: only the document itself may ask the user about a certificate. A script, an image or a
++     * background request that can't be trusted just fails, as in a browser, instead of putting a dialog
++     * over the page for each such request. */
++    if(!is_doc_binding)
++        bindf |= BINDF_NO_UI;
+ 
+     init_bscallback(&ret->bsc, &nsChannelBSCVtbl, mon, bindf);
+     ret->is_doc_channel = is_doc_binding;

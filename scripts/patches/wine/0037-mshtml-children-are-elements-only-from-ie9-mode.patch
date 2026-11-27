@@ -1,0 +1,92 @@
+Harbor: mshtml: an element's children are elements only from IE9 standards mode on (#100).
+
+Internet Explorer counted comments among an element's children up to version 8, and mshtml's children
+collection does so in every document mode. A page written for IE 9 to 11 that takes children[0] of an element
+whose markup starts with a comment got the comment, which has no style, className or anything else an
+element has. Office's add-in Store window does exactly that in its first script and stopped there, on a
+spinner.
+
+The collection now leaves comments out when the document mode is IE9 or later. Older modes are unchanged.
+
+Test: WindowsTests/mshtml.
+
+--- a/dlls/mshtml/htmlelem.c
++++ b/dlls/mshtml/htmlelem.c
+@@ -2506,7 +2506,12 @@
+         return E_FAIL;
+     }
+ 
+-    *p = (IDispatch*)create_collection_from_nodelist(nsnode_list, &This->node.event_target.dispex);
++    /* HARBOR HACK: Internet Explorer counted comments among an element's children up to version 8. From IE9
++     * standards mode on, children are elements only. */
++    if(dispex_compat_mode(&This->node.event_target.dispex) >= COMPAT_MODE_IE9)
++        *p = (IDispatch*)create_element_collection_from_nodelist(nsnode_list, &This->node.event_target.dispex);
++    else
++        *p = (IDispatch*)create_collection_from_nodelist(nsnode_list, &This->node.event_target.dispex);
+ 
+     nsIDOMNodeList_Release(nsnode_list);
+     return S_OK;
+--- a/dlls/mshtml/htmlelemcol.c
++++ b/dlls/mshtml/htmlelemcol.c
+@@ -82,6 +82,15 @@
+     nsIDOMNode_GetNodeType(node, &type);
+ 
+     return type == ELEMENT_NODE || type == COMMENT_NODE;
++}
++
++static inline BOOL is_element_node(nsIDOMNode *node)
++{
++    UINT16 type=0;
++
++    nsIDOMNode_GetNodeType(node, &type);
++
++    return type == ELEMENT_NODE;
+ }
+ 
+ static inline HTMLElementCollection *impl_from_IHTMLElementCollection(IHTMLElementCollection *iface)
+@@ -525,7 +534,7 @@
+     return HTMLElementCollection_Create(buf.buf, buf.len, &node->event_target.dispex);
+ }
+ 
+-IHTMLElementCollection *create_collection_from_nodelist(nsIDOMNodeList *nslist, DispatchEx *owner)
++static IHTMLElementCollection *collection_from_nodelist(nsIDOMNodeList *nslist, BOOL comments, DispatchEx *owner)
+ {
+     UINT32 length = 0, i;
+     HTMLDOMNode *node;
+@@ -543,7 +552,7 @@
+ 
+         for(i=0; i<length; i++) {
+             nsIDOMNodeList_Item(nslist, i, &nsnode);
+-            if(is_elem_node(nsnode)) {
++            if(comments ? is_elem_node(nsnode) : is_element_node(nsnode)) {
+                 hres = get_node(nsnode, TRUE, &node);
+                 if(FAILED(hres))
+                     continue;
+@@ -560,6 +569,17 @@
+     return HTMLElementCollection_Create(buf.buf, buf.len, owner);
+ }
+ 
++IHTMLElementCollection *create_collection_from_nodelist(nsIDOMNodeList *nslist, DispatchEx *owner)
++{
++    return collection_from_nodelist(nslist, TRUE, owner);
++}
++
++/* HARBOR HACK: without the comments that old Internet Explorer counted as elements, see HTMLElement_get_children() */
++IHTMLElementCollection *create_element_collection_from_nodelist(nsIDOMNodeList *nslist, DispatchEx *owner)
++{
++    return collection_from_nodelist(nslist, FALSE, owner);
++}
++
+ IHTMLElementCollection *create_collection_from_htmlcol(nsIDOMHTMLCollection *nscol, DispatchEx *owner)
+ {
+     UINT32 length = 0, i;
+--- a/dlls/mshtml/mshtml_private.h
++++ b/dlls/mshtml/mshtml_private.h
+@@ -1464,6 +1466,7 @@
+ 
+ IHTMLElementCollection *create_all_collection(HTMLDOMNode*,BOOL);
+ IHTMLElementCollection *create_collection_from_nodelist(nsIDOMNodeList*,DispatchEx*);
++IHTMLElementCollection *create_element_collection_from_nodelist(nsIDOMNodeList*,DispatchEx*);
+ IHTMLElementCollection *create_collection_from_htmlcol(nsIDOMHTMLCollection*,DispatchEx*);
+ HRESULT create_child_collection(nsIDOMNodeList*,DispatchEx*,IHTMLDOMChildrenCollection**);
+ 
