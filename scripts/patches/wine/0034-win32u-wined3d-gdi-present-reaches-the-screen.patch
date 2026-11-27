@@ -1,0 +1,39 @@
+Harbor: a frame presented through GDI reaches the screen without a message loop (#95).
+
+What is drawn into a window stays in its surface until the surface is flushed, and that happens when one of
+the process's threads goes idle in a message loop (or ends a WM_PAINT). wined3d's GDI present, which patch
+0031 uses for every swap chain in a child window under the OpenGL renderer, draws from its command thread and
+left it at that. A process that presents a frame and then waits without dispatching messages never showed it:
+a browser's GPU process does exactly this, and a web view's first frame stayed invisible unless something
+else happened to wake the window's thread.
+
+GdiFlush (NtGdiFlush was a no-op) now flushes the process's window surfaces, and the GDI present calls it
+after its blit. Affected: programs that call GdiFlush, which flush sooner than before, and GDI presents, which
+flush once per frame instead of at the next idle.
+
+Test: WindowsTests/graphics/childswap.sh (still).
+
+--- a/dlls/win32u/gdiobj.c
++++ b/dlls/win32u/gdiobj.c
+@@ -1007,7 +1007,10 @@
+  */
+ BOOL WINAPI NtGdiFlush(void)
+ {
+-    return TRUE;  /* FIXME */
++    /* HARBOR HACK: drawing into a window only reaches the screen when its surface is flushed, which
++     * otherwise waits for one of the process's message loops to go idle. */
++    flush_window_surfaces( TRUE );
++    return TRUE;
+ }
+ 
+ 
+--- a/dlls/wined3d/swapchain.c
++++ b/dlls/wined3d/swapchain.c
+@@ -476,6 +476,7 @@
+             dst_rect->bottom - dst_rect->top, src_dc, src_rect->left, src_rect->top,
+             src_rect->right - src_rect->left, src_rect->bottom - src_rect->top, SRCCOPY))
+         ERR("Failed to blit.\n");
++    GdiFlush();   /* nothing else pushes the window's surface to the screen if this process never idles in a message loop */
+ 
+     destroy_desc.hDc = src_dc;
+     destroy_desc.hBitmap = bitmap;

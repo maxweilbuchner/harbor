@@ -1,5 +1,5 @@
 /* A swap chain in a child window, as Office builds its window from (#94): what must reach the screen.
- * Usage: childswap.exe blt|alpha|flip|none|stack
+ * Usage: childswap.exe blt|alpha|flip|none|stack|still
  *   blt:  bit-block model, one buffer; every frame is cleared to blue and presented.
  *   alpha: as blt, but the blue has alpha 0. The swap chain's alpha mode is "ignore": it must be as opaque.
  *   flip: flip model, two buffers. Frame 1 is all red. Frame 2 draws only the left half green and presents with
@@ -11,6 +11,8 @@
  *   stack: two swap chains, one in the child (red) and one in a 200x150 window inside that child at (100,75)
  *         (green), each presented several times in turn. The inner window must stay green and the rest red:
  *         the outer one's picture must not cover the window inside it.
+ *   still: as blt, but one frame only, and no message is dispatched after it: the frame must reach the screen
+ *         without the program's message loop running (a browser's GPU process presents like this, #95).
  * Prints "READY" when the last frame is presented, then keeps the window for 12 seconds so the runner
  * (childswap.sh) can look at the screen. The top-level window is white; the child is at (120,80), 400x300. */
 #define COBJMACROS
@@ -29,6 +31,7 @@ int main(int argc, char **argv)
 {
     int none = argc > 1 && !strcmp(argv[1], "none");
     int flip = none || (argc > 1 && !strcmp(argv[1], "flip"));
+    int still = argc > 1 && !strcmp(argv[1], "still");
     WNDCLASSA wc = {0};
     wc.lpfnWndProc = DefWindowProcA;
     wc.hInstance = GetModuleHandleA(NULL);
@@ -99,14 +102,14 @@ int main(int argc, char **argv)
     }
     else if (!flip)
     {
-        for (int frame = 0; frame < 10; frame++)
+        for (int frame = 0; frame < (still ? 1 : 10); frame++)
         {
             CHECK(IDXGISwapChain1_GetBuffer(swap, 0, &IID_ID3D11Texture2D, (void **)&back), "GetBuffer");
             CHECK(ID3D11Device_CreateRenderTargetView(dev, (ID3D11Resource *)back, NULL, &rtv), "CreateRenderTargetView");
             ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, blue);
             ID3D11RenderTargetView_Release(rtv); ID3D11Texture2D_Release(back);
             CHECK(IDXGISwapChain1_Present(swap, 0, 0), "Present");
-            pump(30);
+            if (!still) pump(30);
         }
     }
     else if (none)
@@ -155,6 +158,6 @@ int main(int argc, char **argv)
         CHECK(IDXGISwapChain1_Present1(swap, 0, 0, &params), "Present1");
     }
     printf("READY\n"); fflush(stdout);
-    pump(12000);
+    if (still) Sleep(12000); else pump(12000);
     return 0;
 }
