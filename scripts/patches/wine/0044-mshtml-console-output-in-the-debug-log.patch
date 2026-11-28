@@ -1,0 +1,81 @@
+Harbor: mshtml: what a page writes to its console goes to the debug log (#100).
+
+console.error(), warn(), log(), info() and debug() were stubs that printed a fixme with two pointers, so a
+page that reported why it failed told nobody. They now write their first argument to the log: error and
+warn as warnings (WINEDEBUG=warn+mshtml), the others as traces. Only the first argument, because the others
+don't reach these methods. This is how the next three stops on Office's add-in Store page were found.
+
+No test: it changes logging only.
+
+--- a/dlls/mshtml/omnavigator.c
++++ b/dlls/mshtml/omnavigator.c
+@@ -2359,6 +2359,25 @@
+ 
+ DISPEX_IDISPATCH_IMPL(console, IWineMSHTMLConsole, impl_from_IWineMSHTMLConsole(iface)->dispex)
+ 
++/* HARBOR HACK: what a page writes to its console goes to the debug log (errors and warnings as warnings, the
++ * rest as traces), so that a page that fails says why. Only the first argument: the others don't reach us. */
++static void console_print(const char *kind, BOOL important, VARIANT *arg)
++{
++    VARIANT str;
++
++    if(!arg || !(important ? WARN_ON(mshtml) : TRACE_ON(mshtml))) return;
++    if(V_VT(arg) == (VT_BYREF|VT_VARIANT)) arg = V_VARIANTREF(arg);
++    VariantInit(&str);
++    if(V_VT(arg) != VT_BSTR && FAILED(VariantChangeTypeEx(&str, arg, MAKELCID(MAKELANGID(LANG_ENGLISH,SUBLANG_ENGLISH_US),SORT_DEFAULT), 0, VT_BSTR))) {
++        if(important) WARN("console.%s: %s\n", kind, debugstr_variant(arg));
++        else TRACE("console.%s: %s\n", kind, debugstr_variant(arg));
++        return;
++    }
++    if(important) WARN("console.%s: %s\n", kind, debugstr_w(V_VT(arg) == VT_BSTR ? V_BSTR(arg) : V_BSTR(&str)));
++    else TRACE("console.%s: %s\n", kind, debugstr_w(V_VT(arg) == VT_BSTR ? V_BSTR(arg) : V_BSTR(&str)));
++    VariantClear(&str);
++}
++
+ static HRESULT WINAPI console_assert(IWineMSHTMLConsole *iface, VARIANT_BOOL *assertion, VARIANT *vararg_start)
+ {
+     FIXME("iface %p, assertion %p, vararg_start %p stub.\n", iface, assertion, vararg_start);
+@@ -2382,7 +2401,7 @@
+ 
+ static HRESULT WINAPI console_debug(IWineMSHTMLConsole *iface, VARIANT *vararg_start)
+ {
+-    FIXME("iface %p, vararg_start %p stub.\n", iface, vararg_start);
++    console_print("debug", FALSE, vararg_start);
+ 
+     return S_OK;
+ }
+@@ -2403,7 +2422,7 @@
+ 
+ static HRESULT WINAPI console_error(IWineMSHTMLConsole *iface, VARIANT *vararg_start)
+ {
+-    FIXME("iface %p, vararg_start %p stub.\n", iface, vararg_start);
++    console_print("error", TRUE, vararg_start);
+ 
+     return S_OK;
+ }
+@@ -2431,14 +2450,14 @@
+ 
+ static HRESULT WINAPI console_info(IWineMSHTMLConsole *iface, VARIANT *vararg_start)
+ {
+-    FIXME("iface %p, vararg_start %p stub.\n", iface, vararg_start);
++    console_print("info", FALSE, vararg_start);
+ 
+     return S_OK;
+ }
+ 
+ static HRESULT WINAPI console_log(IWineMSHTMLConsole *iface, VARIANT *vararg_start)
+ {
+-    FIXME("iface %p, vararg_start %p stub.\n", iface, vararg_start);
++    console_print("log", FALSE, vararg_start);
+ 
+     return S_OK;
+ }
+@@ -2466,7 +2485,7 @@
+ 
+ static HRESULT WINAPI console_warn(IWineMSHTMLConsole *iface, VARIANT *vararg_start)
+ {
+-    FIXME("iface %p, vararg_start %p stub.\n", iface, vararg_start);
++    console_print("warn", TRUE, vararg_start);
+ 
+     return S_OK;
+ }

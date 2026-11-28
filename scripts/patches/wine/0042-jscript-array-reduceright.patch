@@ -1,0 +1,67 @@
+Harbor: jscript: Array.prototype.reduceRight (#100).
+
+ES5 has reduceRight() beside reduce(); jscript had only reduce(). Office's add-in Store page (React with
+react-router) calls it while matching its routes and failed with "Object doesn't support this property or
+method". It is reduce() walking from the last element, and shares its code.
+
+Test: WindowsTests/mshtml.
+
+--- a/dlls/jscript/array.c
++++ b/dlls/jscript/array.c
+@@ -1398,7 +1398,8 @@
+     return hres;
+ }
+ 
+-static HRESULT Array_reduce(script_ctx_t *ctx, jsval_t vthis, WORD flags, unsigned argc, jsval_t *argv, jsval_t *r)
++/* HARBOR HACK: from_right makes it reduceRight(), which walks the array from its last element */
++static HRESULT array_reduce(script_ctx_t *ctx, jsval_t vthis, unsigned argc, jsval_t *argv, jsval_t *r, BOOL from_right)
+ {
+     jsval_t callback_args[4], acc, new_acc;
+     BOOL have_value = FALSE;
+@@ -1431,7 +1432,9 @@
+     }
+ 
+     for(k = 0; k < length; k++) {
+-        hres = jsdisp_get_idx(jsthis, k, &callback_args[1]);
++        UINT32 idx = from_right ? length - 1 - k : k;
++
++        hres = jsdisp_get_idx(jsthis, idx, &callback_args[1]);
+         if(hres == DISP_E_UNKNOWNNAME) {
+             hres = S_OK;
+             continue;
+@@ -1446,7 +1449,7 @@
+         }
+ 
+         callback_args[0] = acc;
+-        callback_args[2] = jsval_number(k);
++        callback_args[2] = jsval_number(idx);
+         callback_args[3] = jsval_obj(jsthis);
+         hres = disp_call_value(ctx, callback, jsval_undefined(), DISPATCH_METHOD, ARRAY_SIZE(callback_args), callback_args, &new_acc);
+         jsval_release(callback_args[1]);
+@@ -1469,8 +1472,18 @@
+ done:
+     jsdisp_release(jsthis);
+     return hres;
++}
++
++static HRESULT Array_reduce(script_ctx_t *ctx, jsval_t vthis, WORD flags, unsigned argc, jsval_t *argv, jsval_t *r)
++{
++    return array_reduce(ctx, vthis, argc, argv, r, FALSE);
+ }
+ 
++static HRESULT Array_reduceRight(script_ctx_t *ctx, jsval_t vthis, WORD flags, unsigned argc, jsval_t *argv, jsval_t *r)
++{
++    return array_reduce(ctx, vthis, argc, argv, r, TRUE);
++}
++
+ static HRESULT Array_some(script_ctx_t *ctx, jsval_t vthis, WORD flags, unsigned argc, jsval_t *argv,
+         jsval_t *r)
+ {
+@@ -1629,6 +1642,7 @@
+     {L"pop",                   Array_pop,                  PROPF_METHOD},
+     {L"push",                  Array_push,                 PROPF_METHOD|1},
+     {L"reduce",                Array_reduce,               PROPF_METHOD|PROPF_ES5|1},
++    {L"reduceRight",           Array_reduceRight,          PROPF_METHOD|PROPF_ES5|1},
+     {L"reverse",               Array_reverse,              PROPF_METHOD},
+     {L"shift",                 Array_shift,                PROPF_METHOD},
+     {L"slice",                 Array_slice,                PROPF_METHOD|2},

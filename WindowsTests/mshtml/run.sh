@@ -1,5 +1,5 @@
 #!/bin/sh
-# Regression test for three things pages written for Internet Explorer 10 and 11 rely on (mshtmltest.c with page.html, #100) in a throwaway bottle on the current runtime
+# Regression test for things pages written for Internet Explorer 10 and 11 rely on (mshtmltest.c with page.html, #100) in a throwaway bottle on the current runtime
 # (HARBOR_WINE_ROOT to pick another). Exit 0 = pass.
 set -u
 cd "$(dirname "$0")/../.."
@@ -21,6 +21,6 @@ printf '%s\n' "$out"
 status=0
 printf '%s\n' "$out" | grep -q '^FAIL' && status=1
 passed=$(printf '%s\n' "$out" | grep -c '^PASS')
-[ "$passed" -eq 4 ] || { echo "FAIL: $passed of 4 checks passed"; status=1; }
+[ "$passed" -eq 7 ] || { echo "FAIL: $passed of 7 checks passed"; status=1; }
 [ $rc -eq 0 ] || { echo "FAIL: mshtmltest.exe ended with status $rc"; status=1; }
 exit $status

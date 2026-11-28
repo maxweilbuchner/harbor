@@ -1,0 +1,35 @@
+Harbor: mshtml: the status of a request without a response reads as 0 from IE10 mode on (#100).
+
+XMLHttpRequest.status failed (E_FAIL, a script exception) whenever there was no response: before the request
+was sent, and after one that was refused or failed. That is how Internet Explorer behaved up to version 9.
+From IE10 on a script gets 0, and pages written for it test for 0 rather than catch: a handler on Office's
+add-in Store page read the status of a failed background request and died with an uncaught error.
+
+In IE10 mode and later the property now returns 0 in those cases. Older modes are unchanged.
+
+Test: WindowsTests/mshtml.
+
+--- a/dlls/mshtml/xmlhttprequest.c
++++ b/dlls/mshtml/xmlhttprequest.c
+@@ -659,9 +659,11 @@
+     if(!p)
+         return E_POINTER;
+ 
++    /* HARBOR HACK: a request without a response (not sent yet, refused, failed) has status 0. Reading that
++     * is an error up to IE9; from IE10 on a script gets the 0, and pages test for it instead of catching. */
+     if(This->xhr.ready_state < READYSTATE_LOADED) {
+         *p = 0;
+-        return E_FAIL;
++        return dispex_compat_mode(&This->xhr.event_target.dispex) >= COMPAT_MODE_IE10 ? S_OK : E_FAIL;
+     }
+ 
+     nsres = nsIXMLHttpRequest_GetStatus(This->xhr.nsxhr, &val);
+@@ -670,7 +672,7 @@
+         return E_FAIL;
+     }
+     *p = val;
+-    if(val == 0)
++    if(val == 0 && dispex_compat_mode(&This->xhr.event_target.dispex) < COMPAT_MODE_IE10)
+         return E_FAIL; /* WinAPI thinks this is an error */
+ 
+     return S_OK;

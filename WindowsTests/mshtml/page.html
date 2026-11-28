@@ -15,7 +15,12 @@ var apply;
 try { apply = (function() { return arguments.length; }).apply(null, undefined); } catch (e) { apply = "threw"; }
 var inlineRan = true;
 window.onload = function() {
-    document.title = "mode=" + document.documentMode + " children=" + children + " apply=" + apply + " defer=" + window.deferOk;
+    var reduced, status, state;
+    try { reduced = [1, 2, 3].reduceRight(function(a, b) { return a + "" + b; }); } catch (e) { reduced = "threw"; }
+    try { var x = new XMLHttpRequest(); x.open("GET", "deferred.js"); status = x.status; } catch (e) { status = "threw"; }
+    try { history.replaceState({ n: 1 }, "", "?x=1"); state = history.state.n + ":" + location.search; } catch (e) { state = "threw"; }
+    document.title = "mode=" + document.documentMode + " children=" + children + " apply=" + apply + " defer=" + window.deferOk +
+        " reduceRight=" + reduced + " status=" + status + " state=" + state + " end";
 };
 </script>
 </body>

@@ -1,9 +1,12 @@
-/* mshtmltest: three things a page written for Internet Explorer 10/11 relies on, which Office's add-in Store
+/* mshtmltest: things a page written for Internet Explorer 10/11 relies on, which Office's add-in Store
  * page tripped over in Wine's HTML and script engines (#100). Loads page.html (next to this program's source,
  * path given as the argument) into an HTML document object and reads the results from the page's title:
  *   - element.children holds elements only, no comments (IE9 standards mode and later);
  *   - Function.prototype.apply accepts undefined as "no arguments";
- *   - a <script defer src> runs after the page has been parsed.
+ *   - a <script defer src> runs after the page has been parsed;
+ *   - Array.prototype.reduceRight exists;
+ *   - the status of a request that has no response yet reads as 0 instead of throwing (IE10 and later);
+ *   - history.replaceState() keeps its state and changes the address the page sees.
  *   mshtmltest.exe <path to page.html>      prints one PASS/FAIL line per check, exit code 0/1 */
 #define COBJMACROS
 #include <windows.h>
@@ -49,6 +52,9 @@ int wmain(int argc, WCHAR **argv)
     check(wcsstr(title, L"mode=10 ") != NULL, "the page is in the document mode it asks for (IE 10)");
     check(wcsstr(title, L" children=1:SPAN ") != NULL, "element.children holds elements only");
     check(wcsstr(title, L" apply=0 ") != NULL, "apply(thisArg, undefined) calls with no arguments");
-    check(wcsstr(title, L" defer=true") != NULL, "a deferred script runs after the page is parsed");
+    check(wcsstr(title, L" defer=true ") != NULL, "a deferred script runs after the page is parsed");
+    check(wcsstr(title, L" reduceRight=321 ") != NULL, "Array.prototype.reduceRight walks from the last element");
+    check(wcsstr(title, L" status=0 ") != NULL, "the status of a request without a response reads as 0");
+    check(wcsstr(title, L" state=1:?x=1 ") != NULL, "history.replaceState keeps the state and changes the address");
     return failed;
 }

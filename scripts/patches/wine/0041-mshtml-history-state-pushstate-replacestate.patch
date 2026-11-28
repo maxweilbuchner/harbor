@@ -1,0 +1,260 @@
+Harbor: mshtml: history.state, pushState() and replaceState() (#100).
+
+Single-page applications give their screens addresses with history.pushState() and replaceState(), which
+Internet Explorer has from version 10. mshtml's history object had neither, so a page's router failed with
+"Object doesn't support this property or method" before it drew anything; Office's add-in Store page showed
+its "Something went wrong" screen for that reason.
+
+In IE10 mode and later the history object now has state, pushState(data, title, url) and
+replaceState(data, title, url). The state is kept, and an address of the document's own origin becomes the
+window's address, which is what location reports (another origin is refused). There is only ever one entry:
+pushState() replaces as well, back() and forward() do what they did, and no popstate event is sent. Gecko
+isn't told about the new address, so what a relative address is resolved against stays the address the
+page was loaded from.
+
+Test: WindowsTests/mshtml.
+
+--- a/dlls/mshtml/mshtml_private.h
++++ b/dlls/mshtml/mshtml_private.h
+@@ -323,6 +323,7 @@
+     XIID(IWinePerformancePrivate) \
+     XIID(IWineXMLHttpRequestPrivate) \
+     XIID(IWineMSHTMLConsole) \
++    XIID(IWineMSHTMLHistory) \
+     XIID(IWineMSHTMLCrypto) \
+     XIID(IWineMSHTMLSubtleCrypto) \
+     XIID(IWineMSHTMLMediaQueryList) \
+@@ -734,8 +735,10 @@
+ typedef struct {
+     DispatchEx dispex;
+     IOmHistory IOmHistory_iface;
++    IWineMSHTMLHistory IWineMSHTMLHistory_iface;
+ 
+     HTMLInnerWindow *window;
++    VARIANT state;    /* HARBOR HACK: what the page last gave pushState() or replaceState() */
+ } OmHistory;
+ 
+ typedef struct nsChannelBSC nsChannelBSC;
+--- a/dlls/mshtml/mshtml_private_iface.idl
++++ b/dlls/mshtml/mshtml_private_iface.idl
+@@ -92,6 +92,24 @@
+     HRESULT observe([in] IHTMLDOMNode *target, [in] IDispatch *options);
+     [id(3)]
+     HRESULT takeRecords([retval, out] IDispatch **records);
++}
++
++/* HARBOR HACK: history.state, pushState() and replaceState() (IE10 and later). The ids continue IOmHistory's. */
++[
++    odl,
++    oleautomation,
++    dual,
++    hidden,
++    uuid(fd55b4b6-2813-4fb4-829d-380099474ab8)
++]
++interface IWineMSHTMLHistory : IDispatch
++{
++    [propget, id(50)]
++    HRESULT state([retval, out] VARIANT *p);
++    [id(51)]
++    HRESULT pushState([in] VARIANT *data, [in] VARIANT *title, [in, optional] VARIANT *url);
++    [id(52)]
++    HRESULT replaceState([in] VARIANT *data, [in] VARIANT *title, [in, optional] VARIANT *url);
+ }
+ 
+ [
+--- a/dlls/mshtml/omnavigator.c
++++ b/dlls/mshtml/omnavigator.c
+@@ -28,7 +28,9 @@
+ 
+ #include "wine/debug.h"
+ 
++#include "shlwapi.h"
+ #include "mshtml_private.h"
++#include "binding.h"
+ #include "mshtmdid.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(mshtml);
+@@ -688,6 +690,119 @@
+     OmHistory_back,
+     OmHistory_forward,
+     OmHistory_go
++};
++
++/* HARBOR HACK: history.state, pushState() and replaceState(), which single-page applications use to give
++ * their screens addresses. The state is kept and the window's address changes (location reads it); there is
++ * one entry only, so pushState() replaces too, back() and forward() stay where they are and no popstate event
++ * is sent. Gecko isn't told: what it resolves relative addresses against stays the address the page came from. */
++static inline OmHistory *impl_from_IWineMSHTMLHistory(IWineMSHTMLHistory *iface)
++{
++    return CONTAINING_RECORD(iface, OmHistory, IWineMSHTMLHistory_iface);
++}
++
++DISPEX_IDISPATCH_IMPL(OmHistoryPrivate, IWineMSHTMLHistory, impl_from_IWineMSHTMLHistory(iface)->dispex)
++
++static HRESULT WINAPI OmHistoryPrivate_get_state(IWineMSHTMLHistory *iface, VARIANT *p)
++{
++    OmHistory *This = impl_from_IWineMSHTMLHistory(iface);
++
++    TRACE("(%p)->(%p)\n", This, p);
++
++    V_VT(p) = VT_EMPTY;
++    if(V_VT(&This->state) == VT_EMPTY) {
++        V_VT(p) = VT_NULL;
++        return S_OK;
++    }
++    return VariantCopy(p, &This->state);
++}
++
++static HRESULT history_set_state(OmHistory *This, VARIANT *data, VARIANT *url)
++{
++    HTMLOuterWindow *window = This->window ? This->window->base.outer_window : NULL;
++    VARIANT state;
++    HRESULT hres;
++
++    if(!window)
++        return E_UNEXPECTED;
++
++    if(url && V_VT(url) == (VT_BYREF|VT_VARIANT))
++        url = V_VARIANTREF(url);
++    if(url && V_VT(url) == VT_BSTR && V_BSTR(url)) {
++        BSTR old_scheme = NULL, new_scheme = NULL, old_host = NULL, new_host = NULL;
++        DWORD old_port = 0, new_port = 0;
++        BOOL same_origin;
++        IUri *uri;
++
++        if(!window->uri)
++            return E_UNEXPECTED;
++        hres = CoInternetCombineUrlEx(window->uri, V_BSTR(url), URL_ESCAPE_SPACES_ONLY|URL_DONT_ESCAPE_EXTRA_INFO, &uri, 0);
++        if(FAILED(hres))
++            return hres;
++
++        /* a page may only name addresses of its own origin */
++        IUri_GetSchemeName(window->uri, &old_scheme);
++        IUri_GetSchemeName(uri, &new_scheme);
++        IUri_GetHost(window->uri, &old_host);
++        IUri_GetHost(uri, &new_host);
++        IUri_GetPort(window->uri, &old_port);
++        IUri_GetPort(uri, &new_port);
++        same_origin = old_scheme && new_scheme && !wcsicmp(old_scheme, new_scheme)
++            && old_host && new_host && !wcsicmp(old_host, new_host) && old_port == new_port;
++        SysFreeString(old_scheme);
++        SysFreeString(new_scheme);
++        SysFreeString(old_host);
++        SysFreeString(new_host);
++        if(!same_origin) {
++            WARN("%s is not of the document's origin\n", debugstr_w(V_BSTR(url)));
++            IUri_Release(uri);
++            return E_ACCESSDENIED;
++        }
++
++        set_current_uri(window, uri);
++        IUri_Release(uri);
++    }
++
++    V_VT(&state) = VT_EMPTY;
++    if(data) {
++        hres = VariantCopyInd(&state, data);
++        if(FAILED(hres))
++            return hres;
++    }
++    VariantClear(&This->state);
++    This->state = state;
++    return S_OK;
++}
++
++static HRESULT WINAPI OmHistoryPrivate_pushState(IWineMSHTMLHistory *iface, VARIANT *data, VARIANT *title, VARIANT *url)
++{
++    OmHistory *This = impl_from_IWineMSHTMLHistory(iface);
++
++    TRACE("(%p)->(%s %s %s)\n", This, debugstr_variant(data), debugstr_variant(title), debugstr_variant(url));
++
++    return history_set_state(This, data, url);
++}
++
++static HRESULT WINAPI OmHistoryPrivate_replaceState(IWineMSHTMLHistory *iface, VARIANT *data, VARIANT *title, VARIANT *url)
++{
++    OmHistory *This = impl_from_IWineMSHTMLHistory(iface);
++
++    TRACE("(%p)->(%s %s %s)\n", This, debugstr_variant(data), debugstr_variant(title), debugstr_variant(url));
++
++    return history_set_state(This, data, url);
++}
++
++static const IWineMSHTMLHistoryVtbl OmHistoryPrivateVtbl = {
++    OmHistoryPrivate_QueryInterface,
++    OmHistoryPrivate_AddRef,
++    OmHistoryPrivate_Release,
++    OmHistoryPrivate_GetTypeInfoCount,
++    OmHistoryPrivate_GetTypeInfo,
++    OmHistoryPrivate_GetIDsOfNames,
++    OmHistoryPrivate_Invoke,
++    OmHistoryPrivate_get_state,
++    OmHistoryPrivate_pushState,
++    OmHistoryPrivate_replaceState
+ };
+ 
+ static inline OmHistory *OmHistory_from_DispatchEx(DispatchEx *iface)
+@@ -701,6 +816,8 @@
+ 
+     if(IsEqualGUID(&IID_IOmHistory, riid))
+         return &This->IOmHistory_iface;
++    if(IsEqualGUID(&IID_IWineMSHTMLHistory, riid))
++        return &This->IWineMSHTMLHistory_iface;
+ 
+     return NULL;
+ }
+@@ -711,12 +828,14 @@
+ 
+     if(This->window)
+         note_cc_edge((nsISupports*)&This->window->base.IHTMLWindow2_iface, "window", cb);
++    traverse_variant(&This->state, "state", cb);
+ }
+ 
+ static void OmHistory_unlink(DispatchEx *dispex)
+ {
+     OmHistory *This = OmHistory_from_DispatchEx(dispex);
+ 
++    unlink_variant(&This->state);
+     if(This->window) {
+         HTMLInnerWindow *window = This->window;
+         This->window = NULL;
+@@ -727,6 +846,7 @@
+ static void OmHistory_destructor(DispatchEx *dispex)
+ {
+     OmHistory *This = OmHistory_from_DispatchEx(dispex);
++    VariantClear(&This->state);
+     free(This);
+ }
+ 
+@@ -737,15 +857,18 @@
+     .unlink           = OmHistory_unlink,
+ };
+ 
+-static const tid_t History_iface_tids[] = {
+-    IOmHistory_tid,
+-    0
+-};
++static void History_init_dispex_info(dispex_data_t *info, compat_mode_t mode)
++{
++    dispex_info_add_interface(info, IOmHistory_tid, NULL);
++    if(mode >= COMPAT_MODE_IE10)
++        dispex_info_add_interface(info, IWineMSHTMLHistory_tid, NULL);
++}
++
+ dispex_static_data_t History_dispex = {
+     .id         = OBJID_History,
+     .vtbl       = &OmHistory_dispex_vtbl,
+     .disp_tid   = DispHTMLHistory_tid,
+-    .iface_tids = History_iface_tids,
++    .init_info  = History_init_dispex_info,
+ };
+ 
+ 
+@@ -760,6 +883,7 @@
+     init_dispatch(&history->dispex, &History_dispex, window,
+                   dispex_compat_mode(&window->event_target.dispex));
+     history->IOmHistory_iface.lpVtbl = &OmHistoryVtbl;
++    history->IWineMSHTMLHistory_iface.lpVtbl = &OmHistoryPrivateVtbl;
+ 
+     history->window = window;
+     IHTMLWindow2_AddRef(&window->base.IHTMLWindow2_iface);
